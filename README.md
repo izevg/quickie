@@ -94,7 +94,8 @@ All of them are commands in the palette and can be rebound in the keymap editor.
 | `⌘D` | Bookmark the page |
 | `⌘F` | Find in page |
 | `⌘G` / `⌘⇧G` | Next / previous match |
-| `F` | Link hints (when no text field has focus) |
+| `F` / `⇧F` | Link hints (when no text field has focus); `⇧F` opens the link in a background tab |
+| `⌘⇧\` | Tab overview (or pinch in on the page) |
 | `⌘⇧C` | Copy the URL |
 | `⌘⌥C` | Copy as Markdown link |
 | `⌘⇧T` | Reopen the closed tab |
