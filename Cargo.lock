@@ -475,8 +475,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "quickie-domain-commands"
+version = "0.0.0"
+dependencies = [
+ "indexmap",
+ "quickie-domain-kernel",
+ "thiserror",
+]
+
+[[package]]
 name = "quickie-domain-kernel"
 version = "0.0.0"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "quickie-domain-palette"
