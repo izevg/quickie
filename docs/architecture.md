@@ -217,8 +217,10 @@ pub trait EnginePort {
 }
 
 pub trait LlmPort {
-    /// OpenAI-compatible /v1/chat/completions, stream = true, tools = ...
-    fn chat(&self, ep: &LlmEndpoint, req: ChatRequest, sink: Box<dyn ChatSink>) -> CancelHandle;
+    /// OpenAI-compatible /v1/chat/completions, stream = true; blocks on a worker thread,
+    /// tokens go to `on_event` as they arrive, `stop` (Stop ⌘.) ends it early.
+    fn chat(&self, req: &ChatRequest<'_>, stop: &StopSignal, on_event: &mut dyn FnMut(ChatEvent))
+        -> Result<Ended, LlmError>;
 }
 ```
 

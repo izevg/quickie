@@ -1,15 +1,15 @@
 //! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
-//! [`LibraryRepo`], [`KeymapRepo`] and [`ShieldsRepo`].
+//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`] and [`AgentRepo`].
 //!
 //! A save replaces one aggregate inside one transaction, so a crash mid-save leaves the previous
 //! version intact. Even with write-ahead logging a save takes milliseconds, more than a frame,
 //! so the shell puts the [`SqliteStore`] behind a [`WriteBehindStore`] that writes on its own
 //! thread.
 
-mod keymap;
 mod library;
 mod schema;
 mod session;
+mod settings;
 mod shields;
 #[cfg(test)]
 mod tests;
@@ -20,13 +20,15 @@ pub use write_behind::{PendingWrites, SETTLE, WriteBehindStore};
 use std::path::Path;
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
     ShieldsSnapshot, StoreError,
 };
+use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use rusqlite::Connection;
+use settings::{agent, keymap};
 
 /// The SQLite store.
 #[derive(Debug)]
@@ -95,6 +97,16 @@ impl LibraryRepo for SqliteStore {
 impl KeymapRepo for SqliteStore {
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
         keymap::load(&self.db)
+    }
+}
+
+impl AgentRepo for SqliteStore {
+    fn load_endpoint(&self) -> Result<Option<EndpointSnapshot>, StoreError> {
+        agent::load(&self.db)
+    }
+
+    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
+        agent::save(&mut self.db, endpoint)
     }
 }
 

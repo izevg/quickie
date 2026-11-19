@@ -1,7 +1,10 @@
 //! The development engine's network for the browser's own requests: the application's
 //! [`HttpPort`] on `NSURLSession`, the system stack `WebKit` itself loads pages with. The
 //! Chromium engine replaces it with Chromium's network service, which the egress test watches.
+//! Whole bodies come from a completion handler; streamed ones, such as an LLM's answer, from a
+//! data task delegate ([`stream`]).
 
+mod stream;
 #[cfg(test)]
 mod tests;
 
@@ -15,7 +18,7 @@ use objc2_foundation::{
     NSData, NSError, NSHTTPURLResponse, NSString, NSURL, NSURLResponse, NSURLSession,
     NSURLSessionConfiguration,
 };
-use quickie_application::{HttpError, HttpPort};
+use quickie_application::{Ended, HttpError, HttpEvent, HttpPort, HttpRequest, StopSignal};
 use url::Url;
 
 /// How long a request may wait for the next bytes before it fails.
@@ -59,11 +62,7 @@ impl Drop for UrlSessionHttp {
 
 impl HttpPort for UrlSessionHttp {
     fn get(&self, url: &Url) -> Result<Vec<u8>, HttpError> {
-        if MainThreadMarker::new().is_some() {
-            return Err(HttpError(
-                "a request never runs on the main thread".to_owned(),
-            ));
-        }
+        off_main_thread()?;
         let target = NSURL::URLWithString(&NSString::from_str(url.as_str()))
             .ok_or_else(|| HttpError(format!("not a URL the system can load: {url}")))?;
         let (answer, answered) = mpsc::sync_channel(1);
@@ -87,6 +86,28 @@ impl HttpPort for UrlSessionHttp {
                 Err(HttpError(format!("no answer from {url}")))
             })
     }
+
+    /// Streams over a session of its own, whose delegate forwards each piece of the body as it
+    /// arrives.
+    fn stream(
+        &self,
+        request: &HttpRequest,
+        stop: &StopSignal,
+        on_event: &mut dyn FnMut(HttpEvent<'_>),
+    ) -> Result<Ended, HttpError> {
+        off_main_thread()?;
+        stream::stream(request, stop, on_event)
+    }
+}
+
+/// Requests block until they are answered, so they never run on the main thread.
+fn off_main_thread() -> Result<(), HttpError> {
+    if MainThreadMarker::new().is_some() {
+        return Err(HttpError(
+            "a request never runs on the main thread".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// What a finished task brought: the body of a 2xx response, or why there is none.

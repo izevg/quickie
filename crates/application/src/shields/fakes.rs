@@ -6,8 +6,8 @@ use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSn
 use url::Url;
 
 use crate::{
-    BlockerError, BlockerRules, ContentBlockerPort, HttpError, HttpPort, ShieldsRepo,
-    ShieldsSnapshot, StoreError,
+    BlockerError, BlockerRules, ContentBlockerPort, Ended, HttpError, HttpEvent, HttpPort,
+    HttpRequest, ShieldsRepo, ShieldsSnapshot, StopSignal, StoreError,
 };
 
 /// Keeps what was saved last, like a store would; counts saves, and fails loads, or saves of
@@ -90,5 +90,15 @@ impl HttpPort for FakeHttp {
             .get(url.as_str())
             .cloned()
             .ok_or_else(|| HttpError(format!("404 {url}")))
+    }
+
+    /// Filter lists are fetched whole; nothing streams.
+    fn stream(
+        &self,
+        request: &HttpRequest,
+        _stop: &StopSignal,
+        _on_event: &mut dyn FnMut(HttpEvent<'_>),
+    ) -> Result<Ended, HttpError> {
+        Err(HttpError(format!("unexpected stream of {}", request.url)))
     }
 }

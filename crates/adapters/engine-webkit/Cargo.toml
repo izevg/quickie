@@ -21,6 +21,7 @@ objc2-foundation = { workspace = true, features = [
   "NSError",
   "NSGeometry",
   "NSKeyValueObserving",
+  "NSOperation",
   "NSRunLoop",
   "NSString",
   "NSURL",

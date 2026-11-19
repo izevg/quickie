@@ -1,0 +1,18 @@
+[package]
+name = "quickie-system"
+description = "System adapter of Quickie: the macOS Keychain, where LLM API keys live instead of files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+quickie-application.workspace = true
+quickie-domain-agents.workspace = true
+security-framework.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

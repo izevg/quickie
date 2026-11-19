@@ -7,9 +7,10 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
     ShieldsSnapshot, StoreError,
 };
+use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
@@ -44,6 +45,8 @@ pub(super) enum Save {
     Lists(FilterListSetSnapshot),
     /// One filter list's content; each list is its own kind.
     Body(FilterListId, Vec<u8>),
+    /// The agent's endpoint, or that there is none.
+    Endpoint(Option<EndpointSnapshot>),
 }
 
 /// A job served only once the pending saves are written, so it sees them.
@@ -57,6 +60,8 @@ pub(super) enum Barrier {
     LoadKeybindings(Sender<Result<Vec<KeybindingText>, StoreError>>),
     /// Answer with the saved shields.
     LoadShields(Sender<Result<ShieldsSnapshot, StoreError>>),
+    /// Answer with the saved agent endpoint.
+    LoadEndpoint(Sender<Result<Option<EndpointSnapshot>, StoreError>>),
     /// Answer once written.
     Flush(Sender<()>),
 }
@@ -71,6 +76,12 @@ struct Batch {
     sites: Option<SitePoliciesSnapshot>,
     lists: Option<FilterListSetSnapshot>,
     bodies: BTreeMap<FilterListId, Vec<u8>>,
+    /// `Some(None)` is a pending save of no endpoint.
+    #[expect(
+        clippy::option_option,
+        reason = "whether a save is pending, and whether it saves an endpoint or forgets it"
+    )]
+    endpoint: Option<Option<EndpointSnapshot>>,
 }
 
 impl Batch {
@@ -86,12 +97,13 @@ impl Batch {
             Save::Body(list, body) => {
                 self.bodies.insert(list, body);
             }
+            Save::Endpoint(endpoint) => self.endpoint = Some(endpoint),
         }
     }
 
     /// Writes and empties the batch. A failure does not stop the other kinds; the last one is
     /// kept for the shell. A list's content goes before the list states that describe it.
-    fn write<S: SessionRepo + LibraryRepo + ShieldsRepo>(
+    fn write<S: SessionRepo + LibraryRepo + ShieldsRepo + AgentRepo>(
         &mut self,
         store: &mut S,
         failure: &Failure,
@@ -113,6 +125,9 @@ impl Batch {
                 .map(|shortcuts| store.save_shortcuts(&shortcuts)),
             self.sites.take().map(|sites| store.save_sites(&sites)),
             self.lists.take().map(|lists| store.save_lists(&lists)),
+            self.endpoint
+                .take()
+                .map(|endpoint| store.save_endpoint(endpoint.as_ref())),
         ];
         if let Some(error) = bodies
             .into_iter()
@@ -129,7 +144,7 @@ impl Batch {
 /// after its first save, or sooner when a job needs it on disk.
 pub(super) fn run<S>(mut store: S, inbox: &Receiver<Job>, settle: Duration, failure: &Failure)
 where
-    S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo,
+    S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo,
 {
     let mut batch = Batch::default();
     // When the pending batch is written; `None` while nothing is pending.
@@ -166,8 +181,12 @@ where
 
 /// Answers a barrier once the batch is written. A caller that stopped waiting needs no answer,
 /// so a failed reply is dropped.
-fn serve<S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo>(store: &S, barrier: Barrier) {
+fn serve<S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo>(
+    store: &S,
+    barrier: Barrier,
+) {
     match barrier {
+        Barrier::LoadEndpoint(reply) => drop(reply.send(store.load_endpoint())),
         Barrier::LoadSession(reply) => drop(reply.send(store.load())),
         Barrier::LoadLibrary(reply) => drop(reply.send(store.load_library())),
         Barrier::LoadKeybindings(reply) => drop(reply.send(store.load_keybindings())),
