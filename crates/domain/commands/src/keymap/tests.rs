@@ -92,6 +92,7 @@ fn the_default_keymap_binds_the_readme_keys() {
         ("cmd+shift+t", "quickie.tab.reopenClosed"),
         ("cmd+w", CLOSE),
         ("cmd+j", "quickie.downloads.show"),
+        ("alt+cmd+s", "quickie.shields.open"),
         ("alt+cmd+i", "quickie.devtools.toggle"),
         ("alt+cmd+j", "quickie.devtools.console"),
         ("cmd+r", "quickie.tab.reload"),

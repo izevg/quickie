@@ -34,6 +34,7 @@ impl Browser {
         };
         self.address.hide();
         self.command_palette.hide();
+        self.hide_popovers();
         self.cancel_cycle();
         let tab = self.active(window);
         if self.page.find_tab.get() != tab {

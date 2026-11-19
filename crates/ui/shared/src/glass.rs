@@ -174,6 +174,24 @@ impl GlassSurface {
         }
     }
 
+    /// Places a surface of `size` at the top right of `host`, `space-lg` from the top and
+    /// `space-xl` from the right edge, where popovers sit; it stays there as the window
+    /// resizes. A host narrower than the surface gets it narrowed.
+    pub fn place_top_right(&self, host: &NSView, size: NSSize) {
+        let bounds = host.bounds();
+        let width = size.width.min(bounds.size.width - tokens::space::XL * 2.0);
+        self.set_frame(NSRect::new(
+            NSPoint::new(
+                (bounds.size.width - tokens::space::XL - width).round(),
+                (bounds.size.height - tokens::space::LG - size.height).round(),
+            ),
+            NSSize::new(width, size.height),
+        ));
+        self.root.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin,
+        );
+    }
+
     /// Places the surface in its superview's coordinates and lays out shape and shadow.
     pub fn set_frame(&self, frame: NSRect) {
         self.root.setFrame(frame);

@@ -1,15 +1,22 @@
-//! Watches one `WKWebView`: its committed navigations (as its navigation delegate) and its
-//! title (by key-value observation), turned into [`PageEvent`]s.
+//! Watches one `WKWebView`: its committed navigations and the navigations that become
+//! downloads (as its navigation delegate) and its title (by key-value observation), turned into
+//! [`PageEvent`]s.
 
 use std::ffi::c_void;
 
+use block2::DynBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_foundation::{
-    NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration, NSString,
+    NSHTTPURLResponse, NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration, NSString,
 };
-use objc2_web_kit::{WKNavigation, WKNavigationDelegate, WKWebView};
+use objc2_web_kit::{
+    WKDownload, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
+    WKNavigationResponse, WKNavigationResponsePolicy, WKWebView,
+};
+
+use crate::downloads::wants_download;
 
 /// What a page reports while it lives. Delivered on the main thread, sometimes from inside a
 /// call into the view: a handler must only record it.
@@ -23,6 +30,8 @@ pub(crate) enum PageEvent {
     TitleChanged(Option<String>),
     /// The page started or stopped loading, or loaded more of it.
     Progress,
+    /// A navigation became a download; it needs a delegate before this call returns.
+    Download(Retained<WKDownload>),
 }
 
 /// The title is observed by its key path.
@@ -69,7 +78,7 @@ define_class!(
 
     unsafe impl NSObjectProtocol for PageObserver {}
 
-    // SAFETY: the method matches the protocol's signature; the rest are optional.
+    // SAFETY: each method matches the protocol's signature; the rest are optional.
     unsafe impl WKNavigationDelegate for PageObserver {
         #[unsafe(method(webView:didCommitNavigation:))]
         fn did_commit(&self, view: &WKWebView, _navigation: Option<&WKNavigation>) {
@@ -77,6 +86,69 @@ define_class!(
                 url: url_of(view),
                 title: title_of(view),
             });
+        }
+
+        /// A link with a `download` attribute downloads; everything else loads.
+        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+        fn decide_action(
+            &self,
+            _view: &WKWebView,
+            action: &WKNavigationAction,
+            decide: &DynBlock<dyn Fn(WKNavigationActionPolicy)>,
+        ) {
+            // SAFETY: a getter with no preconditions.
+            let policy = if unsafe { action.shouldPerformDownload() } {
+                WKNavigationActionPolicy::Download
+            } else {
+                WKNavigationActionPolicy::Allow
+            };
+            decide.call((policy,));
+        }
+
+        /// A response `WebKit` cannot show, or an attachment, downloads.
+        #[unsafe(method(webView:decidePolicyForNavigationResponse:decisionHandler:))]
+        fn decide_response(
+            &self,
+            _view: &WKWebView,
+            response: &WKNavigationResponse,
+            decide: &DynBlock<dyn Fn(WKNavigationResponsePolicy)>,
+        ) {
+            // SAFETY: a getter with no preconditions.
+            let can_show = unsafe { response.canShowMIMEType() };
+            // SAFETY: as above.
+            let answer = unsafe { response.response() };
+            let disposition = answer
+                .downcast_ref::<NSHTTPURLResponse>()
+                .and_then(|http| {
+                    http.valueForHTTPHeaderField(&NSString::from_str("Content-Disposition"))
+                })
+                .map(|value| value.to_string());
+            let policy = if wants_download(can_show, disposition.as_deref()) {
+                WKNavigationResponsePolicy::Download
+            } else {
+                WKNavigationResponsePolicy::Allow
+            };
+            decide.call((policy,));
+        }
+
+        #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
+        fn action_became_download(
+            &self,
+            _view: &WKWebView,
+            _action: &WKNavigationAction,
+            download: &WKDownload,
+        ) {
+            (self.ivars().on_event)(PageEvent::Download(download.retain()));
+        }
+
+        #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
+        fn response_became_download(
+            &self,
+            _view: &WKWebView,
+            _response: &WKNavigationResponse,
+            download: &WKDownload,
+        ) {
+            (self.ivars().on_event)(PageEvent::Download(download.retain()));
         }
     }
 );

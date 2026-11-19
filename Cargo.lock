@@ -669,6 +669,7 @@ dependencies = [
  "quickie-application",
  "quickie-domain-browsing",
  "quickie-domain-commands",
+ "quickie-domain-library",
  "quickie-domain-shields",
  "quickie-engine-webkit",
  "quickie-store",
@@ -812,7 +813,9 @@ dependencies = [
  "objc2-quartz-core",
  "quickie-application",
  "quickie-domain-browsing",
+ "quickie-domain-library",
  "quickie-domain-palette",
+ "quickie-domain-shields",
  "quickie-ui-shared",
  "url",
 ]

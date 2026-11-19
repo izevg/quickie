@@ -63,6 +63,7 @@ fn a_saved_library_loads_back_equal_and_restorable() {
             history: Some(history().snapshot()),
             bookmarks: Some(bookmarks().snapshot()),
             shortcuts: Some(SearchShortcuts::defaults().snapshot()),
+            downloads: None,
         }
     );
     assert_eq!(History::restore(loaded.history.unwrap()), Ok(history()));
@@ -100,6 +101,7 @@ fn a_part_saved_empty_loads_as_empty_not_as_unsaved() {
             history: Some(History::new().snapshot()),
             bookmarks: Some(Bookmarks::new().snapshot()),
             shortcuts: Some(SearchShortcuts::new().snapshot()),
+            downloads: None,
         })
     );
 }

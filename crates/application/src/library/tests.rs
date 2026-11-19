@@ -100,6 +100,7 @@ mod starting {
             history: Some(history.snapshot()),
             bookmarks: Some(bookmarks.snapshot()),
             shortcuts: Some(shortcuts.snapshot()),
+            downloads: None,
         });
 
         assert_eq!(library.history(), &history);
@@ -143,6 +144,7 @@ mod starting {
             shortcuts: Some(SearchShortcutsSnapshot {
                 shortcuts: vec![shortcut.clone(), shortcut],
             }),
+            downloads: None,
         });
 
         assert_eq!(

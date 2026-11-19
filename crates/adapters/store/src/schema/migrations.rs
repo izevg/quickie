@@ -115,4 +115,25 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         body BLOB NOT NULL
     ) STRICT;
 ",
+    // 7: the downloads of the main jar, and the counter their ids come from. A download in
+    // progress has its bytes received (and the size, when announced); a failed one its reason.
+    "
+    CREATE TABLE downloads (
+        position INTEGER PRIMARY KEY,
+        id INTEGER NOT NULL UNIQUE,
+        url TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('in_progress', 'finished', 'failed', 'cancelled')),
+        received INTEGER,
+        total INTEGER,
+        reason TEXT,
+        started_at INTEGER NOT NULL,
+        CHECK ((state = 'in_progress') = (received IS NOT NULL)),
+        CHECK ((state = 'failed') = (reason IS NOT NULL)),
+        CHECK (total IS NULL OR state = 'in_progress')
+    ) STRICT;
+    CREATE TABLE download_counter (
+        next_id INTEGER NOT NULL
+    ) STRICT;
+",
 ];
