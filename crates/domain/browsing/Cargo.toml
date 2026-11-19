@@ -1,0 +1,16 @@
+[package]
+name = "quickie-domain-browsing"
+description = "Browsing context of the Quickie domain: tabs, windows, MRU order, pinned slots, the trash"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+quickie-domain-kernel.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
