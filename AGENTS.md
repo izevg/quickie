@@ -158,6 +158,7 @@ Set up once: `mise install && mise trust && mise run setup` (points git at `.git
 - No `unwrap()`/`expect()`/`panic!` outside tests and the composition root. Lint exceptions are
   `#[expect(lint, reason = "...")]`, never `#[allow]`.
 - Agent harness: `hookah` checks every edit (format, lint) and runs tests at stop
-  (`.claude/settings.json`); `.claude/hooks/guard-git.sh` blocks hook bypasses and force pushes.
+  (`.claude/settings.json`); `.claude/hooks/guard.sh` blocks hook bypasses, force pushes, and
+  source files written from the shell. Agents write `.rs` and `.toml` files with Edit or Write.
 
 Details and the reasoning behind each gate: [docs/quality.md](docs/quality.md).
