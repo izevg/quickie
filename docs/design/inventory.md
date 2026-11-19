@@ -34,6 +34,8 @@ Each folder also has `dark.html`. Sticker sheets of single components: [mocks/co
 
 ## shared (no domain knowledge)
 
+`keycap`, `pill`, and `hint_bar` live in `controls/`, with the styled text they are set in.
+
 | Module | What | States / variants | Seen in |
 |---|---|---|---|
 | `glass` | `GlassSurface::new(Elevation)`: material, shadow, ring, dimming scrim | E1, E2, E3; macOS 15 fallback | everywhere |
@@ -107,8 +109,6 @@ the slices inside a group still never use each other.
 
 ## Follow-ups for the code
 
-- `cargo xtask layers` treats the first folder under `src/` as a slice. With slice groups it must
-  read `group/slice` instead; change the check together with the first `crates/ui/widgets` code.
 - The mockups' window chrome, sample pages, and API names (`LiquidGlassWindow`,
   `.windowChromePresentation`, a Metal compositor) are invented by the generator: reference for
   look and copy only, never for APIs.

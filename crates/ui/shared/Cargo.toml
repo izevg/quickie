@@ -1,6 +1,6 @@
 [package]
 name = "quickie-ui-shared"
-description = "FSD shared layer of Quickie's UI: design tokens, glass surfaces by elevation, motion"
+description = "FSD shared layer of Quickie's UI: design tokens, glass surfaces by elevation, motion, keycaps, pills, hint bars, and the list view"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,11 +14,24 @@ objc2-app-kit = { workspace = true, features = [
   "objc2-core-graphics",
   "objc2-quartz-core",
   "NSAccessibility",
+  "NSAttributedString",
+  "NSCell",
+  "NSClipView",
   "NSColor",
+  "NSControl",
   "NSFont",
   "NSFontDescriptor",
   "NSGlassEffectView",
+  "NSParagraphStyle",
   "NSResponder",
+  "NSScroller",
+  "NSScrollView",
+  "NSTableColumn",
+  "NSTableHeaderView",
+  "NSTableView",
+  "NSText",
+  "NSTextField",
+  "NSUserInterfaceItemIdentification",
   "NSView",
   "NSVisualEffectView",
   "NSWorkspace",
@@ -27,8 +40,12 @@ objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }
 objc2-core-graphics = { workspace = true, features = ["CGColor", "CGPath"] }
 objc2-foundation = { workspace = true, features = [
   "NSArray",
+  "NSAttributedString",
   "NSDictionary",
   "NSGeometry",
+  "NSIndexSet",
+  "NSObject",
+  "NSRange",
   "NSString",
   "NSValue",
 ] }

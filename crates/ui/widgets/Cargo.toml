@@ -1,0 +1,45 @@
+[package]
+name = "quickie-ui-widgets"
+description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher, and the toast stack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+block2.workspace = true
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = [
+  "objc2-core-foundation",
+  "NSCell",
+  "NSColor",
+  "NSControl",
+  "NSGraphics",
+  "NSParagraphStyle",
+  "NSResponder",
+  "NSText",
+  "NSTextField",
+  "NSTextInputClient",
+  "NSTextView",
+  "NSView",
+  "NSWindow",
+] }
+objc2-foundation = { workspace = true, features = [
+  "block2",
+  "NSDate",
+  "NSGeometry",
+  "NSNotification",
+  "NSObject",
+  "NSRange",
+  "NSString",
+  "NSTimer",
+] }
+quickie-application.workspace = true
+quickie-ui-shared.workspace = true
+
+[dev-dependencies]
+quickie-domain-palette.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

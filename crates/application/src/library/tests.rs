@@ -239,6 +239,48 @@ mod visiting {
         assert_eq!(result, Err(store_failure()));
         assert_eq!(library.history(), &History::new());
     }
+
+    #[test]
+    fn a_later_title_renames_the_visit_and_saves() {
+        let mut library = started();
+        visit(&mut library, "a", 1);
+
+        let changed = library.retitle_visit(&url("a"), "Loaded", Jar::Main);
+
+        assert_eq!(changed, Ok(true));
+        let entry = library.history().get(&url("a")).unwrap();
+        assert_eq!((entry.title.as_str(), entry.visit_count), ("Loaded", 1));
+        assert_eq!(library.repo.saves, 2);
+        assert_eq!(
+            library.repo.saved.history,
+            Some(library.history().snapshot())
+        );
+    }
+
+    #[test]
+    fn a_title_that_changes_nothing_saves_nothing() {
+        let mut library = started();
+        visit(&mut library, "a", 1);
+
+        let unvisited = library.retitle_visit(&url("b"), "B", Jar::Main);
+        let throwaway = library.retitle_visit(&url("a"), "A", Jar::Throwaway(JarId::new(0)));
+
+        assert_eq!((unvisited, throwaway), (Ok(false), Ok(false)));
+        assert_eq!(library.history().get(&url("a")).unwrap().title, "");
+        assert_eq!(library.repo.saves, 1);
+    }
+
+    #[test]
+    fn a_failed_retitle_keeps_the_old_title() {
+        let mut library = started();
+        visit(&mut library, "a", 1);
+        fail_saves(&mut library);
+
+        let result = library.retitle_visit(&url("a"), "Loaded", Jar::Main);
+
+        assert_eq!(result, Err(store_failure()));
+        assert_eq!(library.history().get(&url("a")).unwrap().title, "");
+    }
 }
 
 mod forgetting {

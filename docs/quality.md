@@ -70,7 +70,9 @@ Actions are pinned by commit SHA. The branch and merge rules are in [AGENTS.md](
   free);
 - domain and application use only the allowed external crates;
 - it inherits the workspace lints and opts into `unsafe_code` only where allowed;
-- in the sliced UI layers, no slice uses a sibling slice through `crate::` or `super::`.
+- in the sliced UI layers, no slice uses a sibling slice through `crate::` or `super::`; in
+  `widgets`, whose slices are grouped by meaning, a slice is `group/slice`, so two slices of one
+  group are siblings too.
 
 The table lives in `tools/xtask/src/layers/policy.rs`; change it together with AGENTS.md.
 

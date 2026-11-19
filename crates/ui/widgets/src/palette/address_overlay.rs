@@ -1,7 +1,5 @@
 //! The address overlay (`⌘L`): an E2 glass surface with one SF Mono field, at 15 % from the top.
 //! It is opened from the keyboard, so it appears and disappears instantly.
-//!
-//! It belongs in `ui/widgets/palette/address_overlay` once that crate exists.
 
 use std::cell::Cell;
 
@@ -23,6 +21,7 @@ pub struct AddressOverlay {
 }
 
 impl AddressOverlay {
+    #[must_use]
     pub fn new(mtm: MainThreadMarker) -> Self {
         let surface = GlassSurface::new(Elevation::E2, mtm);
         let field = NSTextField::new(mtm);
@@ -39,7 +38,8 @@ impl AddressOverlay {
             cell.setWraps(false);
         }
         field.sizeToFit();
-        field.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
+        // No autoresizing: the glass resizes its content in a later layout pass, which would
+        // widen a frame `place` has already set.
         surface.content_view().addSubview(&field);
         Self {
             scrim: Scrim::new(Elevation::E2, mtm),
