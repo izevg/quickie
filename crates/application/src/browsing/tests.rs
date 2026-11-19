@@ -317,10 +317,13 @@ mod adopting {
         browsing.engine.calls.clear();
 
         let popup = browsing
-            .adopt(opener, url("login"), Focus::Foreground)
+            .adopt(opener, 77, url("login"), Focus::Foreground)
             .unwrap();
 
-        assert_eq!(browsing.engine.calls, vec![Call::Show(window, popup)]);
+        assert_eq!(
+            browsing.engine.calls,
+            vec![Call::Adopt(77, popup), Call::Show(window, popup)]
+        );
         assert_eq!(
             browsing.session().tab(popup).unwrap().jar,
             Jar::Throwaway(JarId::new(0))
@@ -331,22 +334,51 @@ mod adopting {
     fn a_background_popup_is_not_shown_and_never_recreated() {
         let mut browsing = started();
 
-        let popup = browsing.adopt(t(0), url("b"), Focus::Background).unwrap();
+        let popup = browsing
+            .adopt(t(0), 5, url("b"), Focus::Background)
+            .unwrap();
         browsing.activate(popup).unwrap();
 
-        assert_eq!(browsing.engine.calls, vec![Call::Show(w0(), popup)]);
+        assert_eq!(
+            browsing.engine.calls,
+            vec![Call::Adopt(5, popup), Call::Show(w0(), popup)]
+        );
+    }
+
+    #[test]
+    fn a_failed_bind_keeps_the_tab_and_creates_a_page_on_show() {
+        let mut browsing = started();
+        browsing.engine.failing.push("adopt");
+
+        let result = browsing.adopt(t(0), 5, url("b"), Focus::Background);
+        browsing.engine.failing.clear();
+        browsing.activate(t(1)).unwrap();
+
+        assert_eq!(
+            result,
+            Err(AppError::Engine(EngineError("adopt".to_owned())))
+        );
+        assert_eq!(
+            browsing.engine.calls,
+            vec![
+                Call::Adopt(5, t(1)),
+                Call::Create(t(1), url("b"), Jar::Main),
+                Call::Show(w0(), t(1))
+            ]
+        );
     }
 
     #[test]
     fn an_unknown_opener_is_an_error() {
         let mut browsing = started();
 
-        let result = browsing.adopt(t(9), url("b"), Focus::Foreground);
+        let result = browsing.adopt(t(9), 5, url("b"), Focus::Foreground);
 
         assert_eq!(
             result,
             Err(AppError::Browsing(BrowsingError::UnknownTab(t(9))))
         );
+        assert_eq!(browsing.engine.calls, Vec::new());
     }
 }
 

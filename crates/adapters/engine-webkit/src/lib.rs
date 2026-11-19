@@ -271,6 +271,14 @@ impl WebKitEngine {
 }
 
 impl EnginePort for WebKitEngine {
+    /// The development engine opens no pages by itself yet (`window.open` and ⌘-click become
+    /// the `WKUIDelegate`'s job), so there is no page to adopt.
+    type Page = std::convert::Infallible;
+
+    fn adopt(&mut self, page: Self::Page, _tab: TabId) -> Result<(), EngineError> {
+        match page {}
+    }
+
     fn create(&mut self, tab: TabId, url: &Url, jar: Jar) -> Result<(), EngineError> {
         if self.pages.contains_key(&tab) {
             return Err(EngineError(format!("{tab} already has a page")));

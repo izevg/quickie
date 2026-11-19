@@ -80,6 +80,7 @@ impl KeymapRepo for FakeKeymapRepo {
 /// One call the engine received.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call {
+    Adopt(u64, TabId),
     Create(TabId, Url, Jar),
     Show(WindowId, TabId),
     Navigate(TabId, Navigation),
@@ -106,6 +107,12 @@ impl FakeEngine {
 }
 
 impl EnginePort for FakeEngine {
+    type Page = u64;
+
+    fn adopt(&mut self, page: u64, tab: TabId) -> Result<(), EngineError> {
+        self.record("adopt", Call::Adopt(page, tab))
+    }
+
     fn create(&mut self, tab: TabId, url: &Url, jar: Jar) -> Result<(), EngineError> {
         self.record("create", Call::Create(tab, url.clone(), jar))
     }
