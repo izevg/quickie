@@ -9,36 +9,45 @@
 //! Page events flow back without re-entering the use cases: pages record what they committed,
 //! the engine schedules the shell's waker on the main run loop, and the shell drains
 //! [`WebKitEngine::take_navigations`] into `Browsing::navigated`.
+//!
+//! Every page shares one user content controller, so the [`WebKitContentBlocker`] the engine
+//! hands out ([`WebKitEngine::content_blocker`]) blocks on all of them. [`UrlSessionHttp`] is the
+//! network for the browser's own requests, such as fetching filter lists.
 
 #![expect(
     unsafe_code,
     reason = "WebKit through objc2: its bindings mark most methods unsafe; KVO, the navigation \
-              delegate and the scheme handler need classes"
+              delegate and the scheme handler need classes; content rule lists cross threads"
 )]
 
+mod network;
 mod page;
 mod reports;
 mod scheme;
+mod shields;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::path::Path;
 use std::rc::{Rc, Weak};
 
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindowOrderingMode};
-use objc2_foundation::NSRunLoop;
-use objc2_web_kit::WKWebsiteDataStore;
+use objc2_foundation::{NSRunLoop, NSString, NSURL};
+use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{EngineError, EnginePort, Navigation};
 use quickie_domain_browsing::{FindMatches, Jar, JarId, TabId, WindowId};
 use url::Url;
 
+pub use network::UrlSessionHttp;
 pub use page::FindStep;
 use page::{PageEvent, WebPage};
 pub use reports::Navigated;
 use reports::Reports;
 use scheme::InternalPages;
+pub use shields::{BlockerStatus, WebKitContentBlocker};
 
 /// The `WebKit` engine. Lives on the main thread, like every view it owns.
 pub struct WebKitEngine {
@@ -48,6 +57,8 @@ pub struct WebKitEngine {
     shown: HashMap<WindowId, TabId>,
     jars: HashMap<JarId, Retained<WKWebsiteDataStore>>,
     internal: Retained<InternalPages>,
+    /// Shared by every page: the content blocker installs its rule lists here.
+    content: Retained<WKUserContentController>,
     inbox: Rc<Inbox>,
 }
 
@@ -73,8 +84,33 @@ impl WebKitEngine {
             shown: HashMap::new(),
             jars: HashMap::new(),
             internal: InternalPages::new(internal, mtm),
+            // SAFETY: a fresh controller has no preconditions.
+            content: unsafe { WKUserContentController::new(mtm) },
             inbox: Rc::default(),
         }
+    }
+
+    /// The content blocker of every page, existing and future. It keeps compiled rule lists in
+    /// `directory`, which it creates.
+    ///
+    /// # Errors
+    ///
+    /// The directory cannot be created or is no place `WebKit` can keep rule lists.
+    pub fn content_blocker(&self, directory: &Path) -> Result<WebKitContentBlocker, EngineError> {
+        std::fs::create_dir_all(directory)
+            .map_err(|error| EngineError(format!("{}: {error}", directory.display())))?;
+        let path = directory
+            .to_str()
+            .ok_or_else(|| EngineError(format!("{} is not UTF-8", directory.display())))?;
+        let url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(path), true);
+        // SAFETY: `url` is a file URL of an existing directory.
+        let store = unsafe { WKContentRuleListStore::storeWithURL(Some(&url), self.mtm) }
+            .ok_or_else(|| EngineError(format!("no rule list store in {path}")))?;
+        Ok(WebKitContentBlocker::new(
+            store,
+            self.content.clone(),
+            self.mtm,
+        ))
     }
 
     /// Makes `host` the view a window's pages fill. The tab shown there, if any, moves in.
@@ -181,6 +217,7 @@ impl EnginePort for WebKitEngine {
         let inbox = Rc::downgrade(&self.inbox);
         let page = WebPage::new(
             &store,
+            &self.content,
             &self.internal,
             move |event| Inbox::record(&inbox, tab, event),
             self.mtm,

@@ -140,8 +140,8 @@ ninth context means regrouping first.
 | `EnginePort` + `EngineEvents` | driven | `engine-chromium` (cxx), `engine-webkit` (development) |
 | `HttpPort` | driven | Chromium network service (product), `NSURLSession` (development) |
 | `LlmPort` | driven | `llm`: OpenAI-compatible client on top of `HttpPort` |
-| `SessionRepo`, `LibraryRepo`, `KeymapRepo`, `AuditLog` | driven | `store` (rusqlite; saves go to a write-behind thread off the main thread) |
-| `ShieldsPort` | driven | engine |
+| `SessionRepo`, `LibraryRepo`, `KeymapRepo`, `ShieldsRepo`, `AuditLog` | driven | `store` (rusqlite; saves go to a write-behind thread off the main thread) |
+| `ContentBlockerPort` | driven | engine: `adblock` in the network service (product), `WKContentRuleList` (development) |
 | `SecretStore`, `Clipboard`, `GlobalHotkey`, `KeyboardLayout`, `Updater` | driven | `system` (Keychain, `NSPasteboard`, Carbon `RegisterEventHotKey`, `TISCopyCurrentASCIICapableKeyboardLayoutInputSource`), `updater` (Sparkle) |
 | `AgentGateway` | driving | `mcp` (rmcp on a Unix socket) |
 | UI intents | driving | `ui/features` call use cases |

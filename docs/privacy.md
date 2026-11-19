@@ -53,6 +53,20 @@ user explicitly enabled. This is checked automatically (§4), not promised.
 | Anti-fingerprinting | Farbling after Brave (canvas/audio/WebGL noise seeded per site and session); Battery, MIDI, Bluetooth APIs off | P5 |
 | Bounce tracking | Chromium's built-in mitigation + lists | P5 |
 
+### Filter lists
+
+- Lists come only from the allowed sources (EasyList, EasyPrivacy, uBlock filters, Peter Lowe's),
+  chosen by id, always over https. None ships with Quickie; their licenses are not ours.
+- A fresh profile has every list off, so Shields opens no connection on its own.
+- Enabling a list is the request to fetch it, once. After that a list is fetched again only when
+  the user asks ("Refresh Filter Lists"), or, if the user turned on "keep lists fresh", once it is
+  four days old.
+- A scheduled refresh counts as a connection made on the browser's own initiative: the user did
+  not ask for it at that moment. That is why "keep lists fresh" is off by default, and why the
+  egress test's scenario C lists the filter list hosts as an opt-in.
+- Fetching goes through the engine's network stack (`HttpPort`): Chromium's network service in
+  the product, `NSURLSession` in the development build.
+
 ## 4. Proof: the egress test
 
 `tools/egress-test`, in CI on every release:

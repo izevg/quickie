@@ -89,4 +89,30 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         when_clause TEXT
     ) STRICT;
 ",
+    // 6: the shields: per-site exceptions, the filter lists' states, when lists are refreshed,
+    // and each list's content as last fetched. A list is fetched at a time with a hash, or not
+    // at all.
+    "
+    CREATE TABLE site_policies (
+        position INTEGER PRIMARY KEY,
+        site TEXT NOT NULL UNIQUE,
+        shields INTEGER NOT NULL,
+        https_only INTEGER NOT NULL,
+        javascript INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE filter_lists (
+        id TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL,
+        fetched_at INTEGER,
+        content_hash INTEGER,
+        CHECK ((fetched_at IS NULL) = (content_hash IS NULL))
+    ) STRICT;
+    CREATE TABLE filter_refresh (
+        keep_fresh INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE filter_list_bodies (
+        id TEXT PRIMARY KEY,
+        body BLOB NOT NULL
+    ) STRICT;
+",
 ];

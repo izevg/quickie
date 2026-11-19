@@ -9,12 +9,16 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    ShieldsSnapshot, StoreError,
 };
 use quickie_domain_browsing::{NextIds, Session, SessionSnapshot};
 use quickie_domain_library::{
     Bookmarks, BookmarksSnapshot, History, HistorySnapshot, SearchShortcuts,
     SearchShortcutsSnapshot, Timestamp,
+};
+use quickie_domain_shields::{
+    FilterListId, FilterListSet, FilterListSetSnapshot, Site, SitePolicies, SitePoliciesSnapshot,
 };
 use rusqlite::{Connection, params};
 use url::Url;
@@ -151,6 +155,76 @@ impl KeymapRepo for Recorder {
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
         self.store.load_keybindings()
     }
+}
+
+impl ShieldsRepo for Recorder {
+    fn load_shields(&self) -> Result<ShieldsSnapshot, StoreError> {
+        self.store.load_shields()
+    }
+
+    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError> {
+        self.store.save_sites(sites)
+    }
+
+    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError> {
+        self.store.save_lists(lists)
+    }
+
+    fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {
+        self.store.save_list_body(list, body)
+    }
+}
+
+#[test]
+fn shields_load_after_their_saves_and_keep_the_latest_of_each_list() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let mut lists = FilterListSet::new();
+    lists.enable(FilterListId::EasyList);
+    let mut sites = SitePolicies::new();
+    sites.toggle_shields(Site::try_from("example.com").unwrap());
+    store
+        .save_list_body(FilterListId::EasyList, b"old")
+        .unwrap();
+    store
+        .save_list_body(FilterListId::EasyList, b"new")
+        .unwrap();
+    store
+        .save_list_body(FilterListId::PeterLowe, b"other")
+        .unwrap();
+    store.save_lists(&lists.snapshot()).unwrap();
+    store.save_sites(&sites.snapshot()).unwrap();
+
+    let loaded = store.load_shields();
+
+    assert_eq!(
+        loaded,
+        Ok(ShieldsSnapshot {
+            sites: sites.snapshot(),
+            lists: lists.snapshot(),
+            bodies: vec![
+                (FilterListId::EasyList, b"new".to_vec()),
+                (FilterListId::PeterLowe, b"other".to_vec()),
+            ],
+        })
+    );
+}
+
+#[test]
+fn a_failed_list_content_write_reaches_the_shell() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DROP TABLE filter_list_bodies")
+        .unwrap();
+    store
+        .save_list_body(FilterListId::EasyList, b"body")
+        .unwrap();
+
+    let flushed = store.flush();
+
+    assert!(matches!(flushed, Err(StoreError(message)) if message.contains("filter_list_bodies")));
 }
 
 #[test]

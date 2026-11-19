@@ -1,5 +1,5 @@
 //! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
-//! [`LibraryRepo`] and [`KeymapRepo`].
+//! [`LibraryRepo`], [`KeymapRepo`] and [`ShieldsRepo`].
 //!
 //! A save replaces one aggregate inside one transaction, so a crash mid-save leaves the previous
 //! version intact. Even with write-ahead logging a save takes milliseconds, more than a frame,
@@ -10,6 +10,7 @@ mod keymap;
 mod library;
 mod schema;
 mod session;
+mod shields;
 #[cfg(test)]
 mod tests;
 mod write_behind;
@@ -19,10 +20,12 @@ pub use write_behind::{PendingWrites, SETTLE, WriteBehindStore};
 use std::path::Path;
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    ShieldsSnapshot, StoreError,
 };
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use rusqlite::Connection;
 
 /// The SQLite store.
@@ -92,6 +95,24 @@ impl LibraryRepo for SqliteStore {
 impl KeymapRepo for SqliteStore {
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
         keymap::load(&self.db)
+    }
+}
+
+impl ShieldsRepo for SqliteStore {
+    fn load_shields(&self) -> Result<ShieldsSnapshot, StoreError> {
+        shields::load(&self.db)
+    }
+
+    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError> {
+        shields::save_sites(&mut self.db, sites)
+    }
+
+    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError> {
+        shields::save_lists(&mut self.db, lists)
+    }
+
+    fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {
+        shields::save_body(&self.db, list, body)
     }
 }
 

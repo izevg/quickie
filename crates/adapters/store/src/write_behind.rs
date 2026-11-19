@@ -18,10 +18,12 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    ShieldsSnapshot, StoreError,
 };
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 
 use crate::SqliteStore;
 use writer::{Barrier, Job, Save};
@@ -68,7 +70,7 @@ impl WriteBehindStore {
     /// The thread could not start.
     pub fn spawn<S>(store: S, settle: Duration) -> Result<Self, StoreError>
     where
-        S: SessionRepo + LibraryRepo + KeymapRepo + Send + 'static,
+        S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + Send + 'static,
     {
         let (jobs, inbox) = mpsc::channel();
         let failure = Failure::default();
@@ -190,6 +192,24 @@ impl LibraryRepo for WriteBehindStore {
 impl KeymapRepo for WriteBehindStore {
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
         self.ask(Barrier::LoadKeybindings)?
+    }
+}
+
+impl ShieldsRepo for WriteBehindStore {
+    fn load_shields(&self) -> Result<ShieldsSnapshot, StoreError> {
+        self.ask(Barrier::LoadShields)?
+    }
+
+    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Sites(sites.clone()))
+    }
+
+    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Lists(lists.clone()))
+    }
+
+    fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {
+        self.hand_over(Save::Body(list, body.to_vec()))
     }
 }
 

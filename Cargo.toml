@@ -17,6 +17,8 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+# Shields in the development engine: filter lists to WebKit content rule lists. MPL-2.0.
+adblock = { version = "0.13.6", features = ["content-blocking"] }
 # The Chromium boundary (adapter engine-chromium). Pinned to the copy Chromium vendors at the
 # version in engine/chromium.pin (third_party/rust/chromium_crates_io/vendor/cxx-v1), which GN
 # builds against; bump both together.
@@ -31,6 +33,7 @@ quickie-domain-commands = { path = "crates/domain/commands" }
 quickie-domain-kernel = { path = "crates/domain/kernel" }
 quickie-domain-library = { path = "crates/domain/library" }
 quickie-domain-palette = { path = "crates/domain/palette" }
+quickie-domain-shields = { path = "crates/domain/shields" }
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde_json = "1"
 tempfile = "3"
@@ -39,6 +42,7 @@ url = "2.5"
 # AppKit, Core Animation and WebKit through objc2 (docs/architecture.md §1). Features are opted
 # into per crate; the framework crates' defaults would compile every header.
 block2 = "0.6"
+dispatch2 = "0.3"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std"] }

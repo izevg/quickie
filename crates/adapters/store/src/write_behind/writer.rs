@@ -1,15 +1,18 @@
 //! The writer thread: gathers saves into a batch, keeping the latest of each kind, and writes
 //! the batch once it settles, or at once when someone waits for it.
 
+use std::collections::BTreeMap;
 use std::sync::PoisonError;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    ShieldsSnapshot, StoreError,
 };
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 
 use super::Failure;
 
@@ -35,6 +38,12 @@ pub(super) enum Save {
     Bookmarks(BookmarksSnapshot),
     /// The search shortcuts.
     Shortcuts(SearchShortcutsSnapshot),
+    /// The per-site shields exceptions.
+    Sites(SitePoliciesSnapshot),
+    /// The filter list states.
+    Lists(FilterListSetSnapshot),
+    /// One filter list's content; each list is its own kind.
+    Body(FilterListId, Vec<u8>),
 }
 
 /// A job served only once the pending saves are written, so it sees them.
@@ -46,6 +55,8 @@ pub(super) enum Barrier {
     LoadLibrary(Sender<Result<LibrarySnapshot, StoreError>>),
     /// Answer with the saved key bindings.
     LoadKeybindings(Sender<Result<Vec<KeybindingText>, StoreError>>),
+    /// Answer with the saved shields.
+    LoadShields(Sender<Result<ShieldsSnapshot, StoreError>>),
     /// Answer once written.
     Flush(Sender<()>),
 }
@@ -57,6 +68,9 @@ struct Batch {
     history: Option<HistorySnapshot>,
     bookmarks: Option<BookmarksSnapshot>,
     shortcuts: Option<SearchShortcutsSnapshot>,
+    sites: Option<SitePoliciesSnapshot>,
+    lists: Option<FilterListSetSnapshot>,
+    bodies: BTreeMap<FilterListId, Vec<u8>>,
 }
 
 impl Batch {
@@ -67,12 +81,25 @@ impl Batch {
             Save::History(history) => self.history = Some(history),
             Save::Bookmarks(bookmarks) => self.bookmarks = Some(bookmarks),
             Save::Shortcuts(shortcuts) => self.shortcuts = Some(shortcuts),
+            Save::Sites(sites) => self.sites = Some(sites),
+            Save::Lists(lists) => self.lists = Some(lists),
+            Save::Body(list, body) => {
+                self.bodies.insert(list, body);
+            }
         }
     }
 
     /// Writes and empties the batch. A failure does not stop the other kinds; the last one is
-    /// kept for the shell.
-    fn write<S: SessionRepo + LibraryRepo>(&mut self, store: &mut S, failure: &Failure) {
+    /// kept for the shell. A list's content goes before the list states that describe it.
+    fn write<S: SessionRepo + LibraryRepo + ShieldsRepo>(
+        &mut self,
+        store: &mut S,
+        failure: &Failure,
+    ) {
+        let bodies: Vec<_> = std::mem::take(&mut self.bodies)
+            .into_iter()
+            .map(|(list, body)| store.save_list_body(list, &body))
+            .collect();
         let results = [
             self.session.take().map(|session| store.save(&session)),
             self.history
@@ -84,10 +111,12 @@ impl Batch {
             self.shortcuts
                 .take()
                 .map(|shortcuts| store.save_shortcuts(&shortcuts)),
+            self.sites.take().map(|sites| store.save_sites(&sites)),
+            self.lists.take().map(|lists| store.save_lists(&lists)),
         ];
-        if let Some(error) = results
+        if let Some(error) = bodies
             .into_iter()
-            .flatten()
+            .chain(results.into_iter().flatten())
             .filter_map(Result::err)
             .next_back()
         {
@@ -100,7 +129,7 @@ impl Batch {
 /// after its first save, or sooner when a job needs it on disk.
 pub(super) fn run<S>(mut store: S, inbox: &Receiver<Job>, settle: Duration, failure: &Failure)
 where
-    S: SessionRepo + LibraryRepo + KeymapRepo,
+    S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo,
 {
     let mut batch = Batch::default();
     // When the pending batch is written; `None` while nothing is pending.
@@ -137,11 +166,12 @@ where
 
 /// Answers a barrier once the batch is written. A caller that stopped waiting needs no answer,
 /// so a failed reply is dropped.
-fn serve<S: SessionRepo + LibraryRepo + KeymapRepo>(store: &S, barrier: Barrier) {
+fn serve<S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo>(store: &S, barrier: Barrier) {
     match barrier {
         Barrier::LoadSession(reply) => drop(reply.send(store.load())),
         Barrier::LoadLibrary(reply) => drop(reply.send(store.load_library())),
         Barrier::LoadKeybindings(reply) => drop(reply.send(store.load_keybindings())),
+        Barrier::LoadShields(reply) => drop(reply.send(store.load_shields())),
         Barrier::Flush(reply) => drop(reply.send(())),
     }
 }

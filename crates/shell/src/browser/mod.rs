@@ -30,12 +30,13 @@ pub use keys::install_shortcuts;
 
 use crate::input::cycle::CycleHold;
 use crate::window::{browser_window, set_title};
-use crate::{App, Lib, Palette};
+use crate::{App, Guard, Lib, Palette};
 
 /// What the browser runs on, composed by `main`.
 pub struct Services {
     pub browsing: App,
     pub library: Lib,
+    pub shields: Guard,
     pub palette: Palette,
     pub catalog: Catalog,
     pub keymap: Keymap,
@@ -48,6 +49,7 @@ pub struct Services {
 pub struct Browser {
     browsing: RefCell<App>,
     library: RefCell<Lib>,
+    shields: RefCell<Guard>,
     palette: Palette,
     catalog: Catalog,
     keymap: Keymap,
@@ -90,9 +92,17 @@ impl Browser {
                 .iter()
                 .map(|corrupt| format!("Started fresh: {corrupt}")),
         );
+        notices.extend(
+            services
+                .shields
+                .corrupt_on_start()
+                .iter()
+                .map(|corrupt| format!("Started fresh: {corrupt}")),
+        );
         let browser = Rc::new_cyclic(|this| Self {
             browsing: RefCell::new(services.browsing),
             library: RefCell::new(services.library),
+            shields: RefCell::new(services.shields),
             palette: services.palette,
             catalog: services.catalog,
             keymap: services.keymap,
@@ -115,6 +125,10 @@ impl Browser {
         browser.open_windows();
         browser.wire_palette();
         browser.wire_find();
+        // Only lists the user enabled and that never arrived, or stale ones when the user keeps
+        // lists fresh: nothing on a fresh profile.
+        let due = browser.shields.borrow().due_fetches();
+        browser.fetch_lists(due);
         let weak = Rc::downgrade(&browser);
         browser
             .browsing
