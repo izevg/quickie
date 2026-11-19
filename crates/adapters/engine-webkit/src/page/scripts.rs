@@ -9,7 +9,8 @@
 
 pub(crate) mod hints;
 
-use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use objc2::rc::Retained;
@@ -17,7 +18,7 @@ use objc2::runtime::{NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_foundation::{NSNumber, NSString};
 use objc2_web_kit::{
-    WKContentWorld, WKScriptMessage, WKScriptMessageHandler, WKUserContentController,
+    WKContentWorld, WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKWebView,
 };
 
 /// The content world every Quickie script runs in.
@@ -51,8 +52,16 @@ pub(crate) const FOCUS_SCRIPT: &str = r"(() => {
   post();
 })();";
 
+/// Each page's last report of whether its focused element takes text, by [`view_key`].
+pub(crate) type FocusReports = Rc<RefCell<HashMap<usize, bool>>>;
+
+/// The key of a page's view in [`FocusReports`]: its address, unique while it lives.
+pub(crate) fn view_key(view: &WKWebView) -> usize {
+    std::ptr::from_ref(view) as usize
+}
+
 pub(crate) struct Ivars {
-    focused: Rc<Cell<bool>>,
+    reports: FocusReports,
 }
 
 define_class!(
@@ -75,15 +84,21 @@ define_class!(
             let focused = body
                 .downcast_ref::<NSNumber>()
                 .is_some_and(NSNumber::as_bool);
-            self.ivars().focused.set(focused);
+            // SAFETY: a getter; the page that posted, `None` once it is gone.
+            if let Some(view) = unsafe { message.webView() } {
+                self.ivars()
+                    .reports
+                    .borrow_mut()
+                    .insert(view_key(&view), focused);
+            }
         }
     }
 );
 
 impl FocusHandler {
-    /// A handler that keeps `focused` up to date with the page's reports.
-    pub(crate) fn new(focused: Rc<Cell<bool>>, mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars { focused });
+    /// A handler that keeps `reports` up to date with every page's reports.
+    pub(crate) fn new(reports: FocusReports, mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars { reports });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
     }

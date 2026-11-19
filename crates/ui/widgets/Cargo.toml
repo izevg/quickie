@@ -1,6 +1,6 @@
 [package]
 name = "quickie-ui-widgets"
-description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher and overview, the toast stack, the find bar, the origin chip, the load progress line, link hints, and the downloads and shields popovers"
+description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher and overview, the toast stack, the find bar, the origin chip, the load progress line, link hints, the downloads and shields popovers, the full-screen notice, and the dialog and permission sheets"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -60,10 +60,10 @@ quickie-domain-browsing.workspace = true
 quickie-domain-library.workspace = true
 quickie-domain-shields.workspace = true
 quickie-ui-shared.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 quickie-domain-palette.workspace = true
-url.workspace = true
 
 [lints]
 workspace = true

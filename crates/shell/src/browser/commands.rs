@@ -52,9 +52,28 @@ pub enum Action {
     },
     ShowDownloads,
     ShowShields,
+    NewWindow,
+    CloseWindow,
 }
 
 impl Action {
+    /// True for what may run while a sheet waits for an answer: leaving the page that asked
+    /// (closing it, switching away, another tab or window), never an overlay over the sheet.
+    #[must_use]
+    pub fn passes_sheet(self) -> bool {
+        matches!(
+            self,
+            Self::NewTab
+                | Self::NewThrowawayTab
+                | Self::CloseTab
+                | Self::ReopenClosed
+                | Self::Cycle(_)
+                | Self::GoToSlot(_)
+                | Self::NewWindow
+                | Self::CloseWindow
+        )
+    }
+
     /// The action of a command, or `None` for a command not built yet.
     #[must_use]
     pub fn of(id: &CommandId) -> Option<Self> {
@@ -98,6 +117,8 @@ impl Action {
             "quickie.hints.openInBackground" => Self::Hints { background: true },
             "quickie.downloads.show" => Self::ShowDownloads,
             "quickie.shields.open" => Self::ShowShields,
+            "quickie.window.new" => Self::NewWindow,
+            "quickie.window.close" => Self::CloseWindow,
             _ => return None,
         };
         Some(action)
@@ -162,9 +183,14 @@ impl Browser {
             return;
         };
         match action {
+            Action::NewWindow => return self.new_window(),
+            Action::CloseWindow => return self.close_window(window),
+            Action::CloseTab => return self.close_tab(window),
+            _ => {}
+        }
+        match action {
             Action::NewTab => self.new_tab(window, JarChoice::Main),
             Action::NewThrowawayTab => self.new_tab(window, JarChoice::NewThrowaway),
-            Action::CloseTab => self.close_tab(window),
             Action::ReopenClosed => self.reopen_closed(window),
             Action::GoToSlot(slot) => self.go_to_slot(window, slot),
             Action::PinToSlot(slot) => self.pin(window, slot),
@@ -191,7 +217,10 @@ impl Browser {
             | Action::Overview
             | Action::Hints { .. }
             | Action::ShowDownloads
-            | Action::ShowShields => {}
+            | Action::ShowShields
+            | Action::NewWindow
+            | Action::CloseWindow
+            | Action::CloseTab => {}
         }
         self.settle(window);
     }
@@ -229,15 +258,11 @@ impl Browser {
         self.run(|browsing| browsing.open(window, url, JarChoice::NewThrowaway, Focus::Foreground));
     }
 
-    /// `⌘W`: the tab goes to the trash. A window left empty gets a fresh start page for now,
-    /// rather than closing the last window.
+    /// `⌘W`: the tab goes to the trash. The last tab of a window takes the window with it,
+    /// unless it is the last window, which gets a fresh start page.
     fn close_tab(&self, window: WindowId) {
         if let Some(tab) = self.active(window) {
-            self.run(|browsing| browsing.close(tab));
-        }
-        if self.active(window).is_none() {
-            let home = self.home.clone();
-            self.run(|browsing| browsing.open(window, home, JarChoice::Main, Focus::Foreground));
+            self.close_tab_in(window, tab);
         }
     }
 
@@ -423,9 +448,39 @@ mod tests {
             ),
             ("quickie.downloads.show", Action::ShowDownloads),
             ("quickie.shields.open", Action::ShowShields),
+            ("quickie.window.new", Action::NewWindow),
+            ("quickie.window.close", Action::CloseWindow),
         ];
         for (id, action) in cases {
             assert_eq!(of(id), Some(action), "{id}");
+        }
+    }
+
+    #[test]
+    fn only_leaving_the_page_passes_a_sheet() {
+        for id in [
+            "quickie.tab.close",
+            "quickie.tab.new",
+            "quickie.tab.newThrowaway",
+            "quickie.tab.reopenClosed",
+            "quickie.tab.nextRecent",
+            "quickie.tab.goToSlot3",
+            "quickie.window.new",
+            "quickie.window.close",
+        ] {
+            assert!(of(id).is_some_and(Action::passes_sheet), "{id}");
+        }
+        for id in [
+            "quickie.palette.openCommands",
+            "quickie.address.open",
+            "quickie.page.find",
+            "quickie.tab.reload",
+            "quickie.navigation.back",
+            "quickie.tab.overview",
+            "quickie.hints.toggle",
+            "quickie.tab.pinToSlot3",
+        ] {
+            assert!(of(id).is_some_and(|action| !action.passes_sheet()), "{id}");
         }
     }
 
@@ -460,8 +515,8 @@ mod tests {
             .filter(|command| Action::of(&command.id).is_some())
             .count();
 
-        // 27 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 27 + 9 + 9);
+        // 29 named commands plus nine slots to go to and nine to pin.
+        assert_eq!(built, 29 + 9 + 9);
     }
 
     #[test]

@@ -1,8 +1,9 @@
-//! Watches one `WKWebView`: its committed navigations and the navigations that become
-//! downloads (as its navigation delegate) and its title (by key-value observation), turned into
-//! [`PageEvent`]s.
+//! Watches one `WKWebView`: its committed navigations, the navigations that become downloads,
+//! and the links it opens elsewhere (as its navigation delegate), its title, loading, and full
+//! screen (by key-value observation), turned into [`PageEvent`]s.
 
 use std::ffi::c_void;
+use std::rc::Rc;
 
 use block2::DynBlock;
 use objc2::rc::Retained;
@@ -12,10 +13,14 @@ use objc2_foundation::{
     NSHTTPURLResponse, NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration, NSString,
 };
 use objc2_web_kit::{
-    WKDownload, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
-    WKNavigationResponse, WKNavigationResponsePolicy, WKWebView,
+    WKDownload, WKFullscreenState, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
+    WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType,
+    WKWebView,
 };
+use quickie_domain_browsing::Focus;
 
+use super::Hooks;
+use super::asks::link_focus;
 use crate::downloads::wants_download;
 
 /// What a page reports while it lives. Delivered on the main thread, sometimes from inside a
@@ -32,6 +37,15 @@ pub(crate) enum PageEvent {
     Progress,
     /// A navigation became a download; it needs a delegate before this call returns.
     Download(Retained<WKDownload>),
+    /// A link the user opened in another tab (`⌘`-click, middle-click); the page stays.
+    OpenLink {
+        url: String,
+        focus: Focus,
+    },
+    /// The page closed itself (`window.close()`).
+    Closed,
+    /// The page entered (`true`) or left full screen.
+    Fullscreen(bool),
 }
 
 /// The title is observed by its key path.
@@ -40,8 +54,11 @@ const TITLE: &str = "title";
 /// Loading is observed by these key paths.
 const PROGRESS: [&str; 2] = ["estimatedProgress", "loading"];
 
+/// Full screen is observed by its key path.
+const FULLSCREEN: &str = "fullscreenState";
+
 pub(crate) struct Ivars {
-    on_event: Box<dyn Fn(PageEvent)>,
+    hooks: Rc<Hooks>,
 }
 
 define_class!(
@@ -68,10 +85,18 @@ define_class!(
                 return;
             };
             let key_path = key_path.to_string();
+            let on_event = &self.ivars().hooks.on_event;
             if key_path == TITLE {
-                (self.ivars().on_event)(PageEvent::TitleChanged(title_of(view)));
+                on_event(PageEvent::TitleChanged(title_of(view)));
             } else if PROGRESS.contains(&key_path.as_str()) {
-                (self.ivars().on_event)(PageEvent::Progress);
+                on_event(PageEvent::Progress);
+            } else if key_path == FULLSCREEN {
+                // SAFETY: a getter with no preconditions.
+                match unsafe { view.fullscreenState() } {
+                    WKFullscreenState::InFullscreen => on_event(PageEvent::Fullscreen(true)),
+                    WKFullscreenState::NotInFullscreen => on_event(PageEvent::Fullscreen(false)),
+                    _ => {}
+                }
             }
         }
     }
@@ -82,13 +107,14 @@ define_class!(
     unsafe impl WKNavigationDelegate for PageObserver {
         #[unsafe(method(webView:didCommitNavigation:))]
         fn did_commit(&self, view: &WKWebView, _navigation: Option<&WKNavigation>) {
-            (self.ivars().on_event)(PageEvent::Committed {
+            (self.ivars().hooks.on_event)(PageEvent::Committed {
                 url: url_of(view),
                 title: title_of(view),
             });
         }
 
-        /// A link with a `download` attribute downloads; everything else loads.
+        /// A link opened with `⌘` or the middle button goes to another tab; a link with a
+        /// `download` attribute downloads; everything else loads.
         #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
         fn decide_action(
             &self,
@@ -96,6 +122,11 @@ define_class!(
             action: &WKNavigationAction,
             decide: &DynBlock<dyn Fn(WKNavigationActionPolicy)>,
         ) {
+            if let Some((url, focus)) = elsewhere(action) {
+                (self.ivars().hooks.on_event)(PageEvent::OpenLink { url, focus });
+                decide.call((WKNavigationActionPolicy::Cancel,));
+                return;
+            }
             // SAFETY: a getter with no preconditions.
             let policy = if unsafe { action.shouldPerformDownload() } {
                 WKNavigationActionPolicy::Download
@@ -138,7 +169,7 @@ define_class!(
             _action: &WKNavigationAction,
             download: &WKDownload,
         ) {
-            (self.ivars().on_event)(PageEvent::Download(download.retain()));
+            (self.ivars().hooks.on_event)(PageEvent::Download(download.retain()));
         }
 
         #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
@@ -148,14 +179,29 @@ define_class!(
             _response: &WKNavigationResponse,
             download: &WKDownload,
         ) {
-            (self.ivars().on_event)(PageEvent::Download(download.retain()));
+            (self.ivars().hooks.on_event)(PageEvent::Download(download.retain()));
         }
     }
 );
 
+/// The link and the tab it goes to, when the user opened it in another tab.
+fn elsewhere(action: &WKNavigationAction) -> Option<(String, Focus)> {
+    // SAFETY: a getter with no preconditions.
+    if unsafe { action.navigationType() } != WKNavigationType::LinkActivated {
+        return None;
+    }
+    // SAFETY: as above.
+    let modifiers = unsafe { action.modifierFlags() };
+    // SAFETY: as above.
+    let focus = link_focus(modifiers, unsafe { action.buttonNumber() })?;
+    // SAFETY: a getter; every action has a request.
+    let url = unsafe { action.request() }.URL()?.absoluteString()?;
+    Some((url.to_string(), focus))
+}
+
 impl PageObserver {
-    pub(crate) fn new(on_event: Box<dyn Fn(PageEvent)>, mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars { on_event });
+    pub(crate) fn new(hooks: Rc<Hooks>, mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars { hooks });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
     }
@@ -198,7 +244,7 @@ impl PageObserver {
 
 /// Every key path the observer watches.
 fn key_paths() -> impl Iterator<Item = &'static str> {
-    std::iter::once(TITLE).chain(PROGRESS)
+    [TITLE, FULLSCREEN].into_iter().chain(PROGRESS)
 }
 
 fn url_of(view: &WKWebView) -> Option<String> {

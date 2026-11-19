@@ -12,6 +12,7 @@ mod keymap;
 mod library;
 mod palette;
 mod ports;
+mod prompts;
 mod shields;
 
 pub use browsing::Browsing;
@@ -23,4 +24,5 @@ pub use ports::{
     BlockerRules, Clock, ContentBlockerPort, EnginePort, HttpPort, KeybindingText, KeymapRepo,
     LibraryRepo, LibrarySnapshot, ListRules, Navigation, SessionRepo, ShieldsRepo, ShieldsSnapshot,
 };
+pub use prompts::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts};
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};

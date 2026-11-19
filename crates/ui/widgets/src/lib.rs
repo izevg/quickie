@@ -1,8 +1,8 @@
 //! FSD `widgets` layer of Quickie's UI: the composed blocks that float above the page.
 //!
 //! Slices are grouped by meaning (`docs/design/inventory.md`, widgets): `palette`, `tabs`,
-//! `feedback`, `page`, `hints`, `popovers`. A slice never uses another, not even one in its own
-//! group; what two share moves down to `quickie-ui-shared`.
+//! `feedback`, `page`, `hints`, `popovers`, `sheets`. A slice never uses another, not even one in
+//! its own group; what two share moves down to `quickie-ui-shared`.
 
 #![expect(
     unsafe_code,
@@ -17,8 +17,10 @@ pub mod hints;
 pub mod page;
 pub mod palette;
 pub mod popovers;
+pub mod sheets;
 pub mod tabs;
 
+pub use feedback::fullscreen_notice::FullscreenNotice;
 pub use feedback::toast_stack::ToastStack;
 pub use hints::link_hints_layer::{HintKey, LinkHintsLayer};
 pub use page::find_bar::{FindBar, FindRequest};
@@ -28,6 +30,8 @@ pub use palette::address_overlay::AddressOverlay;
 pub use palette::command_palette::CommandPalette;
 pub use popovers::downloads_popover::{DownloadsPopover, DownloadsRequest};
 pub use popovers::shields_popover::{ShieldsPopover, ShieldsRequest, ShieldsSummary, SiteToggle};
+pub use sheets::dialog_sheet::{DialogChoice, DialogKind, DialogRequest, DialogSheet};
+pub use sheets::permission_sheet::PermissionSheet;
 pub use tabs::tab_overview::grid::Move;
 pub use tabs::tab_overview::pinch::Step as PinchStep;
 pub use tabs::tab_overview::{OverviewTab, TabOverview};
