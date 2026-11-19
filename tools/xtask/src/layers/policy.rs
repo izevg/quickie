@@ -3,7 +3,8 @@
 use std::fmt;
 
 /// External crates the pure core (domain and application) may use.
-const PURE_EXTERNALS: &[&str] = &["thiserror", "indexmap", "nucleo", "serde", "url"];
+/// The fuzzy matcher is `nucleo-matcher`, not `nucleo`: the latter runs its own thread pool.
+const PURE_EXTERNALS: &[&str] = &["thiserror", "indexmap", "nucleo-matcher", "serde", "url"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
@@ -172,6 +173,14 @@ mod tests {
         assert!(Layer::Ui(UiLayer::Features).has_slices());
         assert!(!Layer::Ui(UiLayer::Shared).has_slices());
         assert!(!Layer::Ui(UiLayer::App).has_slices());
+    }
+
+    #[test]
+    fn the_pure_core_matches_fuzzily_without_threads() {
+        let allowed = Layer::Context.external_allowlist().unwrap();
+
+        assert!(allowed.contains(&"nucleo-matcher"));
+        assert!(!allowed.contains(&"nucleo"));
     }
 
     #[test]
