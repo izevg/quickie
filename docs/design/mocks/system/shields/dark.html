@@ -1,0 +1,265 @@
+<!DOCTYPE html><html lang="en" class="dark"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S9a Shields Popover (Dark) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .material-symbols-outlined { display: inline-block; width: 1em; height: 1em; line-height: 1 !important; box-sizing: content-box; overflow: hidden; white-space: nowrap; direction: ltr; vertical-align: middle; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-content-bg-dark text-content-text-dark antialiased min-h-[1024px] overflow-x-hidden font-body selection:bg-dark-primary/30" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- Dimmed page background (~10% for E2 popovers) -->
+  <div class="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-30 pointer-events-none transition-opacity duration-200"></div>
+
+  <!-- [FSD: widgets/shields-popover] E2 POPOVER FROM TOP-RIGHT (Dark, 380px wide) -->
+  <div class="fixed top-5 right-6 z-40 flex flex-col items-end pointer-events-auto">
+    
+    <!-- Motion and FSD Tag -->
+    <div class="mb-2 flex items-center gap-1.5 pointer-events-none">
+      <span class="font-code text-[10px] px-2 py-0.5 rounded bg-black/80 text-white border border-white/10 shadow-sm">[FSD: widgets/shields-popover]</span>
+      <span class="font-code text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">E2 Popover • Top-Right</span>
+    </div>
+
+    <!-- Liquid Glass Shields Popover Container (380px width, 22px radius, 28px blur, soft shadow) -->
+    <div class="w-[380px] rounded-overlay bg-[#1A1E26]/88 backdrop-blur-3xl border border-white/15 shadow-[0_28px_64px_-12px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.08)] overflow-hidden">
+      
+      <!-- Popover Header: Site Host + Global Toggle Shields -->
+      <div class="p-5 pb-4 border-b border-white/10 bg-white/[0.03]">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="material-symbols-outlined text-[20px] text-emerald-400">verified_user</span>
+            <div class="min-w-0">
+              <span class="font-code text-code-sm font-bold text-white truncate block">github.com</span>
+              <p class="font-code text-[11px] text-emerald-400 font-medium">Wrapped &amp; Protected (100% Safe)</p>
+            </div>
+          </div>
+          <!-- Toggle Switch (Active State) -->
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked class="sr-only peer">
+            <div class="w-11 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[&#39;&#39;] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Shield Counters Summary Grid -->
+      <div class="p-4 grid grid-cols-3 gap-2.5 bg-black/20 border-b border-white/10 text-center">
+        <!-- Trackers -->
+        <div class="p-2.5 rounded-xl bg-white/[0.04] border border-white/10 shadow-xs">
+          <span class="font-headline text-headline-lg font-bold text-white block">23</span>
+          <p class="font-label text-[11px] text-dark-outline mt-0.5">Trackers</p>
+        </div>
+        <!-- Ads -->
+        <div class="p-2.5 rounded-xl bg-white/[0.04] border border-white/10 shadow-xs">
+          <span class="font-headline text-headline-lg font-bold text-emerald-400 block">41</span>
+          <p class="font-label text-[11px] text-dark-outline mt-0.5">Ads blocked</p>
+        </div>
+        <!-- Fingerprinting -->
+        <div class="p-2.5 rounded-xl bg-white/[0.04] border border-white/10 shadow-xs">
+          <span class="font-headline text-headline-lg font-bold text-dark-primary block">3</span>
+          <p class="font-label text-[11px] text-dark-outline mt-0.5">Fingerprint</p>
+        </div>
+      </div>
+
+      <!-- Per-Site Toggles List -->
+      <div class="p-4 space-y-3">
+        <span class="font-code text-[11px] uppercase tracking-wider text-dark-outline block mb-1">Per-site protections</span>
+
+        <!-- Toggle: Block cross-site trackers -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="material-symbols-outlined text-[17px] text-dark-outline">visibility_off</span>
+            <div>
+              <p class="font-label text-label-lg font-medium text-white">Cross-site trackers</p>
+              <p class="font-code text-[11px] text-dark-outline">Aggressive blocklist</p>
+            </div>
+          </div>
+          <input type="checkbox" checked class="rounded text-dark-primary focus:ring-0 w-4 h-4 cursor-pointer bg-white/10 border-white/20">
+        </div>
+
+        <!-- Toggle: Upgrade connections to HTTPS -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="material-symbols-outlined text-[17px] text-dark-outline">https</span>
+            <div>
+              <p class="font-label text-label-lg font-medium text-white">Strict HTTPS Only</p>
+              <p class="font-code text-[11px] text-dark-outline">Upgrade mixed content</p>
+            </div>
+          </div>
+          <input type="checkbox" checked class="rounded text-dark-primary focus:ring-0 w-4 h-4 cursor-pointer bg-white/10 border-white/20">
+        </div>
+
+        <!-- Toggle: Block Fingerprinting -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="material-symbols-outlined text-[17px] text-dark-outline">fingerprint</span>
+            <div>
+              <p class="font-label text-label-lg font-medium text-white">Canvas &amp; Audio Defense</p>
+              <p class="font-code text-[11px] text-dark-outline">Fuzz hardware entropy</p>
+            </div>
+          </div>
+          <input type="checkbox" checked class="rounded text-dark-primary focus:ring-0 w-4 h-4 cursor-pointer bg-white/10 border-white/20">
+        </div>
+
+        <!-- Toggle: Block Scripts -->
+        <div class="flex items-center justify-between opacity-70">
+          <div class="flex items-center gap-2.5">
+            <span class="material-symbols-outlined text-[17px] text-dark-outline">javascript</span>
+            <div>
+              <p class="font-label text-label-lg font-medium text-white">Block JavaScript</p>
+              <p class="font-code text-[11px] text-dark-outline">Allowed by default</p>
+            </div>
+          </div>
+          <input type="checkbox" class="rounded text-dark-primary focus:ring-0 w-4 h-4 cursor-pointer bg-white/10 border-white/20">
+        </div>
+      </div>
+
+      <!-- Popover Footer Strip with Filter lists link -->
+      <div class="px-5 py-3 bg-black/40 border-t border-white/10 flex items-center justify-between font-code text-code-sm">
+        <a href="#" class="text-dark-primary font-medium hover:underline flex items-center gap-1">
+          <span>Filter lists…</span>
+          <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+        </a>
+        <kbd class="px-1.5 py-0.5 rounded bg-white/10 border border-white/10 text-dark-outline text-[11px]">⎋ close</kbd>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Background Web Content (Dimmed) -->
+  <main class="w-full max-w-[1240px] mx-auto px-8 pt-12 pb-24 filter blur-[1px]">
+    <header class="mb-8">
+      <div class="flex items-center justify-between pb-4 border-b border-content-border-dark">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white">
+            <span class="material-symbols-outlined text-[18px]">terminal</span>
+          </div>
+          <div class="flex items-center gap-2 font-headline text-lg">
+            <span class="text-syntax-entity">apple</span>
+            <span class="text-content-subtext-dark">/</span>
+            <span class="font-bold text-white">darwin-webkit-runtime</span>
+          </div>
+        </div>
+      </div>
+    </header>
+  </main>
+
+  <div class="fixed bottom-3 right-4 pointer-events-none opacity-60">
+    <span class="font-code text-code-sm text-dark-outline bg-black/80 px-2 py-1 rounded border border-white/10">[FSD: screens/shields-popover-dark] • 1512x982</span>
+  </div>
+
+
+
+</body></html>

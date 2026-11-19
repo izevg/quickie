@@ -1,0 +1,312 @@
+<!DOCTYPE html><html lang="en" class="dark"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Idle State (Dark) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-[#0D1117] text-[#C9D1D9] antialiased min-h-[1024px] overflow-x-hidden selection:bg-primary/30 font-body" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- [FSD: app/window-container] Edge-to-edge container in Dark Mode (No titlebar, no tabs, no address bar, no traffic lights) -->
+  <div class="relative w-full min-h-[1024px] flex flex-col justify-between" data-stitch-vh="min-h-[1024px]===min-h-screen">
+    
+    <!-- Top FSD Architecture Margin Annotations -->
+    <div class="fixed top-3 left-4 z-50 pointer-events-none flex items-center gap-2 opacity-75">
+      <span class="inline-flex items-center px-2 py-0.5 rounded font-code text-code-sm bg-white/10 text-dark-outline border border-white/10 backdrop-blur-sm">[FSD: screens/idle-content]</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded font-code text-code-sm bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">E0: Web Content (GitHub Repository Code View)</span>
+    </div>
+
+    <!-- [FSD: widgets/load-progress-line] 2px Accent Progress Line at the very top edge at 70% -->
+    <div class="fixed top-0 left-0 right-0 h-[2px] z-50 overflow-hidden bg-transparent pointer-events-none">
+      <div class="h-full bg-dark-primary w-[70%] rounded-r-full shadow-none transition-all duration-300"></div>
+    </div>
+
+    <!-- Active Web Page: GitHub Pro Repository File Viewer Edge to Edge -->
+    <main class="w-full max-w-[1240px] mx-auto px-8 pt-12 pb-24">
+      
+      <!-- Realistic GitHub Repo Header -->
+      <header class="mb-8">
+        <div class="flex items-center justify-between pb-4 border-b border-[#30363D]">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white">
+              <span class="material-symbols-outlined text-[18px]">terminal</span>
+            </div>
+            <div class="flex items-center gap-2 font-headline text-lg">
+              <span class="text-[#58A6FF] hover:underline cursor-pointer">apple</span>
+              <span class="text-[#8B949E]">/</span>
+              <span class="font-bold text-white hover:underline cursor-pointer">darwin-webkit-runtime</span>
+              <span class="ml-2 px-2 py-0.5 rounded-full text-xs font-medium border border-[#30363D] text-[#8B949E]">Public</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex items-center rounded-lg border border-[#30363D] bg-[#21262D] text-xs font-medium">
+              <span class="px-3 py-1.5 flex items-center gap-1.5 border-r border-[#30363D] text-white">
+                <span class="material-symbols-outlined text-[14px]">star</span> Star
+              </span>
+              <span class="px-2.5 py-1.5 text-[#8B949E] font-code">14,290</span>
+            </div>
+            <div class="flex items-center rounded-lg border border-[#30363D] bg-[#21262D] text-xs font-medium px-3 py-1.5 gap-1.5 text-white">
+              <span class="material-symbols-outlined text-[14px]">fork_right</span> Fork
+            </div>
+          </div>
+        </div>
+
+        <!-- Repo Subnav Bar inside Web Content -->
+        <div class="flex items-center gap-6 pt-3 text-sm font-medium text-[#8B949E]">
+          <span class="flex items-center gap-2 text-white pb-3 border-b-2 border-[#F78166]">
+            <span class="material-symbols-outlined text-[16px]">code</span> Code
+          </span>
+          <span class="flex items-center gap-2 hover:text-white cursor-pointer pb-3">
+            <span class="material-symbols-outlined text-[16px]">adjust</span> Issues <span class="px-1.5 py-0.2 bg-[#30363D] text-[11px] rounded-full text-white">42</span>
+          </span>
+          <span class="flex items-center gap-2 hover:text-white cursor-pointer pb-3">
+            <span class="material-symbols-outlined text-[16px]">merge_type</span> Pull requests <span class="px-1.5 py-0.2 bg-[#30363D] text-[11px] rounded-full text-white">9</span>
+          </span>
+          <span class="flex items-center gap-2 hover:text-white cursor-pointer pb-3">
+            <span class="material-symbols-outlined text-[16px]">play_circle</span> Actions
+          </span>
+        </div>
+      </header>
+
+      <!-- Code Viewer File View (Zero Glass, Pure Web Rendering) -->
+      <section class="rounded-xl border border-[#30363D] bg-[#161B22] overflow-hidden">
+        
+        <!-- File Path & Branch Strip -->
+        <div class="flex items-center justify-between px-4 py-3 bg-[#161B22] border-b border-[#30363D] text-xs font-code">
+          <div class="flex items-center gap-3">
+            <span class="px-2 py-1 rounded bg-[#21262D] text-[#C9D1D9] border border-[#30363D] flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[14px]" data-original-icon="branch">circle</span> main
+            </span>
+            <div class="text-[#8B949E]">
+              <span>src</span> / <span>compositor</span> / <strong class="text-white font-semibold">LiquidGlassSurface.swift</strong>
+            </div>
+          </div>
+          <div class="flex items-center gap-4 text-[#8B949E]">
+            <span>184 lines (152 loc)</span>
+            <span>•</span>
+            <span>6.42 KB</span>
+            <span class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#21262D] text-white cursor-pointer hover:bg-[#30363D]">
+              <span class="material-symbols-outlined text-[14px]">content_copy</span> Copy Raw
+            </span>
+          </div>
+        </div>
+
+        <!-- Code Line Rows -->
+        <div class="p-6 font-code text-[13px] leading-[22px] overflow-x-auto text-[#C9D1D9]">
+          <div class="table w-full">
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58] w-10">1</span>
+              <span class="table-cell text-[#8B949E]">// Quickie Tahoe Surface Compositor Engine</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">2</span>
+              <span class="table-cell text-[#FF7B72]">import</span> <span class="table-cell text-[#79C0FF]">AppKit</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">3</span>
+              <span class="table-cell text-[#FF7B72]">import</span> <span class="table-cell text-[#79C0FF]">MetalKit</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">4</span>
+              <span class="table-cell"></span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">5</span>
+              <span class="table-cell"><span class="text-[#FF7B72]">public final class</span> <span class="text-[#FFA657]">LiquidGlassRenderer</span>: <span class="text-[#79C0FF]">NSView</span> {</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">6</span>
+              <span class="table-cell pl-6"><span class="text-[#FF7B72]">private let</span> pipelineState: <span class="text-[#79C0FF]">MTLRenderPipelineState</span></span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">7</span>
+              <span class="table-cell pl-6"><span class="text-[#FF7B72]">public var</span> elevationTier: <span class="text-[#79C0FF]">Elevation</span> = .e0WebPage</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">8</span>
+              <span class="table-cell"></span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">9</span>
+              <span class="table-cell pl-6"><span class="text-[#8B949E]">/// Renders hardware accelerated specular refraction and ambient diffusion</span></span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">10</span>
+              <span class="table-cell pl-6"><span class="text-[#FF7B72]">public func</span> <span class="text-[#D2A8FF]">compositeOverContent</span>(source: <span class="text-[#79C0FF]">MTLTexture</span>, target: <span class="text-[#79C0FF]">MTLTexture</span>) {</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">11</span>
+              <span class="table-cell pl-12"><span class="text-[#FF7B72]">guard</span> elevationTier != .e0WebPage <span class="text-[#FF7B72]">else</span> {</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">12</span>
+              <span class="table-cell pl-16 text-[#8B949E]">// Zero elevation = 100% sovereign content canvas, bypass shader pipeline entirely</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">13</span>
+              <span class="table-cell pl-16"><span class="text-[#FF7B72]">return</span></span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">14</span>
+              <span class="table-cell pl-12">}</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">15</span>
+              <span class="table-cell pl-12"><span class="text-[#FF7B72]">let</span> blurRadius: <span class="text-[#79C0FF]">Float</span> = elevationTier == .e1Transient ? 16.0 : 28.0</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">16</span>
+              <span class="table-cell pl-12"><span class="text-[#FF7B72]">let</span> specularReflection = <span class="text-[#FFA657]">calculateAppleLiquidCurve</span>(radius: blurRadius)</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">17</span>
+              <span class="table-cell pl-12">dispatchToMetalDevice(specularReflection)</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">18</span>
+              <span class="table-cell pl-6">}</span>
+            </div>
+            <div class="table-row">
+              <span class="table-cell select-none pr-6 text-right text-[#484F58]">19</span>
+              <span class="table-cell">}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Terminal Output Below Code -->
+      <div class="mt-6 p-4 rounded-xl border border-[#30363D] bg-[#090D13] font-code text-xs text-[#8B949E]">
+        <div class="flex items-center justify-between pb-2 border-b border-[#30363D] mb-3 text-[11px] text-[#58A6FF]">
+          <span>Test Suite: Metal Tahoe Compositor</span>
+          <span class="text-emerald-400">● 14 Passing</span>
+        </div>
+        <div class="space-y-1">
+          <p><span class="text-emerald-400">✓</span> [E0] Zero chrome overhead verified (0.00ms layout)</p>
+          <p><span class="text-emerald-400">✓</span> [E1] Transient origin pill blur radius passes 16px threshold</p>
+          <p><span class="text-emerald-400">✓</span> [E2] Palette spring scale completes at 200ms</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- FSD Annotation Watermark Bottom Right -->
+    <div class="fixed bottom-3 right-4 pointer-events-none opacity-60">
+      <span class="font-code text-[10px] text-[#8E8E93] bg-black/80 px-2 py-1 rounded border border-white/10">[FSD: screens/idle-content-dark] • 1512x982 Macbook Pro 14</span>
+    </div>
+
+  </div>
+
+
+
+</body></html>
