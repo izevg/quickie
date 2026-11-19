@@ -15,11 +15,13 @@ objc2-app-kit = { workspace = true, features = [
   "NSApplication",
   "NSButton",
   "NSCell",
+  "NSColor",
   "NSControl",
   "NSEvent",
   "NSGraphics",
   "NSMenu",
   "NSMenuItem",
+  "NSParagraphStyle",
   "NSResponder",
   "NSRunningApplication",
   "NSText",
@@ -29,8 +31,17 @@ objc2-app-kit = { workspace = true, features = [
   "NSView",
   "NSWindow",
 ] }
-objc2-foundation = { workspace = true, features = ["NSGeometry", "NSString"] }
+objc2-foundation = { workspace = true, features = [
+  "block2",
+  "NSDate",
+  "NSGeometry",
+  "NSString",
+  "NSTimer",
+] }
+quickie-application.workspace = true
+quickie-domain-browsing.workspace = true
 quickie-engine-webkit.workspace = true
+quickie-store.workspace = true
 quickie-ui-shared.workspace = true
 url.workspace = true
 
