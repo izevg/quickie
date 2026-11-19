@@ -1,6 +1,7 @@
 use quickie_application::{ChatEvent, ChatRequest, LlmError};
 use quickie_domain_agents::{
-    ApiKey, BaseUrl, LlmEndpoint, ModelId, PageText, Prompt, Question, Request, TokenBudget,
+    ApiKey, BaseUrl, FenceMarker, LlmEndpoint, ModelId, PageText, Prompt, Question, Request,
+    TokenBudget,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -23,7 +24,8 @@ fn a_chat_body_streams_the_prompt_to_the_model() {
     );
     let request = Request::Question(Question::try_from("Why?").unwrap());
     let page = PageText::new(Url::parse("https://example.com/").unwrap(), "T", "Text");
-    let prompt = Prompt::assemble(&request, &[page], TokenBudget::DEFAULT).unwrap();
+    let marker = FenceMarker::from_random([7; 6]);
+    let prompt = Prompt::assemble(&request, &[page], TokenBudget::DEFAULT, &marker).unwrap();
 
     let body = chat_body(&ChatRequest {
         endpoint: &endpoint,

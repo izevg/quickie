@@ -1,6 +1,6 @@
 use quickie_domain_agents::{AnswerPart, Citation, KeyRef, Speed};
 
-use super::fakes::{FakeAgentRepo, FakeLlm, FakeSecrets};
+use super::fakes::{FakeAgentRepo, FakeEntropy, FakeLlm, FakeSecrets};
 use super::{hosted, page, question};
 use crate::agent::{Agent, AnswerEvent, AskError, Asking};
 use crate::fakes::FakeClock;
@@ -27,9 +27,9 @@ fn asking(with_key: bool) -> Asking {
         saved: Some(endpoint.snapshot()),
         ..FakeAgentRepo::default()
     };
-    let agent = Agent::start(repo, FakeSecrets::default()).unwrap();
+    let agent = Agent::start(repo, FakeSecrets::default(), FakeEntropy::default()).unwrap();
     agent
-        .ask(&question("What happened?"), vec![page(PAGE)])
+        .ask(&question("What happened?"), &[page(PAGE)])
         .unwrap()
 }
 
@@ -86,15 +86,15 @@ fn tokens_stream_out_then_the_answer_is_done_with_its_speed() {
 
 #[test]
 fn a_quote_the_page_contains_streams_out_as_a_citation() {
-    let llm = llm(vec![(1_100, delta("[[cite: rose by 4%]]"))]);
+    let llm = llm(vec![(1_100, delta("[[cite: Prices rose by 4%]]"))]);
 
     let events = answer(&llm);
 
     assert_eq!(
         events[0],
         AnswerEvent::Citation(Citation {
-            quote: "rose by 4%".to_owned(),
-            anchor: "rose by 4%".to_owned(),
+            quote: "Prices rose by 4%".to_owned(),
+            anchor: "Prices rose by".to_owned(),
         })
     );
 }

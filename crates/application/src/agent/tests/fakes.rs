@@ -4,14 +4,27 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use quickie_domain_agents::{
-    ApiKey, BaseUrl, EndpointSnapshot, KeyRef, LocalServer, ModelId, Prompt,
+    ApiKey, BaseUrl, EndpointSnapshot, FenceMarker, KeyRef, LocalServer, ModelId, Prompt,
 };
 
 use crate::fakes::FakeClock;
 use crate::{
-    AgentRepo, ChatEvent, ChatRequest, Ended, LlmError, LlmPort, SecretError, SecretStore,
+    AgentRepo, ChatEvent, ChatRequest, Ended, Entropy, LlmError, LlmPort, SecretError, SecretStore,
     StopSignal, StoreError,
 };
+
+/// Draws markers from a counter: the first is all ones, each next one differs.
+#[derive(Debug, Default)]
+pub struct FakeEntropy {
+    draws: Cell<u8>,
+}
+
+impl Entropy for FakeEntropy {
+    fn fence_marker(&self) -> FenceMarker {
+        self.draws.set(self.draws.get() + 1);
+        FenceMarker::from_random([self.draws.get(); 6])
+    }
+}
 
 /// Keeps the endpoint saved last; counts saves, and fails loads or saves on request.
 #[derive(Debug, Default)]

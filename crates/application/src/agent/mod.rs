@@ -24,25 +24,27 @@ use quickie_domain_agents::{
 pub use answer::{AnswerEvent, AskError, Asking};
 pub use local::{LocalFound, detect_local, list_models};
 
-use crate::{AgentRepo, AppError, SecretStore};
+use crate::{AgentRepo, AppError, Entropy, SecretStore};
 
 /// The agent use cases over the profile's endpoint settings and the Keychain.
 #[derive(Debug)]
-pub struct Agent<R, S> {
+pub struct Agent<R, S, E> {
     endpoint: Option<LlmEndpoint>,
     corrupt_on_start: Option<CorruptEndpoint>,
     repo: R,
     secrets: S,
+    entropy: E,
 }
 
-impl<R: AgentRepo, S: SecretStore> Agent<R, S> {
+impl<R: AgentRepo, S: SecretStore, E: Entropy> Agent<R, S, E> {
     /// Loads the saved endpoint. One that breaks an invariant is dropped, as if none was set
     /// up, and reported by [`Self::corrupt_on_start`]; the next change saves over it.
+    /// `entropy` draws each request's fence marker.
     ///
     /// # Errors
     ///
     /// The store could not be read.
-    pub fn start(repo: R, secrets: S) -> Result<Self, AppError> {
+    pub fn start(repo: R, secrets: S, entropy: E) -> Result<Self, AppError> {
         let (endpoint, corrupt_on_start) = match repo.load_endpoint()? {
             None => (None, None),
             Some(saved) => match LlmEndpoint::restore(&saved) {
@@ -55,6 +57,7 @@ impl<R: AgentRepo, S: SecretStore> Agent<R, S> {
             corrupt_on_start,
             repo,
             secrets,
+            entropy,
         })
     }
 
@@ -138,15 +141,17 @@ impl<R: AgentRepo, S: SecretStore> Agent<R, S> {
     }
 
     /// Prepares asking `request` about `pages`, the current page first: the user asked, with
-    /// `?` in the palette or a skill. Returns at once; run the result on a worker thread.
+    /// `?` in the palette or a skill. Each request is fenced with a fresh marker. Returns at
+    /// once; run the result on a worker thread.
     ///
     /// # Errors
     ///
     /// No endpoint is set up, no page was given, or too few for the request.
-    pub fn ask(&self, request: &Request, pages: Vec<PageText>) -> Result<Asking, AppError> {
+    pub fn ask(&self, request: &Request, pages: &[PageText]) -> Result<Asking, AppError> {
         let endpoint = self.endpoint.clone().ok_or(AppError::NoEndpoint)?;
-        let prompt = Prompt::assemble(request, &pages, TokenBudget::DEFAULT)?;
-        Ok(Asking::new(endpoint, prompt, pages))
+        let marker = self.entropy.fence_marker();
+        let prompt = Prompt::assemble(request, pages, TokenBudget::DEFAULT, &marker)?;
+        Ok(Asking::new(endpoint, prompt))
     }
 
     fn commit(&mut self, next: Option<LlmEndpoint>) -> Result<(), AppError> {

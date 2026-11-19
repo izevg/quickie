@@ -1,27 +1,28 @@
 //! The client against a scripted [`HttpPort`]: what it sends, and how it reads every kind of
 //! answer.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use quickie_application::{
-    ChatEvent, ChatRequest, Ended, HttpError, HttpEvent, HttpMethod, HttpPort, HttpRequest,
+    ChatEvent, ChatRequest, Ended, Flow, HttpError, HttpEvent, HttpMethod, HttpPort, HttpRequest,
     LlmError, LlmPort, StopSignal,
 };
 use quickie_domain_agents::{
-    ApiKey, BaseUrl, LlmEndpoint, LocalServer, ModelId, PageText, Prompt, Question, Request,
-    TokenBudget,
+    ApiKey, BaseUrl, FenceMarker, LlmEndpoint, LocalServer, ModelId, PageText, Prompt, Question,
+    Request, TokenBudget,
 };
 use url::Url;
 
-use super::{MAX_KEPT_BYTES, OpenAiClient, keep};
+use super::{MAX_ANSWER_BYTES, MAX_KEPT_BYTES, OpenAiClient, keep};
 
-/// Answers every request with `status` and `body`, cut into `pieces`, then `ended`; records
-/// the requests.
+/// Answers every request with `status` and `body`, cut into `pieces`, then `ended`, unless the
+/// receiver stops it, which ends it as stopped; records the requests and the pieces delivered.
 struct ScriptedHttp {
     status: Option<u16>,
     pieces: Vec<Vec<u8>>,
     ended: Result<Ended, HttpError>,
     sent: RefCell<Vec<HttpRequest>>,
+    delivered: Cell<usize>,
 }
 
 impl ScriptedHttp {
@@ -34,6 +35,7 @@ impl ScriptedHttp {
                 .collect(),
             ended: Ok(Ended::Complete),
             sent: RefCell::default(),
+            delivered: Cell::new(0),
         }
     }
 }
@@ -47,14 +49,19 @@ impl HttpPort for ScriptedHttp {
         &self,
         request: &HttpRequest,
         _stop: &StopSignal,
-        on_event: &mut dyn FnMut(HttpEvent<'_>),
+        on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
     ) -> Result<Ended, HttpError> {
         self.sent.borrow_mut().push(request.clone());
-        if let Some(status) = self.status {
-            on_event(HttpEvent::Status(status));
+        if let Some(status) = self.status
+            && on_event(HttpEvent::Status(status)) == Flow::Stop
+        {
+            return Ok(Ended::Stopped);
         }
         for piece in &self.pieces {
-            on_event(HttpEvent::Body(piece));
+            self.delivered.set(self.delivered.get() + 1);
+            if on_event(HttpEvent::Body(piece)) == Flow::Stop {
+                return Ok(Ended::Stopped);
+            }
         }
         self.ended.clone()
     }
@@ -70,7 +77,13 @@ fn endpoint() -> LlmEndpoint {
 fn prompt() -> Prompt {
     let request = Request::Question(Question::try_from("Why?").unwrap());
     let page = PageText::new(Url::parse("https://example.com/").unwrap(), "T", "Text");
-    Prompt::assemble(&request, &[page], TokenBudget::DEFAULT).unwrap()
+    Prompt::assemble(
+        &request,
+        &[page],
+        TokenBudget::DEFAULT,
+        &FenceMarker::from_random([0; 6]),
+    )
+    .unwrap()
 }
 
 /// Asks through `http` without a key; returns how it ended and every event.
@@ -472,11 +485,137 @@ fn lm_studio_is_probed_on_its_models() {
 
 #[test]
 fn a_body_is_kept_up_to_its_limit() {
-    let mut kept = vec![0; MAX_KEPT_BYTES - 2];
+    let mut kept = vec![0; MAX_KEPT_BYTES - 4];
 
-    keep(&mut kept, b"abcd");
-    keep(&mut kept, b"ef");
+    let first = keep(&mut kept, b"abcd");
+    let second = keep(&mut kept, b"ef");
 
+    assert!(first);
+    assert!(!second);
     assert_eq!(kept.len(), MAX_KEPT_BYTES);
-    assert_eq!(&kept[MAX_KEPT_BYTES - 2..], b"ab");
+    assert_eq!(&kept[MAX_KEPT_BYTES - 4..], b"abcd");
+}
+
+#[test]
+fn a_body_that_overfills_by_one_byte_does_not_fit() {
+    let mut kept = vec![0; MAX_KEPT_BYTES - 3];
+
+    let fits = keep(&mut kept, b"abcd");
+
+    assert!(!fits);
+    assert_eq!(&kept[MAX_KEPT_BYTES - 3..], b"abc");
+}
+
+// ---- bounds ------------------------------------------------------------------------------------
+
+#[test]
+fn the_stream_is_stopped_once_done_arrives() {
+    let http = ScriptedHttp::new(200, &["data: [DONE]\n\n", &sse("late"), &sse("later")]);
+
+    let (ended, events, http) = chat(http);
+
+    assert_eq!(ended, Ok(Ended::Complete));
+    assert_eq!(events, []);
+    assert_eq!(http.delivered.get(), 1);
+}
+
+#[test]
+fn the_stream_is_stopped_once_it_fails() {
+    let http = ScriptedHttp::new(200, &["data: nope\n\n", &sse("never")]);
+
+    let (ended, _, http) = chat(http);
+
+    assert_eq!(ended, Err(LlmError::Malformed("nope".to_owned())));
+    assert_eq!(http.delivered.get(), 1);
+}
+
+#[test]
+fn a_line_without_end_is_too_large_and_stops_the_stream() {
+    let endless = format!("data: {}", "x".repeat(1 << 20));
+    let http = ScriptedHttp::new(200, &[&endless, &sse("never")]);
+
+    let (ended, events, http) = chat(http);
+
+    assert!(matches!(ended, Err(LlmError::TooLarge(_))));
+    assert_eq!(events, []);
+    assert_eq!(http.delivered.get(), 1);
+}
+
+#[test]
+fn a_last_event_too_large_fails_at_the_end() {
+    let line = format!("data: {}\n", "x".repeat(1023));
+    let full = line.repeat(1024);
+
+    let (ended, _, _) = chat(ScriptedHttp::new(200, &[&full, "data: x"]));
+
+    assert!(matches!(ended, Err(LlmError::TooLarge(_))));
+}
+
+#[test]
+fn an_answer_of_the_most_text_is_read_whole() {
+    let token = "x".repeat(1024);
+    let body = sse(&token).repeat(MAX_ANSWER_BYTES / 1024);
+
+    let (ended, events, _) = chat(ScriptedHttp::new(200, &[&body]));
+
+    assert_eq!(ended, Ok(Ended::Complete));
+    assert_eq!(events.len(), MAX_ANSWER_BYTES / 1024);
+}
+
+#[test]
+fn an_answer_past_the_most_text_is_too_large_and_stops_the_stream() {
+    let token = "x".repeat(1024);
+    let body = sse(&token).repeat(MAX_ANSWER_BYTES / 1024);
+    let http = ScriptedHttp::new(200, &[&body, &sse("x"), &sse("never")]);
+
+    let (ended, events, http) = chat(http);
+
+    assert_eq!(
+        ended,
+        Err(LlmError::TooLarge(format!(
+            "an answer over {MAX_ANSWER_BYTES} bytes"
+        )))
+    );
+    assert_eq!(events.len(), MAX_ANSWER_BYTES / 1024);
+    assert_eq!(http.delivered.get(), 2);
+}
+
+#[test]
+fn a_whole_answer_past_the_most_text_is_too_large() {
+    let body = format!(
+        r#"{{"choices":[{{"message":{{"content":"{}"}}}}]}}"#,
+        "x".repeat(MAX_ANSWER_BYTES + 1)
+    );
+
+    let (ended, events, _) = chat(ScriptedHttp::new(200, &[&body]));
+
+    assert!(matches!(ended, Err(LlmError::TooLarge(_))));
+    assert_eq!(events, []);
+}
+
+#[test]
+fn a_refusal_is_read_until_its_message_fills_what_is_kept() {
+    let big = "x".repeat(MAX_KEPT_BYTES);
+    let http = ScriptedHttp::new(500, &[&big, "more", "never"]);
+
+    let (ended, _, http) = chat(http);
+
+    assert!(matches!(ended, Err(LlmError::Status { status: 500, .. })));
+    assert_eq!(http.delivered.get(), 2);
+}
+
+#[test]
+fn a_model_list_too_large_to_keep_fails_and_stops_the_stream() {
+    let big = "x".repeat(MAX_KEPT_BYTES);
+    let client = OpenAiClient::new(ScriptedHttp::new(200, &[&big, "y", "never"]));
+
+    let models = client.models(endpoint().base(), None);
+
+    assert_eq!(
+        models,
+        Err(LlmError::TooLarge(format!(
+            "a list of models over {MAX_KEPT_BYTES} bytes"
+        )))
+    );
+    assert_eq!(client.http.delivered.get(), 2);
 }

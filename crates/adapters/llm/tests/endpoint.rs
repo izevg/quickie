@@ -6,13 +6,16 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use quickie_application::{ChatEvent, ChatRequest, Ended, LlmError, LlmPort, StopSignal};
 use quickie_domain_agents::{
-    ApiKey, BaseUrl, LlmEndpoint, ModelId, PageText, Prompt, Question, Request, TokenBudget,
+    ApiKey, BaseUrl, FenceMarker, LlmEndpoint, ModelId, PageText, Prompt, Question, Request,
+    TokenBudget,
 };
 use quickie_engine_webkit::UrlSessionHttp;
 use quickie_llm::OpenAiClient;
@@ -84,6 +87,52 @@ fn serve(
     (base, received)
 }
 
+/// A listener that only counts the connections it gets.
+fn bystander() -> (u16, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&accepted);
+    thread::spawn(move || {
+        for _ in listener.incoming() {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    (port, accepted)
+}
+
+/// An endpoint that answers every request with `307` to `location`.
+fn redirecting(location: String) -> BaseUrl {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 2 {
+            line.clear();
+        }
+        let mut stream = reader.into_inner();
+        let _ = write!(
+            stream,
+            "HTTP/1.1 307 Temporary Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\n\
+             Connection: close\r\n\r\n"
+        );
+    });
+    BaseUrl::try_from(format!("http://127.0.0.1:{port}/v1").as_str()).unwrap()
+}
+
+#[test]
+fn an_endpoint_that_redirects_is_refused_and_the_prompt_goes_nowhere_else() {
+    let (elsewhere, accepted) = bystander();
+    let base = redirecting(format!("http://127.0.0.1:{elsewhere}/v1/chat/completions"));
+
+    let ended = ask(base, None, &StopSignal::new(), &mut |_| {});
+
+    assert!(matches!(ended, Err(LlmError::Status { status: 307, .. })));
+    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+}
+
 fn sse(content: &str) -> String {
     format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{content}\"}}}}]}}\n\n")
 }
@@ -95,7 +144,8 @@ fn prompt() -> Prompt {
         "T",
         "Hello world",
     );
-    Prompt::assemble(&request, &[page], TokenBudget::DEFAULT).unwrap()
+    let marker = FenceMarker::from_random([9; 6]);
+    Prompt::assemble(&request, &[page], TokenBudget::DEFAULT, &marker).unwrap()
 }
 
 /// Asks the endpoint at `base`, with `key`, and collects every event.

@@ -1,10 +1,12 @@
 //! Driven ports: what the use cases need from the outside world.
 
+use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use quickie_domain_agents::{
-    ApiKey, BaseUrl, EndpointSnapshot, KeyRef, LlmEndpoint, LocalServer, ModelId, Prompt,
+    ApiKey, BaseUrl, EndpointSnapshot, FenceMarker, KeyRef, LlmEndpoint, LocalServer, ModelId,
+    Prompt,
 };
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
 use quickie_domain_library::{
@@ -240,9 +242,13 @@ pub trait HttpPort {
 
     /// Sends `request` and hands its answer to `on_event` as it arrives: the status first, then
     /// each piece of the body, whatever the status, so a caller can read an error's body too.
-    /// Blocks until the body ended or `stop` was signalled, which it notices within a fraction
-    /// of a second even while no byte arrives: call it on a worker thread, never on the main
-    /// thread. `on_event` runs on the calling thread.
+    /// Blocks until the body ended, `stop` was signalled, which it notices within a fraction of
+    /// a second even while no byte arrives, or `on_event` answered [`Flow::Stop`]: call it on a
+    /// worker thread, never on the main thread. `on_event` runs on the calling thread.
+    ///
+    /// It never follows a redirect: a 3xx is the answer, status and body. Following one would
+    /// send the request, its body and headers included, to a host nobody validated, possibly
+    /// in the clear.
     ///
     /// # Errors
     ///
@@ -251,12 +257,22 @@ pub trait HttpPort {
         &self,
         request: &HttpRequest,
         stop: &StopSignal,
-        on_event: &mut dyn FnMut(HttpEvent<'_>),
+        on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
     ) -> Result<Ended, HttpError>;
 }
 
+/// Whether a stream's receiver wants more of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flow {
+    /// Keep going.
+    Continue,
+    /// Enough: the receiver has what it needs, or has given up on the answer. The stream ends
+    /// as [`Ended::Stopped`].
+    Stop,
+}
+
 /// What an [`HttpPort::stream`] request does.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum HttpMethod {
     /// GET, without a body.
     Get,
@@ -264,9 +280,19 @@ pub enum HttpMethod {
     Post(Vec<u8>),
 }
 
+/// The body is shown by its length only: it carries the page and the question.
+impl fmt::Debug for HttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Get => f.write_str("GET"),
+            Self::Post(body) => write!(f, "POST ({} bytes)", body.len()),
+        }
+    }
+}
+
 /// A request for [`HttpPort::stream`]. It carries no cookies or credentials but the headers
 /// given here.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HttpRequest {
     /// GET or POST.
     pub method: HttpMethod,
@@ -274,6 +300,30 @@ pub struct HttpRequest {
     pub url: Url,
     /// Header names and values, in order.
     pub headers: Vec<(String, String)>,
+}
+
+/// The value of an `Authorization` header is hidden: it carries the API key, and a debug
+/// print ends up in failing tests, logs, and panic messages.
+impl fmt::Debug for HttpRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let headers: Vec<(&str, &str)> = self
+            .headers
+            .iter()
+            .map(|(name, value)| {
+                let shown = if name.eq_ignore_ascii_case("authorization") {
+                    "<redacted>"
+                } else {
+                    value.as_str()
+                };
+                (name.as_str(), shown)
+            })
+            .collect();
+        f.debug_struct("HttpRequest")
+            .field("method", &self.method)
+            .field("url", &self.url.as_str())
+            .field("headers", &headers)
+            .finish()
+    }
 }
 
 /// What arrives of an answer, in order: [`HttpEvent::Status`] once, then the body in pieces.
@@ -316,6 +366,12 @@ impl StopSignal {
     pub fn is_stopped(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
+}
+
+/// Randomness the page cannot see or influence: the system's generator.
+pub trait Entropy {
+    /// A fresh [`FenceMarker`] for one request.
+    fn fence_marker(&self) -> FenceMarker;
 }
 
 /// Where API keys are kept: the Keychain. Keys never go to the store or to a file; the store
@@ -450,4 +506,47 @@ pub trait ContentBlockerPort {
     ///
     /// The blocker could not start; a failure while compiling is the adapter's to report.
     fn install(&mut self, rules: &BlockerRules) -> Result<(), BlockerError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use url::Url;
+
+    use super::{HttpMethod, HttpRequest};
+
+    fn request(method: HttpMethod, authorization: &str) -> HttpRequest {
+        HttpRequest {
+            method,
+            url: Url::parse("https://api.example.com/v1/chat/completions").unwrap(),
+            headers: vec![
+                ("Accept".to_owned(), "text/event-stream".to_owned()),
+                (authorization.to_owned(), "Bearer sk-secret".to_owned()),
+            ],
+        }
+    }
+
+    #[test]
+    fn a_request_never_shows_its_key_in_debug_output() {
+        let shown = format!("{:?}", request(HttpMethod::Get, "Authorization"));
+
+        assert_eq!(
+            shown,
+            "HttpRequest { method: GET, url: \"https://api.example.com/v1/chat/completions\", \
+             headers: [(\"Accept\", \"text/event-stream\"), (\"Authorization\", \"<redacted>\")] }"
+        );
+    }
+
+    #[test]
+    fn the_authorization_header_is_hidden_in_any_case() {
+        let shown = format!("{:?}", request(HttpMethod::Get, "authorization"));
+
+        assert!(!shown.contains("sk-secret"));
+    }
+
+    #[test]
+    fn a_post_shows_its_body_by_length_only() {
+        let shown = format!("{:?}", HttpMethod::Post(b"page text".to_vec()));
+
+        assert_eq!(shown, "POST (9 bytes)");
+    }
 }

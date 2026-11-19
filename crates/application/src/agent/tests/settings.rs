@@ -1,16 +1,22 @@
 use quickie_domain_agents::{
-    CorruptEndpoint, EndpointSnapshot, KeyRef, ModelIdError, Prompt, PromptError, TokenBudget,
+    CorruptEndpoint, EndpointSnapshot, FenceMarker, KeyRef, ModelIdError, Prompt, PromptError,
+    TokenBudget,
 };
 
-use super::fakes::{FakeAgentRepo, FakeSecrets};
+use super::fakes::{FakeAgentRepo, FakeEntropy, FakeSecrets};
 use super::{base, hosted, key, model, page, question};
 use crate::agent::Agent;
 use crate::{AppError, SecretError, StoreError};
 
-type Subject = Agent<FakeAgentRepo, FakeSecrets>;
+type Subject = Agent<FakeAgentRepo, FakeSecrets, FakeEntropy>;
 
 fn fresh() -> Subject {
-    Agent::start(FakeAgentRepo::default(), FakeSecrets::default()).unwrap()
+    Agent::start(
+        FakeAgentRepo::default(),
+        FakeSecrets::default(),
+        FakeEntropy::default(),
+    )
+    .unwrap()
 }
 
 /// An agent whose hosted endpoint has a key in the Keychain.
@@ -21,7 +27,12 @@ fn keyed() -> Subject {
         saved: Some(endpoint.snapshot()),
         ..FakeAgentRepo::default()
     };
-    Agent::start(repo, FakeSecrets::holding(&reference, "sk-old")).unwrap()
+    Agent::start(
+        repo,
+        FakeSecrets::holding(&reference, "sk-old"),
+        FakeEntropy::default(),
+    )
+    .unwrap()
 }
 
 fn reference() -> KeyRef {
@@ -56,7 +67,7 @@ fn a_corrupt_saved_endpoint_is_dropped_and_reported() {
         ..FakeAgentRepo::default()
     };
 
-    let agent = Agent::start(repo, FakeSecrets::default()).unwrap();
+    let agent = Agent::start(repo, FakeSecrets::default(), FakeEntropy::default()).unwrap();
 
     assert_eq!(agent.endpoint(), None);
     assert_eq!(
@@ -72,7 +83,7 @@ fn a_store_that_cannot_be_read_fails_the_start() {
         ..FakeAgentRepo::default()
     };
 
-    let error = Agent::start(repo, FakeSecrets::default()).unwrap_err();
+    let error = Agent::start(repo, FakeSecrets::default(), FakeEntropy::default()).unwrap_err();
 
     assert_eq!(error, AppError::Store(StoreError("load".to_owned())));
 }
@@ -316,7 +327,7 @@ fn asking_needs_an_endpoint() {
     let agent = fresh();
 
     let error = agent
-        .ask(&question("Why?"), vec![page("Because.")])
+        .ask(&question("Why?"), &[page("Because.")])
         .unwrap_err();
 
     assert_eq!(error, AppError::NoEndpoint);
@@ -326,30 +337,42 @@ fn asking_needs_an_endpoint() {
 fn asking_needs_a_page() {
     let agent = keyed();
 
-    let error = agent.ask(&question("Why?"), Vec::new()).unwrap_err();
+    let error = agent.ask(&question("Why?"), &[]).unwrap_err();
 
     assert_eq!(error, AppError::Prompt(PromptError::NoPage));
 }
 
 #[test]
-fn asking_prepares_the_prompt_for_the_endpoint() {
+fn asking_prepares_the_prompt_for_the_endpoint_with_a_fresh_marker() {
     let agent = keyed();
     let request = question("Why?");
 
-    let asking = agent.ask(&request, vec![page("Because.")]).unwrap();
+    let asking = agent.ask(&request, &[page("Because.")]).unwrap();
 
     assert_eq!(asking.endpoint(), &hosted().with_key());
+    let marker = FenceMarker::from_random([1; 6]);
     assert_eq!(
         asking.prompt(),
-        &Prompt::assemble(&request, &[page("Because.")], TokenBudget::DEFAULT).unwrap()
+        &Prompt::assemble(&request, &[page("Because.")], TokenBudget::DEFAULT, &marker).unwrap()
     );
+}
+
+#[test]
+fn each_request_is_fenced_with_its_own_marker() {
+    let agent = keyed();
+    let request = question("Why?");
+
+    let first = agent.ask(&request, &[page("Because.")]).unwrap();
+    let second = agent.ask(&request, &[page("Because.")]).unwrap();
+
+    assert_ne!(first.prompt(), second.prompt());
 }
 
 #[test]
 fn asking_reaches_neither_keychain_nor_store() {
     let agent = keyed();
 
-    let _ = agent.ask(&question("Why?"), vec![page("Because.")]);
+    let _ = agent.ask(&question("Why?"), &[page("Because.")]);
 
     assert_eq!(agent.secrets.reads.get(), 0);
     assert_eq!(agent.repo.saves, 0);

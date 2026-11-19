@@ -6,7 +6,7 @@ use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSn
 use url::Url;
 
 use crate::{
-    BlockerError, BlockerRules, ContentBlockerPort, Ended, HttpError, HttpEvent, HttpPort,
+    BlockerError, BlockerRules, ContentBlockerPort, Ended, Flow, HttpError, HttpEvent, HttpPort,
     HttpRequest, ShieldsRepo, ShieldsSnapshot, StopSignal, StoreError,
 };
 
@@ -97,7 +97,7 @@ impl HttpPort for FakeHttp {
         &self,
         request: &HttpRequest,
         _stop: &StopSignal,
-        _on_event: &mut dyn FnMut(HttpEvent<'_>),
+        _on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
     ) -> Result<Ended, HttpError> {
         Err(HttpError(format!("unexpected stream of {}", request.url)))
     }

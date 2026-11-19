@@ -1,11 +1,13 @@
 //! Against a Keychain file of its own in a temporary directory, so a test never touches the
 //! user's login Keychain.
 
+use std::process::Command;
+
 use quickie_application::SecretStore;
 use quickie_domain_agents::{ApiKey, BaseUrl, KeyRef};
-use security_framework::os::macos::keychain::CreateOptions;
+use security_framework::os::macos::keychain::{CreateOptions, SecKeychain};
 
-use super::KeychainSecrets;
+use super::{KeychainSecrets, SERVICE};
 
 /// A fresh, unlocked Keychain; the directory removes it when dropped.
 fn keychain() -> (tempfile::TempDir, KeychainSecrets) {
@@ -97,4 +99,61 @@ fn the_secrets_never_show_their_keys_in_debug_output() {
         format!("{:?}", KeychainSecrets::default()),
         "KeychainSecrets { default: true }"
     );
+}
+
+#[test]
+fn an_item_created_before_quickie_is_replaced_not_written_into() {
+    let (_dir, secrets) = keychain();
+    let origin = reference("https://api.openai.com/v1");
+    let keychain = secrets.keychain.clone().unwrap();
+    keychain
+        .add_generic_password(SERVICE, origin.as_str(), b"squatter")
+        .unwrap();
+    let (_, mut squatted) = keychain
+        .find_generic_password(SERVICE, origin.as_str())
+        .unwrap();
+
+    secrets.write(&origin, &key("sk-real")).unwrap();
+
+    let (password, _) = keychain
+        .find_generic_password(SERVICE, origin.as_str())
+        .unwrap();
+    assert_eq!(&*password, b"sk-real");
+    assert!(
+        squatted.set_password(b"probe").is_err(),
+        "the item created before still exists: the key went into it"
+    );
+}
+
+#[test]
+fn a_key_in_another_keychain_is_never_read() {
+    let (_dir, ours) = keychain();
+    let (_other_dir, other) = keychain();
+    let origin = reference("https://api.openai.com/v1");
+    other.write(&origin, &key("sk-decoy")).unwrap();
+
+    let read = ours.read(&origin);
+
+    assert_eq!(read, Ok(None));
+}
+
+#[test]
+fn deleting_from_a_locked_keychain_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("locked.keychain");
+    let keychain = CreateOptions::new().password("test").create(&path).unwrap();
+    let secrets = KeychainSecrets::in_keychain(keychain);
+    let origin = reference("https://api.openai.com/v1");
+    secrets.write(&origin, &key("sk-live")).unwrap();
+    let locked = Command::new("/usr/bin/security")
+        .arg("lock-keychain")
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(locked.success());
+    let _no_prompt = SecKeychain::disable_user_interaction().unwrap();
+
+    let deleted = secrets.delete(&origin);
+
+    assert!(deleted.is_err(), "{deleted:?}");
 }

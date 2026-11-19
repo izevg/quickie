@@ -51,6 +51,9 @@ pub enum LlmError {
     /// The answer is not shaped as the API's.
     #[error("the endpoint's answer is not OpenAI-compatible: {0}")]
     Malformed(String),
+    /// The answer outgrew what Quickie reads of one; names what was too large.
+    #[error("the endpoint's answer is too large: {0}")]
+    TooLarge(String),
 }
 
 /// Why a use case failed. On [`AppError::Engine`] the session kept the change and the engine

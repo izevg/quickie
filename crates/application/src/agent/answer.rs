@@ -1,7 +1,7 @@
 //! Answering: one request streamed from the endpoint into [`AnswerEvent`]s, on a worker thread.
 
 use quickie_domain_agents::{
-    AgentSession, AnswerPart, ApiKey, Citation, KeyRef, LlmEndpoint, PageText, Prompt, Speed,
+    AgentSession, AnswerPart, ApiKey, Citation, KeyRef, LlmEndpoint, Prompt, Speed,
 };
 
 use crate::{
@@ -47,22 +47,17 @@ pub enum AskError {
     Llm(#[from] LlmError),
 }
 
-/// A request ready to be answered: the endpoint, the prompt, and the pages the answer may cite.
-/// It owns all of it, so the shell can move it to a worker thread.
+/// A request ready to be answered: the endpoint, and the prompt, which also holds the page
+/// text the answer may cite. It owns all of it, so the shell can move it to a worker thread.
 #[derive(Clone, Debug)]
 pub struct Asking {
     endpoint: LlmEndpoint,
     prompt: Prompt,
-    pages: Vec<PageText>,
 }
 
 impl Asking {
-    pub(super) fn new(endpoint: LlmEndpoint, prompt: Prompt, pages: Vec<PageText>) -> Self {
-        Self {
-            endpoint,
-            prompt,
-            pages,
-        }
+    pub(super) fn new(endpoint: LlmEndpoint, prompt: Prompt) -> Self {
+        Self { endpoint, prompt }
     }
 
     /// The endpoint asked.
@@ -97,7 +92,7 @@ impl Asking {
             key: key.as_ref(),
             prompt: &self.prompt,
         };
-        let mut session = AgentSession::new(&self.pages, clock.now());
+        let mut session = AgentSession::new(&self.prompt, clock.now());
         let mut reported = None;
         let ended = llm.chat(&request, stop, &mut |event| match event {
             ChatEvent::Delta(token) => {

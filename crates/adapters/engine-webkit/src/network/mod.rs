@@ -1,102 +1,84 @@
 //! The development engine's network for the browser's own requests: the application's
 //! [`HttpPort`] on `NSURLSession`, the system stack `WebKit` itself loads pages with. The
 //! Chromium engine replaces it with Chromium's network service, which the egress test watches.
-//! Whole bodies come from a completion handler; streamed ones, such as an LLM's answer, from a
-//! data task delegate ([`stream`]).
+//!
+//! Every request, whole or streamed, runs as a data task of an ephemeral session of its own
+//! whose delegate forwards what arrives ([`stream`]). The delegate refuses redirects: a 3xx is
+//! the answer, so a request never goes on to a host nobody validated.
 
 mod stream;
 #[cfg(test)]
 mod tests;
 
-use std::sync::mpsc;
 use std::time::Duration;
 
-use block2::RcBlock;
 use objc2::MainThreadMarker;
-use objc2::rc::Retained;
-use objc2_foundation::{
-    NSData, NSError, NSHTTPURLResponse, NSString, NSURL, NSURLResponse, NSURLSession,
-    NSURLSessionConfiguration,
+use quickie_application::{
+    Ended, Flow, HttpError, HttpEvent, HttpMethod, HttpPort, HttpRequest, StopSignal,
 };
-use quickie_application::{Ended, HttpError, HttpEvent, HttpPort, HttpRequest, StopSignal};
 use url::Url;
 
-/// How long a request may wait for the next bytes before it fails.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+use stream::Timeouts;
 
-/// How long a whole request may take, filter lists of several megabytes included.
-const TOTAL_TIMEOUT: Duration = Duration::from_secs(120);
+/// Whole requests, such as filter lists of several megabytes: how long one may wait for its
+/// next bytes, and how long it may take.
+const WHOLE: Timeouts = Timeouts {
+    idle: Duration::from_secs(30),
+    total: Duration::from_secs(120),
+};
 
-/// GETs over an ephemeral `NSURLSession`: no cookies, no cache, no credentials kept, so a
+/// Streamed requests. Long, as a local LLM server may first load a model of several
+/// gigabytes before its first token.
+const STREAMED: Timeouts = Timeouts {
+    idle: Duration::from_secs(300),
+    total: Duration::from_mins(30),
+};
+
+/// Requests over ephemeral `NSURLSession`s: no cookies, no cache, no credentials kept, so a
 /// request carries nothing about the user and leaves nothing behind.
-#[derive(Debug)]
-pub struct UrlSessionHttp {
-    session: Retained<NSURLSession>,
-}
-
-impl Default for UrlSessionHttp {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[derive(Debug, Default)]
+pub struct UrlSessionHttp;
 
 impl UrlSessionHttp {
-    /// A session of its own, with nothing in it.
+    /// The network for the browser's own requests.
     #[must_use]
     pub fn new() -> Self {
-        let configuration = NSURLSessionConfiguration::ephemeralSessionConfiguration();
-        configuration.setTimeoutIntervalForRequest(IDLE_TIMEOUT.as_secs_f64());
-        configuration.setTimeoutIntervalForResource(TOTAL_TIMEOUT.as_secs_f64());
-        configuration.setHTTPShouldSetCookies(false);
-        Self {
-            session: NSURLSession::sessionWithConfiguration(&configuration),
-        }
-    }
-}
-
-impl Drop for UrlSessionHttp {
-    fn drop(&mut self) {
-        self.session.invalidateAndCancel();
+        Self
     }
 }
 
 impl HttpPort for UrlSessionHttp {
     fn get(&self, url: &Url) -> Result<Vec<u8>, HttpError> {
         off_main_thread()?;
-        let target = NSURL::URLWithString(&NSString::from_str(url.as_str()))
-            .ok_or_else(|| HttpError(format!("not a URL the system can load: {url}")))?;
-        let (answer, answered) = mpsc::sync_channel(1);
-        let block = RcBlock::new(
-            move |data: *mut NSData, response: *mut NSURLResponse, error: *mut NSError| {
-                // The caller may have given up already; then nobody needs the answer.
-                let _ = answer.send(outcome(data, response, error));
-            },
-        );
-        // SAFETY: the block is called once, on the session's own queue; everything it captures
-        // (a channel sender) is `Send`, and it outlives the call because the task retains it.
-        let task = unsafe {
-            self.session
-                .dataTaskWithURL_completionHandler(&target, &block)
+        let request = HttpRequest {
+            method: HttpMethod::Get,
+            url: url.clone(),
+            headers: Vec::new(),
         };
-        task.resume();
-        answered
-            .recv_timeout(TOTAL_TIMEOUT + IDLE_TIMEOUT)
-            .unwrap_or_else(|_| {
-                task.cancel();
-                Err(HttpError(format!("no answer from {url}")))
-            })
+        let mut status = None;
+        let mut body = Vec::new();
+        stream::stream(&request, WHOLE, &StopSignal::new(), &mut |event| {
+            match event {
+                HttpEvent::Status(code) => status = Some(code),
+                HttpEvent::Body(bytes) => body.extend_from_slice(bytes),
+            }
+            Flow::Continue
+        })?;
+        match status {
+            Some(code) if (200..300).contains(&code) => Ok(body),
+            Some(code) => Err(HttpError(format!("status {code}"))),
+            None => Err(HttpError(format!("no answer from {url}"))),
+        }
     }
 
-    /// Streams over a session of its own, whose delegate forwards each piece of the body as it
-    /// arrives.
     fn stream(
         &self,
         request: &HttpRequest,
         stop: &StopSignal,
-        on_event: &mut dyn FnMut(HttpEvent<'_>),
+        on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
     ) -> Result<Ended, HttpError> {
         off_main_thread()?;
-        stream::stream(request, stop, on_event)
+        stream::stream(request, STREAMED, stop, on_event)
     }
 }
 
@@ -108,26 +90,4 @@ fn off_main_thread() -> Result<(), HttpError> {
         ));
     }
     Ok(())
-}
-
-/// What a finished task brought: the body of a 2xx response, or why there is none.
-fn outcome(
-    data: *mut NSData,
-    response: *mut NSURLResponse,
-    error: *mut NSError,
-) -> Result<Vec<u8>, HttpError> {
-    // SAFETY: Foundation passes a valid error or nil, alive during the call.
-    if let Some(error) = unsafe { error.as_ref() } {
-        return Err(HttpError(error.localizedDescription().to_string()));
-    }
-    // SAFETY: Foundation passes a valid response or nil, alive during the call.
-    let status = unsafe { response.as_ref() }
-        .and_then(|response| response.downcast_ref::<NSHTTPURLResponse>())
-        .map(NSHTTPURLResponse::statusCode)
-        .ok_or_else(|| HttpError("the answer is not http".to_owned()))?;
-    if !(200..300).contains(&status) {
-        return Err(HttpError(format!("status {status}")));
-    }
-    // SAFETY: Foundation passes valid data or nil, alive during the call.
-    Ok(unsafe { data.as_ref() }.map_or_else(Vec::new, NSData::to_vec))
 }

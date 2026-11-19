@@ -4,7 +4,7 @@ use url::Url;
 use super::citation::Sources;
 use super::scan::{Piece, Scanner};
 use super::{AgentSession, AnswerPart, Citation, Mode, Speed};
-use crate::PageText;
+use crate::{FenceMarker, PageText, Prompt, Question, Request, TokenBudget};
 
 const PAGE: &str = "The  quick brown fox\njumps over the lazy dog. Prices rose by 4% in May.";
 
@@ -12,16 +12,19 @@ fn at(millis: u64) -> Timestamp {
     Timestamp::from_millis(millis)
 }
 
-fn pages() -> Vec<PageText> {
-    vec![PageText::new(
-        Url::parse("https://example.com/").unwrap(),
-        "Example",
-        PAGE,
-    )]
+/// The page text as a prompt sends it: cleaned, whitespace collapsed.
+fn pages() -> Vec<String> {
+    vec!["The quick brown fox\njumps over the lazy dog. Prices rose by 4% in May.".to_owned()]
+}
+
+fn prompt_about(text: &str, budget: TokenBudget) -> Prompt {
+    let page = PageText::new(Url::parse("https://a.b/").unwrap(), "", text);
+    let request = Request::Question(Question::try_from("What?").unwrap());
+    Prompt::assemble(&request, &[page], budget, &FenceMarker::from_random([0; 6])).unwrap()
 }
 
 fn session() -> AgentSession {
-    AgentSession::new(&pages(), at(1_000))
+    AgentSession::new(&prompt_about(PAGE, TokenBudget::DEFAULT), at(1_000))
 }
 
 fn text(text: &str) -> Piece {
@@ -188,8 +191,13 @@ fn a_mark_with_multibyte_text_is_split_safely() {
 
 // ---- citations ---------------------------------------------------------------------------------
 
+fn sources(texts: &[&str]) -> Sources {
+    let texts: Vec<String> = texts.iter().map(|&text| text.to_owned()).collect();
+    Sources::of(&texts)
+}
+
 #[test]
-fn a_quote_the_page_contains_is_a_citation() {
+fn a_quote_the_page_contains_is_a_citation_anchored_by_its_first_unique_words() {
     let sources = Sources::of(&pages());
 
     let citation = sources.cite("quick brown fox jumps");
@@ -198,7 +206,7 @@ fn a_quote_the_page_contains_is_a_citation() {
         citation,
         Some(Citation {
             quote: "quick brown fox jumps".to_owned(),
-            anchor: "quick brown fox jumps".to_owned(),
+            anchor: "quick brown fox".to_owned(),
         })
     );
 }
@@ -211,7 +219,7 @@ fn a_quote_matches_across_case_and_whitespace() {
 
     assert_eq!(
         citation.map(|citation| citation.anchor),
-        Some("THE QUICK brown fox".to_owned())
+        Some("THE QUICK brown".to_owned())
     );
 }
 
@@ -219,11 +227,68 @@ fn a_quote_matches_across_case_and_whitespace() {
 fn quotation_marks_around_a_quote_are_dropped() {
     let sources = Sources::of(&pages());
 
-    let citation = sources.cite("“lazy dog.”");
+    let citation = sources.cite("“over the lazy dog.”");
 
     assert_eq!(
         citation.map(|citation| citation.quote),
-        Some("lazy dog.".to_owned())
+        Some("over the lazy dog.".to_owned())
+    );
+}
+
+#[test]
+fn a_single_letter_is_no_citation() {
+    let citation = sources(&["abc"]).cite("a");
+
+    assert_eq!(citation, None);
+}
+
+#[test]
+fn two_long_words_are_no_citation() {
+    let found = sources(&["supercalifragilistic expialidocious word"]);
+
+    assert_eq!(found.cite("supercalifragilistic expialidocious"), None);
+    assert!(
+        found
+            .cite("supercalifragilistic expialidocious word")
+            .is_some()
+    );
+}
+
+#[test]
+fn three_words_need_fifteen_characters() {
+    let found = sources(&["aaaa bbbb ccccc d"]);
+
+    assert_eq!(found.cite("aaaa bbbb cccc"), None);
+    assert!(found.cite("aaaa bbbb ccccc").is_some());
+}
+
+#[test]
+fn an_anchor_grows_until_it_occurs_only_once() {
+    let found = sources(&["the cat sat here. The cat sat there and slept."]);
+
+    let citation = found.cite("the cat sat there and slept").unwrap();
+
+    assert_eq!(citation.anchor, "the cat sat there");
+}
+
+#[test]
+fn a_quote_with_no_unique_start_is_its_own_anchor() {
+    let found = sources(&["one two three four. one two three four."]);
+
+    let citation = found.cite("one two three four").unwrap();
+
+    assert_eq!(citation.anchor, "one two three four");
+}
+
+#[test]
+fn a_quote_found_only_past_what_was_sent_is_no_citation() {
+    let mut session = AgentSession::new(&prompt_about(PAGE, TokenBudget::new(10)), at(1_000));
+
+    let parts = session.received("[[cite: Prices rose by 4% in May]]", at(1_100));
+
+    assert_eq!(
+        parts,
+        [AnswerPart::Text("“Prices rose by 4% in May”".to_owned())]
     );
 }
 
@@ -246,33 +311,12 @@ fn a_quote_of_only_quotation_marks_is_no_citation() {
 }
 
 #[test]
-fn an_anchor_keeps_the_first_twelve_words() {
-    let words: Vec<String> = (1..=14).map(|n| format!("w{n}")).collect();
-    let text = words.join(" ");
-    let page = PageText::new(
-        Url::parse("https://example.com/").unwrap(),
-        "",
-        text.as_str(),
-    );
-    let sources = Sources::of(&[page]);
-
-    let citation = sources.cite(&text).unwrap();
-
-    assert_eq!(citation.quote, text);
-    assert_eq!(citation.anchor, words[..12].join(" "));
-}
-
-#[test]
 fn a_quote_from_a_second_page_is_a_citation() {
     let mut both = pages();
-    both.push(PageText::new(
-        Url::parse("https://example.org/").unwrap(),
-        "Other",
-        "Another tab entirely",
-    ));
+    both.push("Another tab entirely".to_owned());
     let sources = Sources::of(&both);
 
-    let citation = sources.cite("another tab");
+    let citation = sources.cite("another tab entirely");
 
     assert!(citation.is_some());
 }
@@ -304,7 +348,7 @@ fn a_located_quote_becomes_a_citation_part() {
 
     let citation = Citation {
         quote: "Prices rose by 4%".to_owned(),
-        anchor: "Prices rose by 4%".to_owned(),
+        anchor: "Prices rose by".to_owned(),
     };
     assert_eq!(
         parts,
@@ -422,17 +466,17 @@ fn finishing_releases_what_was_held_back() {
 #[test]
 fn finishing_hands_over_the_answer_and_its_citations() {
     let mut session = session();
-    session.received("[[cite: lazy dog]] ok", at(1_100));
+    session.received("[[cite: over the lazy dog]] ok", at(1_100));
 
     let finished = session.finish(at(1_200), None);
 
     assert_eq!(finished.parts, []);
-    assert_eq!(finished.answer, "“lazy dog” ok");
+    assert_eq!(finished.answer, "“over the lazy dog” ok");
     assert_eq!(
         finished.citations,
         [Citation {
-            quote: "lazy dog".to_owned(),
-            anchor: "lazy dog".to_owned(),
+            quote: "over the lazy dog".to_owned(),
+            anchor: "over the lazy".to_owned(),
         }]
     );
 }

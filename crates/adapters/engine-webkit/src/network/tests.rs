@@ -2,12 +2,14 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use quickie_application::{
-    Ended, HttpError, HttpEvent, HttpMethod, HttpPort, HttpRequest, StopSignal,
+    Ended, Flow, HttpError, HttpEvent, HttpMethod, HttpPort, HttpRequest, StopSignal,
 };
 use url::Url;
 
@@ -88,11 +90,110 @@ fn collect(
 ) -> (Result<Ended, HttpError>, Option<u16>, Vec<Vec<u8>>) {
     let mut status = None;
     let mut pieces = Vec::new();
-    let ended = UrlSessionHttp::new().stream(request, stop, &mut |event| match event {
-        HttpEvent::Status(code) => status = Some(code),
-        HttpEvent::Body(bytes) => pieces.push(bytes.to_vec()),
+    let ended = UrlSessionHttp::new().stream(request, stop, &mut |event| {
+        match event {
+            HttpEvent::Status(code) => status = Some(code),
+            HttpEvent::Body(bytes) => pieces.push(bytes.to_vec()),
+        }
+        Flow::Continue
     });
     (ended, status, pieces)
+}
+
+/// A listener that only counts the connections it gets.
+fn bystander() -> (u16, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&accepted);
+    thread::spawn(move || {
+        for _ in listener.incoming() {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    (port, accepted)
+}
+
+/// Answers one request with a redirect to `location`.
+fn serve_redirect(status: &'static str, location: String) -> Url {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 2 {
+            line.clear();
+        }
+        let mut stream = reader.into_inner();
+        let body = b"moved";
+        let _ = write!(
+            stream,
+            "HTTP/1.1 {status}\r\nLocation: {location}\r\nContent-Length: {}\r\n\
+             Connection: close\r\n\r\n",
+            body.len()
+        )
+        .and_then(|()| stream.write_all(body));
+    });
+    Url::parse(&format!("http://127.0.0.1:{port}/v1/chat/completions")).unwrap()
+}
+
+#[test]
+fn a_streamed_redirect_is_the_answer_and_never_followed() {
+    for status in [
+        "301 Moved Permanently",
+        "302 Found",
+        "307 Temporary Redirect",
+        "308 Permanent Redirect",
+    ] {
+        let (elsewhere, accepted) = bystander();
+        let url = serve_redirect(status, format!("http://127.0.0.1:{elsewhere}/steal"));
+
+        let (ended, code, body) = collect(&post(url), &StopSignal::new());
+
+        assert_eq!(ended, Ok(Ended::Complete), "{status}");
+        assert_eq!(
+            code.map(|code| code.to_string()),
+            Some(status[..3].to_owned())
+        );
+        assert_eq!(body.concat(), b"moved");
+        assert_eq!(accepted.load(Ordering::SeqCst), 0, "{status} was followed");
+    }
+}
+
+#[test]
+fn a_whole_request_never_follows_a_redirect() {
+    let (elsewhere, accepted) = bystander();
+    let url = serve_redirect(
+        "302 Found",
+        format!("http://127.0.0.1:{elsewhere}/list.txt"),
+    );
+
+    let body = UrlSessionHttp::new().get(&url);
+
+    assert_eq!(body, Err(HttpError("status 302".to_owned())));
+    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_receiver_that_has_enough_ends_the_stream() {
+    let pieces: Vec<&'static [u8]> = vec![b"data: first\n\n", b"data: second\n\n"];
+    let (url, _) = serve_stream("200 OK", pieces, Duration::from_secs(10));
+    let mut seen = Vec::new();
+    let started = Instant::now();
+
+    let ended = UrlSessionHttp::new().stream(&post(url), &StopSignal::new(), &mut |event| {
+        seen.push(format!("{event:?}"));
+        if matches!(event, HttpEvent::Body(_)) {
+            Flow::Stop
+        } else {
+            Flow::Continue
+        }
+    });
+
+    assert_eq!(ended, Ok(Ended::Stopped));
+    assert_eq!(seen.len(), 2);
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 fn post(url: Url) -> HttpRequest {
@@ -188,6 +289,7 @@ fn a_stop_while_the_server_is_silent_ends_the_stream_at_once() {
             first = Some(bytes.to_vec());
             stopper.stop();
         }
+        Flow::Continue
     });
 
     assert_eq!(ended, Ok(Ended::Stopped));
@@ -273,7 +375,7 @@ fn a_successful_answer_gives_its_body() {
 fn an_empty_answer_is_an_empty_body() {
     let url = serve_once("204 No Content", b"");
 
-    let body = UrlSessionHttp::default().get(&url);
+    let body = UrlSessionHttp.get(&url);
 
     assert_eq!(body, Ok(Vec::new()));
 }

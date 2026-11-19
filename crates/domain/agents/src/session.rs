@@ -14,7 +14,7 @@ pub use citation::Citation;
 use citation::Sources;
 use scan::{Piece, Scanner};
 
-use crate::PageText;
+use crate::Prompt;
 
 /// How the agent works. Only Ask exists so far; Act, which acts in the agent profile under
 /// approvals and the provenance rule, arrives later.
@@ -59,7 +59,8 @@ pub struct Finished {
 
 /// The agent answering one request in Ask mode. It turns the model's tokens into
 /// [`AnswerPart`]s: text goes out at once, and a quote mark becomes a [`Citation`] if the pages
-/// contain the quote, or plain quoted text if they do not.
+/// as sent contain the quote, or plain quoted text if they do not or it is too short to prove
+/// anything.
 #[derive(Clone, Debug)]
 pub struct AgentSession {
     sources: Sources,
@@ -72,11 +73,12 @@ pub struct AgentSession {
 }
 
 impl AgentSession {
-    /// A session answering about `pages`, asked at `asked_at`.
+    /// A session answering `prompt`, asked at `asked_at`. Its citations must quote the pages
+    /// as the prompt sent them: never text past the budget the model did not see.
     #[must_use]
-    pub fn new(pages: &[PageText], asked_at: Timestamp) -> Self {
+    pub fn new(prompt: &Prompt, asked_at: Timestamp) -> Self {
         Self {
-            sources: Sources::of(pages),
+            sources: Sources::of(prompt.sent_texts()),
             scanner: Scanner::default(),
             asked_at,
             first_token_at: None,

@@ -1,9 +1,13 @@
-//! Streaming requests: an `NSURLSession` data task whose delegate hands each piece of the body
-//! to the calling thread as it arrives, so an LLM's tokens reach the answer panel one by one.
+//! Requests as `NSURLSession` data tasks whose delegate hands each piece of the body to the
+//! calling thread as it arrives, so an LLM's tokens reach the answer panel one by one.
 //!
 //! The delegate runs on the session's own serial queue, never on the main thread. It only
 //! forwards what it gets through a channel; the calling worker thread does the rest, and checks
 //! the stop signal between arrivals.
+//!
+//! The delegate refuses every redirect, so the 3xx itself is the answer. Following one would
+//! re-send the request, an LLM prompt with the page in it, to whatever host the `Location`
+//! names, in the clear if it says `http:`, past every check of the endpoint's URL.
 
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
@@ -13,22 +17,24 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_foundation::{
-    NSData, NSError, NSHTTPURLResponse, NSMutableURLRequest, NSString, NSURL, NSURLResponse,
-    NSURLSession, NSURLSessionConfiguration, NSURLSessionDataDelegate, NSURLSessionDataTask,
-    NSURLSessionDelegate, NSURLSessionResponseDisposition, NSURLSessionTask,
+    NSData, NSError, NSHTTPURLResponse, NSMutableURLRequest, NSString, NSURL, NSURLRequest,
+    NSURLResponse, NSURLSession, NSURLSessionConfiguration, NSURLSessionDataDelegate,
+    NSURLSessionDataTask, NSURLSessionDelegate, NSURLSessionResponseDisposition, NSURLSessionTask,
     NSURLSessionTaskDelegate,
 };
-use quickie_application::{Ended, HttpError, HttpEvent, HttpMethod, HttpRequest, StopSignal};
-
-/// How long a stream may wait for its next bytes. Long, as a local server may first load a
-/// model of several gigabytes before its first token.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// How long a whole stream may take.
-const TOTAL_TIMEOUT: Duration = Duration::from_mins(30);
+use quickie_application::{Ended, Flow, HttpError, HttpEvent, HttpMethod, HttpRequest, StopSignal};
 
 /// How often the waiting thread looks at the stop signal while nothing arrives.
 const POLL: Duration = Duration::from_millis(50);
+
+/// How long a request may take.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Timeouts {
+    /// The longest wait for the next bytes.
+    pub idle: Duration,
+    /// The longest a whole request may take.
+    pub total: Duration,
+}
 
 /// What the delegate forwards, in the order it happens.
 enum Arrival {
@@ -56,8 +62,21 @@ define_class!(
 
     unsafe impl NSURLSessionDelegate for StreamDelegate {}
 
-    // SAFETY: the method matches the protocol's signature.
+    // SAFETY: both methods match the protocol's signatures.
     unsafe impl NSURLSessionTaskDelegate for StreamDelegate {
+        #[unsafe(method(URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:))]
+        fn will_redirect(
+            &self,
+            _session: &NSURLSession,
+            _task: &NSURLSessionTask,
+            _response: &NSHTTPURLResponse,
+            _request: &NSURLRequest,
+            completion: &DynBlock<dyn Fn(*mut NSURLRequest)>,
+        ) {
+            // No new request: the redirect response itself is delivered as the answer.
+            completion.call((std::ptr::null_mut(),));
+        }
+
         #[unsafe(method(URLSession:task:didCompleteWithError:))]
         fn did_complete(
             &self,
@@ -113,18 +132,20 @@ impl StreamDelegate {
 }
 
 /// Sends `request` over a session of its own, ephemeral like every request of the browser's,
-/// and hands what arrives to `on_event` until the body ends or `stop` is given.
+/// and hands what arrives to `on_event` until the body ends, `stop` is given, or `on_event`
+/// has had enough.
 pub(super) fn stream(
     request: &HttpRequest,
+    timeouts: Timeouts,
     stop: &StopSignal,
-    on_event: &mut dyn FnMut(HttpEvent<'_>),
+    on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
 ) -> Result<Ended, HttpError> {
     let target = ns_request(request)?;
     let (sender, arrivals) = mpsc::channel();
     let delegate = StreamDelegate::new(sender);
     let configuration = NSURLSessionConfiguration::ephemeralSessionConfiguration();
-    configuration.setTimeoutIntervalForRequest(IDLE_TIMEOUT.as_secs_f64());
-    configuration.setTimeoutIntervalForResource(TOTAL_TIMEOUT.as_secs_f64());
+    configuration.setTimeoutIntervalForRequest(timeouts.idle.as_secs_f64());
+    configuration.setTimeoutIntervalForResource(timeouts.total.as_secs_f64());
     configuration.setHTTPShouldSetCookies(false);
     // SAFETY: no queue is given, so the session makes its own serial one; the delegate is
     // thread-safe (it only sends on a channel), and the session keeps it alive until it is
@@ -144,17 +165,17 @@ pub(super) fn stream(
     ended
 }
 
-/// Hands arrivals to `on_event` until the task ends or `stop` is given.
+/// Hands arrivals to `on_event` until the task ends, `stop` is given, or `on_event` stops.
 fn pump(
     arrivals: &Receiver<Arrival>,
     stop: &StopSignal,
-    on_event: &mut dyn FnMut(HttpEvent<'_>),
+    on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
 ) -> Result<Ended, HttpError> {
     loop {
         if stop.is_stopped() {
             return Ok(Ended::Stopped);
         }
-        match arrivals.recv_timeout(POLL) {
+        let flow = match arrivals.recv_timeout(POLL) {
             Ok(Arrival::Status(Some(status))) => on_event(HttpEvent::Status(status)),
             Ok(Arrival::Status(None)) => {
                 return Err(HttpError("the answer is not http".to_owned()));
@@ -162,10 +183,13 @@ fn pump(
             Ok(Arrival::Data(bytes)) => on_event(HttpEvent::Body(&bytes)),
             Ok(Arrival::Finished(None)) => return Ok(Ended::Complete),
             Ok(Arrival::Finished(Some(failure))) => return Err(HttpError(failure)),
-            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Timeout) => Flow::Continue,
             Err(RecvTimeoutError::Disconnected) => {
                 return Err(HttpError("the request ended without an answer".to_owned()));
             }
+        };
+        if flow == Flow::Stop {
+            return Ok(Ended::Stopped);
         }
     }
 }

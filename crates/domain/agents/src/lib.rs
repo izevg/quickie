@@ -24,8 +24,8 @@ pub use endpoint::{
     LlmEndpoint, LocalServer, ModelId, ModelIdError,
 };
 pub use prompt::{
-    Message, OutputForm, PageScope, PageText, Prompt, PromptError, Question, QuestionError,
-    Request, Role, Skill, SkillId, SkillIdError, TokenBudget,
+    FenceMarker, Message, OutputForm, PageScope, PageText, Prompt, PromptError, Question,
+    QuestionError, Request, Role, Skill, SkillId, SkillIdError, TokenBudget,
 };
 pub use quickie_domain_kernel::Timestamp;
 pub use session::{AgentSession, AnswerPart, Citation, Finished, Mode, Speed};

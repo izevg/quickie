@@ -25,8 +25,8 @@ pub use library::{CorruptLibrary, Library};
 pub use palette::{Palette, PaletteItem, Sources, Target};
 pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
-    HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapRepo, LibraryRepo,
-    LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore, SessionRepo, ShieldsRepo,
-    ShieldsSnapshot, StopSignal,
+    Entropy, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapRepo,
+    LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore, SessionRepo,
+    ShieldsRepo, ShieldsSnapshot, StopSignal,
 };
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};

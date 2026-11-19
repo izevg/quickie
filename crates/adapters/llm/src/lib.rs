@@ -15,18 +15,22 @@ mod tests;
 mod wire;
 
 use quickie_application::{
-    ChatEvent, ChatRequest, Ended, HttpEvent, HttpMethod, HttpPort, HttpRequest, LlmError, LlmPort,
-    StopSignal,
+    ChatEvent, ChatRequest, Ended, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, LlmError,
+    LlmPort, StopSignal,
 };
 use quickie_domain_agents::{ApiKey, BaseUrl, LocalServer, ModelId};
 use url::Url;
 
-use sse::{Decoder, Event};
+use sse::{Decoder, Event, Overflow};
 use wire::Chunk;
 
 /// The most of a body kept whole: a model list, an error, or an answer that did not stream.
 /// A stream's tokens go out as they come; only its start is kept, in case it was no stream.
 const MAX_KEPT_BYTES: usize = 1 << 20;
+
+/// The most answer text read, in bytes: a long answer is a few kilobytes, and an endpoint that
+/// streams on and on ends here instead of filling the browser's memory.
+const MAX_ANSWER_BYTES: usize = 256 << 10;
 
 /// An OpenAI-compatible client over an [`HttpPort`].
 #[derive(Debug)]
@@ -50,12 +54,22 @@ impl<H: HttpPort> OpenAiClient<H> {
         };
         let mut status = None;
         let mut body = Vec::new();
+        let mut whole = true;
         self.http
             .stream(&request, &StopSignal::new(), &mut |event| match event {
-                HttpEvent::Status(code) => status = Some(code),
-                HttpEvent::Body(bytes) => keep(&mut body, bytes),
+                HttpEvent::Status(code) => {
+                    status = Some(code);
+                    Flow::Continue
+                }
+                HttpEvent::Body(bytes) => {
+                    whole = keep(&mut body, bytes);
+                    if whole { Flow::Continue } else { Flow::Stop }
+                }
             })?;
         match status {
+            Some(code) if is_success(code) && !whole => Err(LlmError::TooLarge(format!(
+                "a list of models over {MAX_KEPT_BYTES} bytes"
+            ))),
             Some(code) if is_success(code) => Ok(body),
             Some(code) => Err(LlmError::Status {
                 status: code,
@@ -109,24 +123,39 @@ struct Reply {
     kept: Vec<u8>,
     /// True once an event arrived: the answer is a stream.
     streamed: bool,
-    /// True once `[DONE]` arrived; anything after it is ignored.
+    /// The bytes of answer text handed on so far.
+    answered: usize,
+    /// True once `[DONE]` arrived; the stream is ended there.
     done: bool,
-    /// The first failure; anything after it is ignored.
+    /// The first failure; the stream is ended there.
     failed: Option<LlmError>,
 }
 
 impl Reply {
-    fn take(&mut self, event: HttpEvent<'_>, on_event: &mut dyn FnMut(ChatEvent)) {
+    /// Reads the next part of the answer; stops the stream once the answer is done, failed,
+    /// or, for a refusal, once enough of its message is in.
+    fn take(&mut self, event: HttpEvent<'_>, on_event: &mut dyn FnMut(ChatEvent)) -> Flow {
         match event {
             HttpEvent::Status(code) => self.status = Some(code),
             HttpEvent::Body(bytes) => {
-                keep(&mut self.kept, bytes);
-                if self.status.is_some_and(is_success) {
-                    for event in self.decoder.push(bytes) {
-                        self.event(&event, on_event);
+                let whole = keep(&mut self.kept, bytes);
+                if !self.status.is_some_and(is_success) {
+                    return if whole { Flow::Continue } else { Flow::Stop };
+                }
+                match self.decoder.push(bytes) {
+                    Ok(events) => {
+                        for event in events {
+                            self.event(&event, on_event);
+                        }
                     }
+                    Err(Overflow) => self.fail(overflowed()),
                 }
             }
+        }
+        if self.done || self.failed.is_some() {
+            Flow::Stop
+        } else {
+            Flow::Continue
         }
     }
 
@@ -136,14 +165,36 @@ impl Reply {
             return;
         }
         if event.name.as_deref() == Some("error") {
-            self.failed = Some(LlmError::Api(wire::error_message(event.data.as_bytes())));
+            self.fail(LlmError::Api(wire::error_message(event.data.as_bytes())));
             return;
         }
         match wire::chunk(&event.data) {
             Ok(Chunk::Done) => self.done = true,
-            Ok(Chunk::Events(events)) => events.into_iter().for_each(&mut *on_event),
-            Err(error) => self.failed = Some(error),
+            Ok(Chunk::Events(events)) => {
+                for event in events {
+                    self.hand_on(event, on_event);
+                }
+            }
+            Err(error) => self.fail(error),
         }
+    }
+
+    /// Hands `event` on, unless the answer outgrew [`MAX_ANSWER_BYTES`].
+    fn hand_on(&mut self, event: ChatEvent, on_event: &mut dyn FnMut(ChatEvent)) {
+        if let ChatEvent::Delta(text) = &event {
+            self.answered += text.len();
+            if self.answered > MAX_ANSWER_BYTES {
+                self.fail(LlmError::TooLarge(format!(
+                    "an answer over {MAX_ANSWER_BYTES} bytes"
+                )));
+                return;
+            }
+        }
+        on_event(event);
+    }
+
+    fn fail(&mut self, error: LlmError) {
+        self.failed.get_or_insert(error);
     }
 
     /// The stream ended as `ended`; what it came to.
@@ -155,17 +206,30 @@ impl Reply {
                 message: wire::error_message(&self.kept),
             });
         }
-        if ended == Ended::Stopped {
-            return self.failed.map_or(Ok(Ended::Stopped), Err);
+        if let Some(error) = self.failed {
+            return Err(error);
         }
-        if let Some(event) = std::mem::take(&mut self.decoder).finish() {
-            self.event(&event, on_event);
+        if self.done {
+            return Ok(Ended::Complete);
+        }
+        if ended == Ended::Stopped {
+            return Ok(Ended::Stopped);
+        }
+        match std::mem::take(&mut self.decoder).finish() {
+            Ok(Some(event)) => self.event(&event, on_event),
+            Ok(None) => {}
+            Err(Overflow) => self.fail(overflowed()),
         }
         if let Some(error) = self.failed {
             return Err(error);
         }
         if !self.streamed {
-            wire::whole(&self.kept)?.into_iter().for_each(on_event);
+            wire::whole(&self.kept)?
+                .into_iter()
+                .for_each(|event| self.hand_on(event, on_event));
+            if let Some(error) = self.failed {
+                return Err(error);
+            }
         }
         Ok(Ended::Complete)
     }
@@ -175,10 +239,18 @@ fn is_success(status: u16) -> bool {
     (200..300).contains(&status)
 }
 
-/// Appends `bytes` to `kept` while it is under [`MAX_KEPT_BYTES`].
-fn keep(kept: &mut Vec<u8>, bytes: &[u8]) {
+/// Appends `bytes` to `kept` up to [`MAX_KEPT_BYTES`]; false when some did not fit.
+fn keep(kept: &mut Vec<u8>, bytes: &[u8]) -> bool {
     let room = MAX_KEPT_BYTES.saturating_sub(kept.len());
     kept.extend_from_slice(bytes.get(..room).unwrap_or(bytes));
+    bytes.len() <= room
+}
+
+fn overflowed() -> LlmError {
+    LlmError::TooLarge(format!(
+        "a line or event over {} bytes",
+        sse::MAX_LINE_BYTES.max(sse::MAX_DATA_BYTES)
+    ))
 }
 
 fn no_status() -> LlmError {
