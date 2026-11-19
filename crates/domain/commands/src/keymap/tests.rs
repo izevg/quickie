@@ -94,6 +94,12 @@ fn the_default_keymap_binds_the_readme_keys() {
         ("cmd+j", "quickie.downloads.show"),
         ("alt+cmd+i", "quickie.devtools.toggle"),
         ("alt+cmd+j", "quickie.devtools.console"),
+        ("cmd+r", "quickie.tab.reload"),
+        ("cmd+d", "quickie.page.bookmark"),
+        ("cmd+shift+n", "quickie.tab.newThrowaway"),
+        ("alt+cmd+1", "quickie.tab.pinToSlot1"),
+        ("alt+cmd+5", "quickie.tab.pinToSlot5"),
+        ("alt+cmd+9", "quickie.tab.pinToSlot9"),
     ];
 
     for (key, expected) in table {

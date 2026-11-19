@@ -80,6 +80,36 @@ fn the_palette_only_commands_from_the_docs_are_built_in() {
 }
 
 #[test]
+fn every_slot_can_be_gone_to_and_pinned() {
+    let catalog = Catalog::builtin();
+
+    for n in 1..=9 {
+        let pin = catalog
+            .get(&id(&format!("quickie.tab.pinToSlot{n}")))
+            .unwrap();
+        assert_eq!(pin.title, format!("Pin Tab to Slot {n}"));
+        assert!(catalog.contains(&id(&format!("quickie.tab.goToSlot{n}"))));
+    }
+}
+
+#[test]
+fn bookmarking_and_throwaway_tabs_are_built_in() {
+    let catalog = Catalog::builtin();
+
+    let bookmark = catalog.get(&id("quickie.page.bookmark")).unwrap();
+    let throwaway = catalog.get(&id("quickie.tab.newThrowaway")).unwrap();
+
+    assert_eq!(
+        (bookmark.title, bookmark.category),
+        ("Bookmark Page", Category::Page)
+    );
+    assert_eq!(
+        (throwaway.title, throwaway.category),
+        ("Open New Throwaway Tab", Category::Tabs)
+    );
+}
+
+#[test]
 fn every_title_starts_with_a_capitalized_word() {
     let catalog = Catalog::builtin();
 

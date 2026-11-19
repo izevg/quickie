@@ -567,9 +567,10 @@ dependencies = [
  "objc2-foundation",
  "quickie-application",
  "quickie-domain-browsing",
+ "quickie-domain-commands",
  "quickie-engine-webkit",
  "quickie-store",
- "quickie-ui-shared",
+ "quickie-ui-widgets",
  "url",
 ]
 
@@ -677,6 +678,20 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "objc2-quartz-core",
+]
+
+[[package]]
+name = "quickie-ui-widgets"
+version = "0.0.0"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "quickie-application",
+ "quickie-domain-palette",
+ "quickie-ui-shared",
+ "url",
 ]
 
 [[package]]

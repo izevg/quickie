@@ -1,8 +1,6 @@
 //! The `⌃⇥` switcher: an E2 glass strip of the cycle's tab titles, the selection filled with
 //! the accent. It shows only after a hold, and the keyboard drives it, so it appears, moves and
 //! disappears instantly. Titles only; thumbnails come with the `tab_thumbnail` entity.
-//!
-//! It belongs in `ui/widgets/tabs/tab_switcher` once that crate exists.
 
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
@@ -29,6 +27,7 @@ pub struct TabSwitcher {
 }
 
 impl TabSwitcher {
+    #[must_use]
     pub fn new(mtm: MainThreadMarker) -> Self {
         let surface = GlassSurface::new(Elevation::E2, mtm);
         let highlight = NSView::new(mtm);

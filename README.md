@@ -81,13 +81,17 @@ All of them are commands in the palette and can be rebound in the keymap editor.
 
 | Keys | Command |
 |---|---|
-| `⌘⇧P` | Command palette |
-| `⌘P` | Go to tab or history |
+| `⌘⇧P` / `⌘K` | Command palette |
+| `⌘P` | Go to tab, bookmark, or history |
 | `⌘L` | Address overlay (current URL, site actions) |
 | `⌘T` | New tab (opens the address overlay) |
+| `⌘⇧N` | New tab in a throwaway jar |
 | `⌃⇥` / `⌃⇧⇥` | Next / previous tab in most-recently-used order |
 | `⌘1` … `⌘9` | Pinned slots |
+| `⌘⌥1` … `⌘⌥9` | Pin the tab to a slot |
 | `⌘[` / `⌘]` | Back / forward |
+| `⌘R` | Reload |
+| `⌘D` | Bookmark the page |
 | `⌘F` | Find in page |
 | `F` | Link hints (when no text field has focus) |
 | `⌘⇧C` | Copy the URL |

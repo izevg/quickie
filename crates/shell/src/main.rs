@@ -1,5 +1,6 @@
 //! Quickie, the composition root: wires the `WebKit` engine, the `SQLite` store, and the clock
-//! to the browsing use cases, puts them on screen, and runs the app.
+//! to the browsing, library, and palette use cases and the keymap, puts them on screen, and
+//! runs the app.
 //!
 //! For now this is the development app on the `engine-webkit` adapter (`docs/architecture.md`
 //! §3, P0). Run it from the repository root with:
@@ -8,21 +9,23 @@
 //! mise exec -- cargo run -p quickie
 //! ```
 //!
-//! The session lives in `~/Library/Application Support/Quickie/shell.sqlite` and is restored
-//! at launch. `⌘T` opens a tab, `⌘W` closes it into the trash, `⌘⇧T` reopens it, `⌃⇥` /
+//! The session, the history, the bookmarks, and the user's key bindings live in
+//! `~/Library/Application Support/Quickie/shell.sqlite`. Every key is a command of the keymap
+//! (`docs/design/inventory.md`, README "Default keys"): `⇧⌘P` / `⌘K` open the command palette,
+//! `⌘P` goes to a tab, bookmark, or visited page, `⌘L` opens the address overlay, `⌘T` /
+//! `⇧⌘N` open a tab / a throwaway tab, `⌘W` closes into the trash, `⌘⇧T` reopens, `⌃⇥` /
 //! `⌃⇧⇥` switch in most-recently-used order, `⌘1` … `⌘9` go to a pinned slot and `⌥⌘1` …
-//! `⌥⌘9` pin the tab there. `⌘L` opens the address overlay (`⏎` goes, `⎋` closes), `⌘[` / `⌘]`
-//! go back and forward, `⌘R` reloads, `⌘Q` quits. Launching opens no network connection; the
-//! start page is served from memory.
+//! `⌥⌘9` pin there, `⌘D` bookmarks, `⇧⌘C` / `⌥⌘C` copy the URL / a Markdown link. `⌘Q`
+//! quits. Launching opens no network connection; the start page is served from memory.
 
 #![expect(
     unsafe_code,
-    reason = "AppKit through objc2: windows, menus, timers, the key monitor, the quit notification"
+    reason = "AppKit through objc2: windows, menus, timers, the key monitor, the quit \
+              notification, and the pasteboard"
 )]
 
 mod browser;
 mod input;
-mod overlay;
 mod window;
 
 use std::path::PathBuf;
@@ -39,16 +42,23 @@ use objc2_app_kit::{
     NSMenuItem,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSString};
-use quickie_application::{Browsing, Clock};
+use quickie_application::{Browsing, Clock, Library, LoadedKeymap, load_keymap};
 use quickie_domain_browsing::Timestamp;
+use quickie_domain_commands::{Catalog, Keymap};
 use quickie_engine_webkit::WebKitEngine;
 use quickie_store::{PendingWrites, WriteBehindStore};
 use url::Url;
 
-use browser::{Browser, install_shortcuts};
+use browser::{Browser, Services, install_shortcuts};
 
 /// The browsing use cases as the app composes them.
 pub type App = Browsing<WebKitEngine, WriteBehindStore, SystemClock>;
+
+/// The library use cases as the app composes them.
+pub type Lib = Library<WriteBehindStore, SystemClock>;
+
+/// The palette query as the app composes it.
+pub type Palette = quickie_application::Palette<SystemClock>;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
@@ -103,30 +113,70 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Opens the store, restores the session, and puts it on screen. The store writes on its own
-/// thread; the shell keeps a handle on its pending writes.
-fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, PendingWrites), String> {
+/// Opens the store, restores the session and the library, loads the keymap, and puts it all
+/// on screen. The stores write on their own threads; the shell keeps handles on their pending
+/// writes.
+fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrites>), String> {
     let home = Url::parse(HOME).map_err(|error| error.to_string())?;
     let store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let pending = store.pending();
     let engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
     let browsing =
         Browsing::start(engine, store, SystemClock, &home).map_err(|error| error.to_string())?;
-    Ok((Browser::new(browsing, home, mtm), pending))
+    // The library and the key bindings have a writer, and a connection, of their own.
+    let library_store =
+        WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let library_pending = library_store.pending();
+    let catalog = Catalog::builtin();
+    let (keymap, notices) = keymap(&library_store, &catalog);
+    let library = Library::start(library_store, SystemClock).map_err(|error| error.to_string())?;
+    let writes = vec![pending, library_pending];
+    let services = Services {
+        browsing,
+        library,
+        palette: Palette::new(catalog.clone(), SystemClock),
+        catalog,
+        keymap,
+        writes: writes.clone(),
+        notices,
+    };
+    Ok((Browser::new(services, home, mtm), writes))
+}
+
+/// The defaults with the user's bindings applied, and what to tell the user about entries
+/// that were left out. A store that cannot be read leaves the defaults.
+fn keymap(store: &WriteBehindStore, catalog: &Catalog) -> (Keymap, Vec<String>) {
+    match load_keymap(store, catalog) {
+        Ok(LoadedKeymap { keymap, rejected }) => {
+            let notices = rejected
+                .iter()
+                .map(|bad| format!("Key binding `{}` skipped: {}", bad.entry.key, bad.reason))
+                .collect();
+            (keymap, notices)
+        }
+        Err(error) => (
+            Keymap::default(),
+            vec![format!(
+                "Key bindings not loaded, using the defaults: {error}"
+            )],
+        ),
+    }
 }
 
 /// Writes the pending saves before the app exits: `terminate:` ends the process without
-/// dropping the store. The observer lives as long as the returned token.
-fn flush_on_quit(pending: PendingWrites) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
+/// dropping the stores. The observer lives as long as the returned token.
+fn flush_on_quit(pending: Vec<PendingWrites>) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
     let block = RcBlock::new(move |_note: NonNull<NSNotification>| {
-        if let Err(error) = pending.flush() {
-            unsaved(&error.to_string());
+        for writes in &pending {
+            if let Err(error) = writes.flush() {
+                unsaved(&error.to_string());
+            }
         }
     });
     // SAFETY: an immutable string constant AppKit defines and never changes.
     let name = unsafe { NSApplicationWillTerminateNotification };
     // SAFETY: no object filter and no queue, so the block runs on the main thread that posts
-    // the notification, and it captures only a `Send` handle.
+    // the notification, and it captures only `Send` handles.
     unsafe {
         NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
             Some(name),

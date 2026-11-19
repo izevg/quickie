@@ -58,8 +58,9 @@ pub fn check(crates: &[Crate]) -> Vec<String> {
                 findings.push(finding);
             }
         }
-        if layer.has_slices() {
-            findings.extend(slices::check(&krate.dir, &krate.sources));
+        let depth = layer.slice_depth();
+        if depth > 0 {
+            findings.extend(slices::check(&krate.dir, &krate.sources, depth));
         }
     }
     findings

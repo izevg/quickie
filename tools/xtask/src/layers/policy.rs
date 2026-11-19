@@ -67,11 +67,14 @@ impl Layer {
         }
     }
 
-    pub fn has_slices(self) -> bool {
-        matches!(
-            self,
-            Self::Ui(UiLayer::Entities | UiLayer::Features | UiLayer::Widgets | UiLayer::Screens)
-        )
+    /// How many leading modules name a slice: none outside the sliced UI layers, `group/slice`
+    /// in widgets (whose slices are grouped by meaning to keep the rule of four), one elsewhere.
+    pub fn slice_depth(self) -> usize {
+        match self {
+            Self::Ui(UiLayer::Widgets) => 2,
+            Self::Ui(UiLayer::Entities | UiLayer::Features | UiLayer::Screens) => 1,
+            _ => 0,
+        }
     }
 }
 
@@ -170,9 +173,12 @@ mod tests {
         assert!(!Layer::Tool.may_use_unsafe());
         assert!(Layer::Kernel.external_allowlist().is_some());
         assert!(Layer::Adapter.external_allowlist().is_none());
-        assert!(Layer::Ui(UiLayer::Features).has_slices());
-        assert!(!Layer::Ui(UiLayer::Shared).has_slices());
-        assert!(!Layer::Ui(UiLayer::App).has_slices());
+        assert_eq!(Layer::Ui(UiLayer::Features).slice_depth(), 1);
+        assert_eq!(Layer::Ui(UiLayer::Entities).slice_depth(), 1);
+        assert_eq!(Layer::Ui(UiLayer::Widgets).slice_depth(), 2);
+        assert_eq!(Layer::Ui(UiLayer::Shared).slice_depth(), 0);
+        assert_eq!(Layer::Ui(UiLayer::App).slice_depth(), 0);
+        assert_eq!(Layer::Shell.slice_depth(), 0);
     }
 
     #[test]

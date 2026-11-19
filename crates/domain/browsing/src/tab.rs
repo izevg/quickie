@@ -64,6 +64,29 @@ pub struct Tab {
     pub jar: Jar,
 }
 
+impl Tab {
+    /// The page as a Markdown link, `[title](url)` (`⌥⌘C`). A page without a title is named
+    /// by its URL. Brackets and backslashes in the title are escaped, and parentheses in the
+    /// URL are percent-encoded, so the link survives any Markdown renderer.
+    #[must_use]
+    pub fn markdown_link(&self) -> String {
+        let name = if self.title.trim().is_empty() {
+            self.url.as_str()
+        } else {
+            self.title.trim()
+        };
+        let mut text = String::with_capacity(name.len());
+        for c in name.chars() {
+            if matches!(c, '\\' | '[' | ']') {
+                text.push('\\');
+            }
+            text.push(c);
+        }
+        let target = self.url.as_str().replace('(', "%28").replace(')', "%29");
+        format!("[{text}]({target})")
+    }
+}
+
 /// One of the nine pinned slots, `⌘1` … `⌘9`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PinnedSlot(u8);
@@ -111,7 +134,54 @@ impl TryFrom<u8> for PinnedSlot {
 
 #[cfg(test)]
 mod tests {
-    use super::{JarId, PinnedSlot, SlotOutOfRange};
+    use quickie_domain_kernel::TabId;
+    use url::Url;
+
+    use super::{Jar, JarId, PinnedSlot, SlotOutOfRange, Tab};
+
+    fn tab(url: &str, title: &str) -> Tab {
+        Tab {
+            id: TabId::new(1),
+            url: Url::parse(url).unwrap(),
+            title: title.to_owned(),
+            jar: Jar::Main,
+        }
+    }
+
+    #[test]
+    fn a_markdown_link_names_the_page_by_its_title() {
+        let page = tab("https://example.com/a", "  Example page ");
+
+        assert_eq!(
+            page.markdown_link(),
+            "[Example page](https://example.com/a)"
+        );
+    }
+
+    #[test]
+    fn a_page_without_a_title_is_named_by_its_url() {
+        for title in ["", "   "] {
+            let page = tab("https://example.com/", title);
+
+            assert_eq!(
+                page.markdown_link(),
+                "[https://example.com/](https://example.com/)"
+            );
+        }
+    }
+
+    #[test]
+    fn a_markdown_link_escapes_what_would_break_it() {
+        let page = tab(
+            "https://en.wikipedia.org/wiki/Rust_(language)",
+            r"Rust [lang] \ docs",
+        );
+
+        assert_eq!(
+            page.markdown_link(),
+            r"[Rust \[lang\] \\ docs](https://en.wikipedia.org/wiki/Rust_%28language%29)"
+        );
+    }
 
     #[test]
     fn slots_one_to_nine_exist() {
