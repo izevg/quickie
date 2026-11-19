@@ -2,7 +2,7 @@
 //! change together: a signature here is a signature there.
 //!
 //! Chromium builds C++ without exceptions, so no function returns `Result`: failures come back as
-//! `false` and the safe wrapper in `lib.rs` turns them into errors.
+//! `false` and [`crate::bridge::Ffi`] turns them into errors.
 
 #[cxx::bridge(namespace = "quickie")]
 pub(crate) mod bridge {
@@ -64,6 +64,11 @@ pub(crate) mod bridge {
             character: u32,
             page_declined: bool,
         ) -> bool;
+
+        /// The task `ScheduleWake` posted: runs on a later turn of the UI thread's loop, never
+        /// inside a bridge call.
+        #[cxx_name = "RunWake"]
+        fn run_wake();
     }
 
     unsafe extern "C++" {
@@ -99,13 +104,20 @@ pub(crate) mod bridge {
         /// Destroys throwaway jar `jar` and its storage; no tab uses it any more.
         #[cxx_name = "DestroyJar"]
         fn destroy_jar(jar: u64) -> bool;
+
+        /// Posts `RunWake` to the UI thread's task queue, so the shell hears about events after
+        /// the bridge call that raised them has returned.
+        #[cxx_name = "ScheduleWake"]
+        fn schedule_wake();
     }
 }
 
-use bridge::{EngineEvent, EngineEventKind, NavigationKind};
+use bridge::{EngineEvent, EngineEventKind};
+
+use crate::bridge::{Event, KeyEquivalent, dispatch};
 
 pub(crate) fn on_engine_event(event: &EngineEvent) {
-    crate::dispatch::deliver_event(crate::Event::from_bridge(event));
+    dispatch::deliver_event(Event::from_bridge(event));
 }
 
 /// TODO(after the shell crate exists): start the shell here. The composition root is not an
@@ -119,7 +131,7 @@ pub(crate) fn handle_key_equivalent(
     character: u32,
     page_declined: bool,
 ) -> bool {
-    crate::dispatch::deliver_key(crate::KeyEquivalent {
+    dispatch::deliver_key(KeyEquivalent {
         key_code,
         modifiers,
         character: char::from_u32(character),
@@ -127,7 +139,11 @@ pub(crate) fn handle_key_equivalent(
     })
 }
 
-impl crate::Event {
+pub(crate) fn run_wake() {
+    dispatch::deliver_wake();
+}
+
+impl Event {
     /// Reads a bridge event; an unknown kind (a newer C++ side) is reported as such.
     pub(crate) fn from_bridge(event: &EngineEvent) -> Self {
         let text = event.text.clone();
@@ -146,19 +162,6 @@ impl crate::Event {
                 url: text,
             },
             _ => Self::Unknown,
-        }
-    }
-}
-
-impl<'a> crate::Navigation<'a> {
-    /// The bridge's kind and URL argument (empty unless loading).
-    pub(crate) fn to_bridge(self) -> (NavigationKind, &'a str) {
-        match self {
-            Self::Load(url) => (NavigationKind::Load, url),
-            Self::Back => (NavigationKind::Back, ""),
-            Self::Forward => (NavigationKind::Forward, ""),
-            Self::Reload => (NavigationKind::Reload, ""),
-            Self::Stop => (NavigationKind::Stop, ""),
         }
     }
 }
