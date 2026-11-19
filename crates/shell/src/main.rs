@@ -17,7 +17,7 @@
 
 #![expect(
     unsafe_code,
-    reason = "AppKit through objc2: window setup, menu items, timers, and the key event monitor"
+    reason = "AppKit through objc2: windows, menus, timers, the key monitor, the quit notification"
 )]
 
 mod browser;
@@ -27,23 +27,28 @@ mod window;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::ptr::NonNull;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use block2::RcBlock;
 use objc2::rc::Retained;
-use objc2::runtime::Sel;
+use objc2::runtime::{NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
-use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSMenu, NSMenuItem};
-use objc2_foundation::NSString;
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification, NSMenu,
+    NSMenuItem,
+};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSString};
 use quickie_application::{Browsing, Clock};
 use quickie_domain_browsing::Timestamp;
 use quickie_engine_webkit::WebKitEngine;
-use quickie_store::SqliteStore;
+use quickie_store::{PendingWrites, WriteBehindStore};
 use url::Url;
 
 use browser::{Browser, install_shortcuts};
 
 /// The browsing use cases as the app composes them.
-pub type App = Browsing<WebKitEngine, SqliteStore, SystemClock>;
+pub type App = Browsing<WebKitEngine, WriteBehindStore, SystemClock>;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
@@ -86,10 +91,11 @@ fn main() -> ExitCode {
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     app.setMainMenu(Some(&main_menu(mtm)));
 
-    let browser = match start(mtm) {
-        Ok(browser) => browser,
+    let (browser, pending) = match start(mtm) {
+        Ok(started) => started,
         Err(reason) => return fail(&reason),
     };
+    let _flush_on_quit = flush_on_quit(pending);
     let _monitor = install_shortcuts(&browser);
     browser.show();
     app.activate();
@@ -97,14 +103,46 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Opens the store, restores the session, and puts it on screen.
-fn start(mtm: MainThreadMarker) -> Result<std::rc::Rc<Browser>, String> {
+/// Opens the store, restores the session, and puts it on screen. The store writes on its own
+/// thread; the shell keeps a handle on its pending writes.
+fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, PendingWrites), String> {
     let home = Url::parse(HOME).map_err(|error| error.to_string())?;
-    let store = SqliteStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let pending = store.pending();
     let engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
     let browsing =
         Browsing::start(engine, store, SystemClock, &home).map_err(|error| error.to_string())?;
-    Ok(Browser::new(browsing, home, mtm))
+    Ok((Browser::new(browsing, home, mtm), pending))
+}
+
+/// Writes the pending saves before the app exits: `terminate:` ends the process without
+/// dropping the store. The observer lives as long as the returned token.
+fn flush_on_quit(pending: PendingWrites) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
+    let block = RcBlock::new(move |_note: NonNull<NSNotification>| {
+        if let Err(error) = pending.flush() {
+            unsaved(&error.to_string());
+        }
+    });
+    // SAFETY: an immutable string constant AppKit defines and never changes.
+    let name = unsafe { NSApplicationWillTerminateNotification };
+    // SAFETY: no object filter and no queue, so the block runs on the main thread that posts
+    // the notification, and it captures only a `Send` handle.
+    unsafe {
+        NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+            Some(name),
+            None,
+            None,
+            &block,
+        )
+    }
+}
+
+#[expect(
+    clippy::print_stderr,
+    reason = "the app's last word as it quits: no window is left to show it"
+)]
+fn unsaved(reason: &str) {
+    eprintln!("quickie: the last changes were not saved: {reason}");
 }
 
 /// `~/Library/Application Support/Quickie/shell.sqlite`, its directory created.

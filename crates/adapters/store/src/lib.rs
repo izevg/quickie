@@ -2,7 +2,9 @@
 //! [`LibraryRepo`] and [`KeymapRepo`].
 //!
 //! A save replaces one aggregate inside one transaction, so a crash mid-save leaves the previous
-//! version intact. Write-ahead logging keeps saves cheap enough for every command.
+//! version intact. Even with write-ahead logging a save takes milliseconds, more than a frame,
+//! so the shell puts the [`SqliteStore`] behind a [`WriteBehindStore`] that writes on its own
+//! thread.
 
 mod keymap;
 mod library;
@@ -10,6 +12,9 @@ mod schema;
 mod session;
 #[cfg(test)]
 mod tests;
+mod write_behind;
+
+pub use write_behind::{PendingWrites, SETTLE, WriteBehindStore};
 
 use std::path::Path;
 

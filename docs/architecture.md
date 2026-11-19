@@ -140,7 +140,7 @@ ninth context means regrouping first.
 | `EnginePort` + `EngineEvents` | driven | `engine-chromium` (cxx), `engine-webkit` (development) |
 | `HttpPort` | driven | Chromium network service (product), `NSURLSession` (development) |
 | `LlmPort` | driven | `llm`: OpenAI-compatible client on top of `HttpPort` |
-| `SessionRepo`, `HistoryRepo`, `KeymapRepo`, `AuditLog` | driven | `store` (rusqlite) |
+| `SessionRepo`, `LibraryRepo`, `KeymapRepo`, `AuditLog` | driven | `store` (rusqlite; saves go to a write-behind thread off the main thread) |
 | `ShieldsPort` | driven | engine |
 | `SecretStore`, `Clipboard`, `GlobalHotkey`, `KeyboardLayout`, `Updater` | driven | `system` (Keychain, `NSPasteboard`, Carbon `RegisterEventHotKey`, `TISCopyCurrentASCIICapableKeyboardLayoutInputSource`), `updater` (Sparkle) |
 | `AgentGateway` | driving | `mcp` (rmcp on a Unix socket) |
