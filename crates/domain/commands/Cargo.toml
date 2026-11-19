@@ -1,0 +1,15 @@
+[package]
+name = "quickie-domain-commands"
+description = "Commands context of the Quickie domain: the command catalog, key strokes, chords, when clauses, and the keymap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+quickie-domain-kernel.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

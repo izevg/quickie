@@ -4,5 +4,5 @@
 mod id;
 mod time;
 
-pub use id::{TabId, WindowId};
+pub use id::{CommandId, CommandIdError, TabId, WindowId};
 pub use time::Timestamp;
