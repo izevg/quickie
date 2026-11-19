@@ -41,6 +41,8 @@ pub mod overlay {
 
     pub const ADDRESS_WIDTH: CGFloat = 640.0;
     pub const PALETTE_WIDTH: CGFloat = 720.0;
+    /// One tab in the `⌃⇥` switcher strip (titles only, until thumbnails).
+    pub const SWITCHER_CELL_WIDTH: CGFloat = 200.0;
     /// Palettes sit this fraction of the window height below its top edge.
     pub const PALETTE_TOP: CGFloat = 0.15;
 }
