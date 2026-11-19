@@ -21,8 +21,7 @@ enum Token<'a> {
 /// Parses a whole clause.
 pub(super) fn parse(text: &str) -> Result<Node, WhenError> {
     let mut parser = Parser {
-        tokens: tokenize(text)?,
-        position: 0,
+        tokens: tokenize(text)?.into_iter().peekable(),
         end: text.len(),
         depth: 0,
     };
@@ -95,37 +94,28 @@ fn is_ident_continue(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '.'
 }
 
+/// Consumes tokens from an iterator, so every step moves forward and no loop can spin in place.
 struct Parser<'a> {
-    tokens: Vec<(usize, Token<'a>)>,
-    position: usize,
+    tokens: Peekable<std::vec::IntoIter<(usize, Token<'a>)>>,
     end: usize,
     depth: usize,
 }
 
 impl<'a> Parser<'a> {
-    fn peek(&self) -> Option<Token<'a>> {
-        self.tokens.get(self.position).map(|&(_, token)| token)
-    }
-
     fn next(&mut self) -> Option<(usize, Token<'a>)> {
-        let next = self.tokens.get(self.position).copied();
-        self.position += 1;
-        next
+        self.tokens.next()
     }
 
-    fn eat(&mut self, token: Token<'_>) -> bool {
-        let found = self.peek() == Some(token);
-        if found {
-            self.position += 1;
-        }
-        found
+    /// Consumes the next token if it is `token`.
+    fn eat(&mut self, token: Token<'_>) -> Option<(usize, Token<'a>)> {
+        self.tokens.next_if(|&(_, next)| next == token)
     }
 
     /// `a || b || c`
     fn disjunction(&mut self) -> Result<Node, WhenError> {
         let first = self.conjunction()?;
         let mut operands = Vec::new();
-        while self.eat(Token::Or) {
+        while self.eat(Token::Or).is_some() {
             operands.push(self.conjunction()?);
         }
         Ok(join(first, operands, Node::Or))
@@ -135,7 +125,7 @@ impl<'a> Parser<'a> {
     fn conjunction(&mut self) -> Result<Node, WhenError> {
         let first = self.negation()?;
         let mut operands = Vec::new();
-        while self.eat(Token::And) {
+        while self.eat(Token::And).is_some() {
             operands.push(self.negation()?);
         }
         Ok(join(first, operands, Node::And))
@@ -144,7 +134,7 @@ impl<'a> Parser<'a> {
     /// `!!a`, counted in a loop so a long run of `!` cannot exhaust the stack.
     fn negation(&mut self) -> Result<Node, WhenError> {
         let mut nots = 0;
-        while self.eat(Token::Not) {
+        while self.eat(Token::Not).is_some() {
             nots += 1;
         }
         let mut node = self.primary()?;
@@ -175,11 +165,11 @@ impl<'a> Parser<'a> {
 
     fn comparison(&mut self, key: &str) -> Result<Node, WhenError> {
         let key = key.to_owned();
-        if self.eat(Token::Equals) {
+        if self.eat(Token::Equals).is_some() {
             let value = self.expect_text()?;
             return Ok(Node::Equals { key, value });
         }
-        if self.eat(Token::NotEquals) {
+        if self.eat(Token::NotEquals).is_some() {
             let value = self.expect_text()?;
             return Ok(Node::NotEquals { key, value });
         }
