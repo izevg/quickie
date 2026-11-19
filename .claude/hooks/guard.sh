@@ -6,7 +6,7 @@ set -eu
 command=$(jq -r '.tool_input.command // empty')
 
 block() {
-  printf 'Blocked by .claude/hooks/guard-git.sh: %s. See docs/quality.md.\n' "$1" >&2
+  printf 'Blocked by .claude/hooks/guard.sh: %s. See docs/quality.md.\n' "$1" >&2
   exit 2
 }
 
@@ -25,5 +25,11 @@ if matches 'core\.hooksPath' && ! matches 'core\.hooksPath[= ]+\.githooks([[:spa
 fi
 if matches 'git[[:space:]](.*[[:space:]])?push([[:space:]].*)?[[:space:]](--force([[:space:]]|$)|-[a-zA-Z]*f)'; then
   block "force push (use --force-with-lease on your own branch only, after asking)"
+fi
+# hookah checks a file after Edit and Write only; a source file written from the shell skips it.
+source_file='[^[:space:];&|<>]*\.(rs|toml)([[:space:];&|)]|$)'
+if matches ">>?[[:space:]]*$source_file" || matches "tee[[:space:]]+(-a[[:space:]]+)?$source_file" \
+  || matches "sed[[:space:]]+(-[a-zA-Z]*[[:space:]]+)*-i.*\.(rs|toml)([[:space:];&|]|$)"; then
+  block "write Rust and TOML files with Edit or Write, so hookah checks them"
 fi
 exit 0

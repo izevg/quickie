@@ -88,9 +88,10 @@ The table lives in `tools/xtask/src/layers/policy.rs`; change it together with A
 - `.claude/settings.json` runs `hookah` (installed in `~/.local/bin`) through mise: format and lint after
   each edit, tests at stop, mutation when tests change. It only runs the tools this repository
   configures.
-- `.claude/hooks/guard-git.sh` (PreToolUse, Bash) blocks `--no-verify`, `git commit -n`, changing
-  `core.hooksPath`, and `git push --force`/`-f`. Anything the guard blocks, a human runs by hand
-  after a decision.
+- `.claude/hooks/guard.sh` (PreToolUse, Bash) blocks `--no-verify`, `git commit -n`, changing
+  `core.hooksPath`, and `git push --force`/`-f`. It also blocks writing `.rs` and `.toml` files
+  from the shell (`>`, `tee`, `sed -i`): hookah checks only files written with Edit or Write.
+  Anything the guard blocks, a human runs by hand after a decision.
 
 ## Not yet covered
 
