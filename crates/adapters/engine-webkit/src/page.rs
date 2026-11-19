@@ -9,7 +9,9 @@ use objc2::runtime::ProtocolObject;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::NSView;
 use objc2_foundation::{NSRect, NSString, NSURL, NSURLRequest};
-use objc2_web_kit::{WKWebView, WKWebViewConfiguration, WKWebsiteDataStore};
+use objc2_web_kit::{
+    WKUserContentController, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+};
 use quickie_application::EngineError;
 use quickie_domain_browsing::FindMatches;
 use url::Url;
@@ -27,10 +29,11 @@ pub(crate) struct WebPage {
 }
 
 impl WebPage {
-    /// A new, empty page in `store` that serves `internal` pages. `on_event` hears its committed
-    /// navigations and title changes.
+    /// A new, empty page in `store` that serves `internal` pages and blocks what `content`'s
+    /// rule lists block. `on_event` hears its committed navigations and title changes.
     pub(crate) fn new(
         store: &WKWebsiteDataStore,
+        content: &WKUserContentController,
         internal: &InternalPages,
         on_event: impl Fn(PageEvent) + 'static,
         mtm: MainThreadMarker,
@@ -39,6 +42,9 @@ impl WebPage {
         let configuration = unsafe { WKWebViewConfiguration::new(mtm) };
         // SAFETY: `store` is a valid data store; the configuration is copied on use.
         unsafe { configuration.setWebsiteDataStore(store) };
+        // SAFETY: a valid controller; the copy keeps the same controller, so rule lists
+        // installed later reach this page too.
+        unsafe { configuration.setUserContentController(content) };
         for scheme in internal.schemes() {
             // SAFETY: the built-in schemes are custom (WebKit throws for its own, such as
             // `https`), and the configuration retains the handler.

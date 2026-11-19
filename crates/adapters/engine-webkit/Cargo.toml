@@ -1,18 +1,22 @@
 [package]
 name = "quickie-engine-webkit"
-description = "Development engine of Quickie: pages on WKWebView, until the Chromium engine exists"
+description = "Development engine of Quickie: pages on WKWebView, its content blocker, and NSURLSession, until the Chromium engine exists"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+adblock.workspace = true
 block2.workspace = true
+dispatch2.workspace = true
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["NSGraphics", "NSResponder", "NSView"] }
 objc2-foundation = { workspace = true, features = [
   "block2",
+  "NSArray",
   "NSData",
+  "NSDate",
   "NSDictionary",
   "NSError",
   "NSGeometry",
@@ -22,12 +26,15 @@ objc2-foundation = { workspace = true, features = [
   "NSURL",
   "NSURLRequest",
   "NSURLResponse",
+  "NSURLSession",
   "NSValue",
 ] }
 objc2-web-kit = { workspace = true, features = [
   "block2",
   "objc2-app-kit",
   "objc2-core-foundation",
+  "WKContentRuleList",
+  "WKContentRuleListStore",
   "WKContentWorld",
   "WKFindConfiguration",
   "WKFindResult",
@@ -37,13 +44,25 @@ objc2-web-kit = { workspace = true, features = [
   "WKPreferences",
   "WKURLSchemeHandler",
   "WKURLSchemeTask",
+  "WKUserContentController",
   "WKWebView",
   "WKWebViewConfiguration",
   "WKWebsiteDataStore",
 ] }
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
+quickie-domain-shields.workspace = true
+serde_json.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# Drives real WKWebViews, so it runs on the main thread with its own `main`, not the test
+# harness's worker threads.
+[[test]]
+name = "blocking"
+harness = false
 
 [lints]
 workspace = true

@@ -2,13 +2,18 @@
 //! key or the palette asked. A command Quickie lists but cannot do yet says so in a toast
 //! rather than doing nothing.
 
+use std::thread;
+
+use dispatch2::{DispatchQueue, MainThreadBound};
 use objc2::rc::Retained;
-use objc2::{ClassType, msg_send};
+use objc2::{ClassType, MainThreadMarker, msg_send};
 use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
 use objc2_foundation::NSString;
-use quickie_application::Navigation;
+use quickie_application::{FetchedList, ListFetch, Navigation, fetch_lists};
 use quickie_domain_browsing::{Direction, Focus, JarChoice, PinnedSlot, WindowId};
 use quickie_domain_commands::{CommandId, KeyStroke, Modifiers};
+use quickie_domain_shields::FilterListId;
+use quickie_engine_webkit::UrlSessionHttp;
 use url::Url;
 
 use super::Browser;
@@ -36,6 +41,9 @@ pub enum Action {
     Find,
     FindNext,
     FindPrevious,
+    ToggleShields,
+    EnableLists,
+    RefreshLists,
 }
 
 impl Action {
@@ -74,6 +82,9 @@ impl Action {
             "quickie.page.find" => Self::Find,
             "quickie.page.findNext" => Self::FindNext,
             "quickie.page.findPrevious" => Self::FindPrevious,
+            "quickie.shields.toggleSite" => Self::ToggleShields,
+            "quickie.shields.enableLists" => Self::EnableLists,
+            "quickie.shields.refreshLists" => Self::RefreshLists,
             _ => return None,
         };
         Some(action)
@@ -144,6 +155,12 @@ impl Browser {
             Action::CopyUrl => self.copy(window, |tab| tab.url.to_string()),
             Action::CopyMarkdownLink => self.copy(window, |tab| tab.markdown_link()),
             Action::Bookmark => self.bookmark(window),
+            Action::ToggleShields => self.toggle_shields(window),
+            Action::EnableLists => self.enable_lists(),
+            Action::RefreshLists => {
+                let requested = self.shields.borrow().requested_fetches();
+                self.fetch_lists(requested);
+            }
             Action::OpenCommands
             | Action::GoTo
             | Action::OpenAddress
@@ -253,6 +270,76 @@ impl Browser {
         }
     }
 
+    /// Shields off on the active page's site, or back on; its pages load by the new rules once
+    /// they are compiled.
+    fn toggle_shields(&self, window: WindowId) {
+        let Some(tab) = self.active_tab(window) else {
+            return;
+        };
+        let toggled = self.shields.borrow_mut().toggle_site(&tab.url);
+        let host = tab.url.host_str().unwrap_or_default();
+        match toggled {
+            Ok(policy) if policy.shields => self.toast(&format!("Shields up on {host}")),
+            Ok(_) => self.toast(&format!("Shields down on {host}")),
+            Err(error) => self.report(&error),
+        }
+    }
+
+    /// Turns every allowed filter list on and fetches the ones never fetched: the user's
+    /// request is what opens the connections.
+    fn enable_lists(&self) {
+        let enabled = self.shields.borrow_mut().enable_lists(&FilterListId::ALL);
+        if let Err(error) = enabled {
+            return self.report(&error);
+        }
+        let due = self.shields.borrow().due_fetches();
+        if due.is_empty() {
+            self.toast("Filter lists on");
+        }
+        self.fetch_lists(due);
+    }
+
+    /// Fetches lists on a worker thread and records them back on the main thread.
+    pub(super) fn fetch_lists(&self, fetches: Vec<ListFetch>) {
+        if fetches.is_empty() {
+            return;
+        }
+        let browser = MainThreadBound::new(self.this.clone(), self.mtm);
+        let spawned = thread::Builder::new()
+            .name("quickie-filter-lists".to_owned())
+            .spawn(move || {
+                let answers = fetch_lists(&UrlSessionHttp::new(), &fetches);
+                DispatchQueue::main().exec_async(move || {
+                    let Some(mtm) = MainThreadMarker::new() else {
+                        return;
+                    };
+                    if let Some(browser) = browser.into_inner(mtm).upgrade() {
+                        browser.lists_fetched(answers);
+                    }
+                });
+            });
+        match spawned {
+            Ok(_) => self.toast("Fetching filter lists"),
+            Err(error) => self.toast(&format!("Couldn't fetch filter lists: {error}")),
+        }
+    }
+
+    fn lists_fetched(&self, fetched: Vec<FetchedList>) {
+        let refreshed = self.shields.borrow_mut().lists_fetched(fetched);
+        match refreshed {
+            Ok(refreshed) if refreshed.failed.is_empty() => self.toast(&format!(
+                "Filter lists: {} updated, {} unchanged",
+                refreshed.updated.len(),
+                refreshed.unchanged.len()
+            )),
+            Ok(refreshed) => self.toast(&format!(
+                "Filter lists: {} could not be fetched",
+                refreshed.failed.len()
+            )),
+            Err(error) => self.report(&error),
+        }
+    }
+
     fn active_tab(&self, window: WindowId) -> Option<quickie_domain_browsing::Tab> {
         let browsing = self.browsing.borrow();
         let tab = browsing.session().active(window)?;
@@ -300,6 +387,9 @@ mod tests {
             ("quickie.page.find", Action::Find),
             ("quickie.page.findNext", Action::FindNext),
             ("quickie.page.findPrevious", Action::FindPrevious),
+            ("quickie.shields.toggleSite", Action::ToggleShields),
+            ("quickie.shields.enableLists", Action::EnableLists),
+            ("quickie.shields.refreshLists", Action::RefreshLists),
         ];
         for (id, action) in cases {
             assert_eq!(of(id), Some(action), "{id}");
@@ -341,8 +431,8 @@ mod tests {
             .filter(|command| Action::of(&command.id).is_some())
             .count();
 
-        // 19 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 19 + 9 + 9);
+        // 22 named commands plus nine slots to go to and nine to pin.
+        assert_eq!(built, 22 + 9 + 9);
     }
 
     #[test]

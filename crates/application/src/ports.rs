@@ -1,10 +1,15 @@
 //! Driven ports: what the use cases need from the outside world.
 
+use std::sync::Arc;
+
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
 use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_shields::{
+    ContentHash, FilterListId, FilterListSetSnapshot, Site, SitePoliciesSnapshot,
+};
 use url::Url;
 
-use crate::{EngineError, StoreError};
+use crate::{BlockerError, EngineError, HttpError, StoreError};
 
 /// The wall clock.
 pub trait Clock {
@@ -148,4 +153,96 @@ pub trait EnginePort {
     ///
     /// The engine failed to clear the partition.
     fn destroy_jar(&mut self, jar: JarId) -> Result<(), EngineError>;
+}
+
+/// The shields as last saved. A profile that never saved them has none of each: no exceptions,
+/// every list off and never fetched.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShieldsSnapshot {
+    /// The per-site exceptions.
+    pub sites: SitePoliciesSnapshot,
+    /// The filter lists' states.
+    pub lists: FilterListSetSnapshot,
+    /// The content last fetched of each list, as it arrived.
+    pub bodies: Vec<(FilterListId, Vec<u8>)>,
+}
+
+/// Where the shields persist (`shell.sqlite` in the product). Each part saves on its own, so
+/// toggling a site never rewrites a list's content.
+pub trait ShieldsRepo {
+    /// Everything ever saved of the shields.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be read.
+    fn load_shields(&self) -> Result<ShieldsSnapshot, StoreError>;
+
+    /// Replaces the saved per-site exceptions, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError>;
+
+    /// Replaces the saved filter list states, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError>;
+
+    /// Replaces the saved content of one list, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError>;
+}
+
+/// The network, for the browser's own requests, such as fetching a filter list. Chromium's
+/// network stack in the product, so the egress test sees every request; `NSURLSession` in
+/// development.
+pub trait HttpPort {
+    /// GETs `url` and returns the body of a successful (2xx) response. Blocks until the whole
+    /// body arrived: call it on a worker thread, never on the main thread.
+    ///
+    /// # Errors
+    ///
+    /// No connection, a non-2xx status, a timeout, or a call on the main thread.
+    fn get(&self, url: &Url) -> Result<Vec<u8>, HttpError>;
+}
+
+/// One filter list's content, as the content blocker compiles it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListRules {
+    /// Which list.
+    pub list: FilterListId,
+    /// The hash of `body`, which names the compiled rules.
+    pub hash: ContentHash,
+    /// The list as fetched: filter rules in Adblock Plus syntax. Shared, not copied, with the
+    /// thread that compiles it.
+    pub body: Arc<[u8]>,
+}
+
+/// Everything the content blocker needs: the enabled lists' content and the sites whose
+/// shields are off.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BlockerRules {
+    /// The enabled lists that have content, in [`FilterListId::ALL`] order.
+    pub lists: Vec<ListRules>,
+    /// The sites whose pages load everything, in the order their shields went off.
+    pub unshielded: Vec<Site>,
+}
+
+/// The engine's request blocker: `adblock` in Chromium's network service in the product, a
+/// `WKContentRuleList` in development.
+pub trait ContentBlockerPort {
+    /// Makes `rules` the ones every page loads with from now on, and returns at once: compiling
+    /// takes seconds, so it happens off the main thread, and pages keep the previous rules until
+    /// it is done. Rules equal to the installed ones cost nothing.
+    ///
+    /// # Errors
+    ///
+    /// The blocker could not start; a failure while compiling is the adapter's to report.
+    fn install(&mut self, rules: &BlockerRules) -> Result<(), BlockerError>;
 }
