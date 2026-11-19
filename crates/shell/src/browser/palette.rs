@@ -38,6 +38,7 @@ impl Browser {
         };
         self.address.hide();
         self.cancel_cycle();
+        self.hide_find();
         self.command_palette.show(&host, &ns_window, prefix);
         self.requery();
     }
@@ -72,6 +73,7 @@ impl Browser {
                     self.choose(row, new_tab);
                 }
             }
+            OverlayKey::Previous => {}
             OverlayKey::Dismiss => {
                 self.command_palette.hide();
                 if let Some((window, _)) = self.current() {

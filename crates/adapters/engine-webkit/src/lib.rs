@@ -31,9 +31,10 @@ use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindowOrderingMode};
 use objc2_foundation::NSRunLoop;
 use objc2_web_kit::WKWebsiteDataStore;
 use quickie_application::{EngineError, EnginePort, Navigation};
-use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_browsing::{FindMatches, Jar, JarId, TabId, WindowId};
 use url::Url;
 
+pub use page::FindStep;
 use page::{PageEvent, WebPage};
 pub use reports::Navigated;
 use reports::Reports;
@@ -99,7 +100,8 @@ impl WebKitEngine {
     }
 
     /// Sets what runs, later on the main run loop and never inside an engine call, when pages
-    /// have reported navigations. It should drain [`Self::take_navigations`].
+    /// have reported navigations, loading progress, or the matches of a find. It should drain
+    /// [`Self::take_navigations`], [`Self::take_progressed`], and [`Self::take_found`].
     pub fn on_navigated(&mut self, wake: impl Fn() + 'static) {
         *self.inbox.wake.borrow_mut() = Some(Rc::new(wake));
         Inbox::schedule(&self.inbox);
@@ -108,6 +110,45 @@ impl WebKitEngine {
     /// Navigations committed and titles changed since the last call, one per tab.
     pub fn take_navigations(&mut self) -> Vec<Navigated> {
         self.inbox.reports.borrow_mut().take()
+    }
+
+    /// True when some page's loading progress changed since the last call; read it with
+    /// [`Self::progress`].
+    pub fn take_progressed(&mut self) -> bool {
+        self.inbox.progressed.replace(false)
+    }
+
+    /// How much of a tab's page has loaded, `0.0 ..= 1.0`, while it loads; `None` when it is
+    /// not loading or has no page.
+    #[must_use]
+    pub fn progress(&self, tab: TabId) -> Option<f64> {
+        self.pages.get(&tab).and_then(WebPage::progress)
+    }
+
+    /// Selects a match of `query` in a tab's page as `step` says, marks every match, and
+    /// reports them through [`Self::take_found`]. An empty query clears the marks.
+    pub fn find(&self, tab: TabId, query: &str, step: FindStep) {
+        let Some(page) = self.pages.get(&tab) else {
+            return;
+        };
+        let inbox = Rc::downgrade(&self.inbox);
+        let asked = query.to_owned();
+        page.find(query, step, move |matches| {
+            let Some(inbox) = inbox.upgrade() else {
+                return;
+            };
+            inbox.found.borrow_mut().push(Found {
+                tab,
+                query: asked.clone(),
+                matches,
+            });
+            Inbox::schedule(&inbox);
+        });
+    }
+
+    /// The finds answered since the last call, oldest first.
+    pub fn take_found(&mut self) -> Vec<Found> {
+        std::mem::take(&mut *self.inbox.found.borrow_mut())
     }
 
     fn store(&mut self, jar: Jar) -> Retained<WKWebsiteDataStore> {
@@ -208,10 +249,21 @@ fn place(view: &NSView, host: &NSView) {
     host.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Below, None);
 }
 
+/// The matches of a find in a tab's page, answering [`WebKitEngine::find`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub tab: TabId,
+    /// The query they match, to tell an answer to an older query apart.
+    pub query: String,
+    pub matches: FindMatches,
+}
+
 /// Where pages record reports, and how the shell hears about them.
 #[derive(Default)]
 struct Inbox {
     reports: RefCell<Reports>,
+    progressed: Cell<bool>,
+    found: RefCell<Vec<Found>>,
     wake: RefCell<Option<Rc<dyn Fn()>>>,
     scheduled: Cell<bool>,
 }
@@ -228,15 +280,21 @@ impl Inbox {
                     reports.committed(tab, url.as_deref(), title);
                 }
                 PageEvent::TitleChanged(title) => reports.titled(tab, title),
+                PageEvent::Progress => inbox.progressed.set(true),
             }
         }
         Self::schedule(&inbox);
     }
 
+    /// True when nothing waits for the shell.
+    fn is_quiet(&self) -> bool {
+        self.reports.borrow().is_empty() && !self.progressed.get() && self.found.borrow().is_empty()
+    }
+
     /// Wakes the shell on a later turn of the main run loop, once per batch of reports. A shell
     /// too busy to drain leaves them, and the next turn tries again.
     fn schedule(inbox: &Rc<Self>) {
-        if inbox.scheduled.get() || inbox.reports.borrow().is_empty() {
+        if inbox.scheduled.get() || inbox.is_quiet() {
             return;
         }
         let Some(wake) = inbox.wake.borrow().clone() else {

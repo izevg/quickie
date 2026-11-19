@@ -1,6 +1,6 @@
 //! One row of the list as a view: the title with its fuzzy-match highlights, the detail in
-//! SF Mono below it, keycaps on the right. A selected row is filled with the accent, never glass
-//! (`docs/design/mocks/components/command-row.html`).
+//! SF Mono below it, keycaps on the right. A selected row gets a light accent tint, never glass,
+//! and keeps its primary text and accent highlights (`docs/design/system.md`, `selection-fill`).
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
@@ -107,8 +107,8 @@ pub(super) fn cell(
     view
 }
 
-/// A one-line label with the characters at `matches` set in the `fonts.1` and the accent (the
-/// selection text on a selected row).
+/// A one-line label with the characters at `matches` set in `fonts.1` and the accent, on a
+/// selected row too: its fill is a light tint, so accent text stays readable on it.
 fn label(
     text: &str,
     matches: &[u32],
@@ -117,11 +117,12 @@ fn label(
     primary: bool,
     mtm: MainThreadMarker,
 ) -> Retained<NSTextField> {
-    let (base, highlight) = match (selected, primary) {
-        (true, _) => (color::selection_text(), color::selection_text()),
-        (false, true) => (color::label(), color::accent()),
-        (false, false) => (color::secondary_label(), color::accent()),
+    let base = match (selected, primary) {
+        (true, true) => color::selection_text(),
+        (false, true) => color::label(),
+        (_, false) => color::secondary_label(),
     };
+    let highlight = color::accent();
     let styled = StyledText::new(text, fonts.0, &base);
     for range in char_ranges(text, matches) {
         styled.style(range, fonts.1, &highlight);

@@ -105,11 +105,14 @@ impl Browser {
             self.palette_key(key);
             return true;
         }
-        if !self.address.is_open() || self.address.is_composing() {
+        if !self.address.is_open() {
+            return self.find_key(key);
+        }
+        if self.address.is_composing() {
             return false;
         }
         match key {
-            OverlayKey::Move(_) => return false,
+            OverlayKey::Move(_) | OverlayKey::Previous => return false,
             OverlayKey::Accept { new_tab } => self.submit_address(new_tab),
             OverlayKey::Dismiss => self.close_address(),
         }
@@ -132,6 +135,7 @@ impl Browser {
         };
         self.command_palette.hide();
         self.cancel_cycle();
+        self.hide_find();
         let url = self.active(window).and_then(|tab| {
             let browsing = self.browsing.borrow();
             browsing.session().tab(tab).map(|tab| tab.url.clone())
@@ -177,6 +181,7 @@ impl Browser {
         };
         self.address.hide();
         self.command_palette.hide();
+        self.hide_find();
         *self.cycle.borrow_mut() = Some(CycleHold::new(cycle, window, Instant::now()));
         if held == Modifiers::NONE {
             self.commit_cycle();

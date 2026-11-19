@@ -5,9 +5,11 @@
 //! - [`keys`]: key events → the keymap → a command; the overlays' fixed keys; the `⌃⇥` hold.
 //! - [`commands`]: the dispatcher, from a command id to the use case that does it.
 //! - [`palette`]: the command palette's query and what choosing a row does.
+//! - [`page`]: find in page, the origin chip, and the load progress line.
 
 mod commands;
 mod keys;
+mod page;
 mod palette;
 
 use std::cell::{Cell, RefCell};
@@ -55,6 +57,7 @@ pub struct Browser {
     command_palette: CommandPalette,
     switcher: TabSwitcher,
     toasts: Rc<ToastStack>,
+    page: page::PageWidgets,
     /// The palette's answer on screen, in its order.
     results: RefCell<Vec<PaletteItem>>,
     cycle: RefCell<Option<CycleHold>>,
@@ -99,6 +102,7 @@ impl Browser {
             command_palette: CommandPalette::new(mtm),
             switcher: TabSwitcher::new(mtm),
             toasts: ToastStack::new(mtm),
+            page: page::PageWidgets::new(mtm),
             results: RefCell::new(Vec::new()),
             cycle: RefCell::new(None),
             cycle_modifiers: Cell::new(Modifiers::CONTROL),
@@ -110,6 +114,7 @@ impl Browser {
         });
         browser.open_windows();
         browser.wire_palette();
+        browser.wire_find();
         let weak = Rc::downgrade(&browser);
         browser
             .browsing
@@ -141,11 +146,12 @@ impl Browser {
         }
     }
 
-    /// Records what pages committed since the last time, and tells of a save that failed on a
-    /// writer thread. Runs from the engine's waker on the main run loop, and after every
-    /// command.
+    /// Records what pages committed since the last time, puts the pages' loading, finds, and
+    /// origins on screen, and tells of a save that failed on a writer thread. Runs from the
+    /// engine's waker on the main run loop, and after every command.
     pub fn drain(&self) {
         self.record_navigations();
+        self.page_reports();
         for writes in &self.writes {
             if let Some(error) = writes.take_error() {
                 self.toast(&format!("Not saved: {error}"));
@@ -216,6 +222,7 @@ impl Browser {
             ns_window.makeFirstResponder(Some(&view));
         }
         self.refresh_titles();
+        self.page_changes();
     }
 
     fn refresh_titles(&self) {

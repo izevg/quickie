@@ -1,5 +1,7 @@
-//! One tab's page: a `WKWebView` in a data store, and the observer that reports its navigations.
+//! One tab's page: a `WKWebView` in a data store, the observer that reports its navigations
+//! and loading, and find in page.
 
+mod find;
 mod observer;
 
 use objc2::rc::Retained;
@@ -9,8 +11,10 @@ use objc2_app_kit::NSView;
 use objc2_foundation::{NSRect, NSString, NSURL, NSURLRequest};
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration, WKWebsiteDataStore};
 use quickie_application::EngineError;
+use quickie_domain_browsing::FindMatches;
 use url::Url;
 
+pub use find::FindStep;
 pub(crate) use observer::PageEvent;
 use observer::PageObserver;
 
@@ -96,6 +100,20 @@ impl WebPage {
     pub(crate) fn stop(&self) {
         // SAFETY: stopping has no preconditions.
         unsafe { self.view.stopLoading() };
+    }
+
+    /// How much of the page has loaded, `0.0 ..= 1.0`, while it loads; `None` once it is done.
+    pub(crate) fn progress(&self) -> Option<f64> {
+        // SAFETY: getters with no preconditions.
+        let loading = unsafe { self.view.isLoading() };
+        // SAFETY: as above.
+        loading.then(|| unsafe { self.view.estimatedProgress() }.clamp(0.0, 1.0))
+    }
+
+    /// Selects a match of `query` as `step` says and marks all of them; `done` hears how many
+    /// there are. An empty query clears the marks.
+    pub(crate) fn find(&self, query: &str, step: FindStep, done: impl Fn(FindMatches) + 'static) {
+        find::find(&self.view, query, step, done);
     }
 }
 

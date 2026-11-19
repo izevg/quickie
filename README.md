@@ -93,6 +93,7 @@ All of them are commands in the palette and can be rebound in the keymap editor.
 | `⌘R` | Reload |
 | `⌘D` | Bookmark the page |
 | `⌘F` | Find in page |
+| `⌘G` / `⌘⇧G` | Next / previous match |
 | `F` | Link hints (when no text field has focus) |
 | `⌘⇧C` | Copy the URL |
 | `⌘⌥C` | Copy as Markdown link |

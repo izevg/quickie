@@ -15,7 +15,10 @@ pub use session::{
     Closed, ClosedTab, ClosedWindow, CorruptSession, NextIds, RETENTION_MS, Session,
     SessionSnapshot,
 };
-pub use tab::{Focus, Jar, JarChoice, JarId, PinnedSlot, SlotOutOfRange, Tab};
+pub use tab::{
+    FindMatches, Focus, Jar, JarChoice, JarId, Origin, PinnedSlot, SlotOutOfRange, Tab, Transport,
+    is_cross_origin, registrable_domain,
+};
 
 /// A command named a tab or a window the session does not have.
 ///

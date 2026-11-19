@@ -21,10 +21,15 @@ pub(crate) enum PageEvent {
         title: Option<String>,
     },
     TitleChanged(Option<String>),
+    /// The page started or stopped loading, or loaded more of it.
+    Progress,
 }
 
 /// The title is observed by its key path.
 const TITLE: &str = "title";
+
+/// Loading is observed by these key paths.
+const PROGRESS: [&str; 2] = ["estimatedProgress", "loading"];
 
 pub(crate) struct Ivars {
     on_event: Box<dyn Fn(PageEvent)>,
@@ -53,8 +58,11 @@ define_class!(
             else {
                 return;
             };
-            if key_path.to_string() == TITLE {
+            let key_path = key_path.to_string();
+            if key_path == TITLE {
                 (self.ivars().on_event)(PageEvent::TitleChanged(title_of(view)));
+            } else if PROGRESS.contains(&key_path.as_str()) {
+                (self.ivars().on_event)(PageEvent::Progress);
             }
         }
     }
@@ -85,31 +93,40 @@ impl PageObserver {
         // SAFETY: the delegate is weak; the page that owns both keeps the observer alive and
         // clears the delegate in `detach`.
         unsafe { view.setNavigationDelegate(Some(ProtocolObject::from_ref(self))) };
-        // SAFETY: the observer is an `NSObject` that implements
-        // `observeValueForKeyPath:ofObject:change:context:`, and the null context is valid.
-        unsafe {
-            view.addObserver_forKeyPath_options_context(
-                self,
-                &NSString::from_str(TITLE),
-                NSKeyValueObservingOptions::New,
-                std::ptr::null_mut(),
-            );
+        for key_path in key_paths() {
+            // SAFETY: the observer is an `NSObject` that implements
+            // `observeValueForKeyPath:ofObject:change:context:`, and the null context is valid.
+            unsafe {
+                view.addObserver_forKeyPath_options_context(
+                    self,
+                    &NSString::from_str(key_path),
+                    NSKeyValueObservingOptions::New,
+                    std::ptr::null_mut(),
+                );
+            }
         }
     }
 
     pub(crate) fn detach(&self, view: &WKWebView) {
         // SAFETY: clearing a weak delegate has no preconditions.
         unsafe { view.setNavigationDelegate(None) };
-        // SAFETY: `attach` registered this observer for exactly this key path with a null
-        // context, and it is removed once.
-        unsafe {
-            view.removeObserver_forKeyPath_context(
-                self,
-                &NSString::from_str(TITLE),
-                std::ptr::null_mut(),
-            );
+        for key_path in key_paths() {
+            // SAFETY: `attach` registered this observer for exactly this key path with a null
+            // context, and it is removed once.
+            unsafe {
+                view.removeObserver_forKeyPath_context(
+                    self,
+                    &NSString::from_str(key_path),
+                    std::ptr::null_mut(),
+                );
+            }
         }
     }
+}
+
+/// Every key path the observer watches.
+fn key_paths() -> impl Iterator<Item = &'static str> {
+    std::iter::once(TITLE).chain(PROGRESS)
 }
 
 fn url_of(view: &WKWebView) -> Option<String> {
