@@ -193,6 +193,11 @@ dependencies = [
 [[package]]
 name = "quickie-application"
 version = "0.0.0"
+dependencies = [
+ "quickie-domain-browsing",
+ "thiserror",
+ "url",
+]
 
 [[package]]
 name = "quickie-domain-browsing"

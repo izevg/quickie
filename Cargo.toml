@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 indexmap = "2"
+quickie-domain-browsing = { path = "crates/domain/browsing" }
 quickie-domain-kernel = { path = "crates/domain/kernel" }
 serde_json = "1"
 thiserror = "2"
