@@ -1,0 +1,18 @@
+[package]
+name = "quickie-engine-chromium"
+description = "Engine adapter on Chromium: the Rust side of the cxx bridge to //quickie"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Calls into the C++ side of the bridge. GN turns it on (engine/quickie/BUILD.gn); Cargo builds
+# without it, because the C++ side exists only inside a Chromium checkout and would not link.
+chromium = []
+
+[dependencies]
+cxx.workspace = true
+
+[lints]
+workspace = true
