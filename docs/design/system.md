@@ -77,18 +77,48 @@ where something floats above the page. On macOS 15 the fallback is `NSVisualEffe
 
 ## Motion
 
-Timing curves map 1:1 onto `CAMediaTimingFunction(controlPoints:)`.
+Following Emil Kowalski's [great animations](https://emilkowal.ski/ui/great-animations) and
+[practical animation tips](https://emilkowal.ski/ui/7-practical-animation-tips), wherever they
+don't fight the system.
+
+Rules:
+
+- **The keyboard never waits for an animation.** An overlay opened or closed by a shortcut
+  appears and disappears at once: palette, go to, address, find, the `⌃⇥` switcher, link hints, a
+  tab switch. These run dozens of times a day, and Raycast feels right because it has no
+  animations. The same overlay opened by a click or a gesture gets `overlay-enter`.
+- **Gestures follow the finger.** Swipe back and pinch to the overview track the touch 1:1 with
+  no easing; on release a `CASpringAnimation` finishes with the gesture's velocity.
+- **Fast and decelerating.** Under 300 ms, a custom ease-out (the built-in curves are too weak),
+  never ease-in. Exits are faster than entries.
+- **Never from nothing.** Scale starts at 0.97 or higher, never 0, always with opacity.
+- **From where it came.** A popover or menu scales from its trigger: the layer's `anchorPoint`
+  sits on the trigger, not in the center.
+- **Interruptible.** A new animation starts from the presentation layer's current value, never
+  jumps to the end or restarts.
+- **Only `transform` and `opacity`** (plus `shadowOpacity`). Core Animation runs them in the
+  render server, off the main thread; animating a frame or bounds re-lays out every frame.
+- **Feedback on press.** A clicked control in a sheet scales to 0.97 for `state-change`.
+- **Reduce Motion** keeps opacity and drops scale, slide, and springs.
+- **Not ours to animate.** The system keeps its own motion: `NSGlassEffectView` morphing,
+  window resizing and full screen, AppKit menus. We don't override or re-time them.
+
+Curves map 1:1 onto `CAMediaTimingFunction(controlPoints:)`. `ease-out` below is the custom
+`(0.16, 1, 0.3, 1)`.
 
 | Token | Duration | Curve | Use |
 |---|---|---|---|
-| `state-change` | 100 ms | ease-out | Selection, toggles, hover-free focus changes |
-| `fade-fast` | 120 ms | ease-out | E1 in and out |
-| `overlay-enter` | 200 ms | `(0.16, 1, 0.3, 1)`, scale 0.96 → 1 + fade | E2 |
-| `sheet-enter` | 250 ms | `(0.16, 1, 0.3, 1)`, slide from the top edge | E3 |
+| `instant` | 0 ms | — | Everything keyboard-initiated (see above) |
+| `state-change` | 100 ms | ease-out | Selection, toggles, press feedback |
+| `fade-fast` | 120 ms | ease-out | E1 in; E1 and E2 out |
+| `overlay-enter` | 180 ms | ease-out, scale 0.97 → 1 + fade | E2 opened by click or gesture |
+| `sheet-enter` | 220 ms | ease-out, slide 8 pt from the top edge + fade | E3; out with `fade-fast` |
+| `gesture-settle` | spring | `CASpringAnimation(perceptualDuration: 0.3, bounce: 0)`, gesture velocity | Swipe and pinch release |
 | `origin-chip-hold` | 2.4 s | then `fade-fast` | Origin chip after navigation or tab switch |
 | `toast-hold` | 3 s | then `fade-fast`; a click dismisses | Toasts |
 
-Reduce Motion replaces scale and slide with a plain fade of the same duration.
+E3 sheets always animate even when the keyboard opened them indirectly: they interrupt the
+user for a security decision, and the motion says where the decision came from.
 
 ## Voice
 

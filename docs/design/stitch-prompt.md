@@ -22,7 +22,7 @@ VISUAL LANGUAGE — Apple Liquid Glass with strict elevation
 - Rules: never glass on glass; only one E2 overlay visible at a time; no decorative glass; glass only where something floats above content.
 - Typography: SF Pro Text/Display, SF Mono for URLs, shortcuts and code. Keycaps rendered as small rounded glyph chips (⌘ ⇧ ⌥ ⌃ ⏎ ⎋).
 - Color: system neutrals, single accent (system blue), semantic red for destructive/security, amber for agent activity.
-- Motion hint (annotate, don't animate): spring scale 0.96→1 + fade for E2, slide-up for E3.
+- Motion hint (annotate, don't animate): keyboard-opened overlays appear instantly; click-opened E2 scales 0.97→1 + fade; E3 slides 8 pt + fade.
 
 ANNOTATION
 - Label every component with a small tag in the margin using this format: [FSD: layer/slice], e.g. [FSD: widgets/command-palette], [FSD: entities/tab-row], [FSD: shared/keycap].
