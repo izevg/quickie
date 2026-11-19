@@ -1,0 +1,315 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S4 Go To Palette (Light) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .font-serif-editorial { font-family: 'Newsreader', Georgia, serif; }
+    .material-symbols-outlined { display: inline-block; width: 1em; height: 1em; line-height: 1 !important; box-sizing: content-box; overflow: hidden; white-space: nowrap; direction: ltr; vertical-align: middle; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-content-bg-light text-content-text-light antialiased min-h-[1024px] overflow-x-hidden font-body selection:bg-primary/20" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- ==============================================================
+       DIMMED PAGE BACKGROUND (~10% Scrim as required for E2 Overlays)
+       ============================================================== -->
+  <div class="fixed inset-0 bg-black/10 backdrop-blur-[2px] z-30 pointer-events-none transition-opacity duration-200"></div>
+
+  <!-- [FSD: widgets/command-palette] S4 FLOATING E2 "GO TO" PALETTE (720px wide, near top, without prefix) -->
+  <div class="fixed inset-0 z-40 flex flex-col items-center pt-[102px] pointer-events-none" data-stitch-vh="pt-[102px]===pt-[10vh]">
+    
+    <!-- Motion hint indicator label above palette -->
+    <div class="mb-2 flex items-center gap-2 pointer-events-auto">
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-white/95 text-light-on-surface border border-light-outline-variant shadow-sm">[FSD: widgets/command-palette]</span>
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-blue-50 text-primary border border-blue-200">E2: &#34;Go To&#34; Mode • Query: &#34;pr review&#34;</span>
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Selection: Subtle Accent Fill (Not Glass)</span>
+    </div>
+
+    <!-- Liquid Glass Palette Container (720px width, 22px radius, 28px blur, specular border, soft medium shadow) -->
+    <div class="w-full max-w-[720px] rounded-overlay bg-white/85 backdrop-blur-2xl border border-white/80 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.22),0_0_0_1px_rgba(0,0,0,0.06)] pointer-events-auto overflow-hidden">
+      
+      <!-- Palette Input Row: Query "pr review" without any prefix (no ">") -->
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-light-outline-variant/30 bg-white/50">
+        <span class="material-symbols-outlined text-[22px] text-light-outline">search</span>
+        <div class="flex items-center gap-1 flex-1 font-body text-[17px]">
+          <span class="font-body font-normal text-light-on-surface">pr review</span>
+          <span class="w-0.5 h-5 bg-primary animate-pulse ml-0.5"></span>
+        </div>
+        <kbd class="px-2 py-1 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-outline shadow-sm flex items-center gap-0.5">
+          <span>⎋</span>
+          <span>esc</span>
+        </kbd>
+      </div>
+
+      <!-- Results Container -->
+      <div class="p-2 space-y-3 bg-white/30 max-h-[540px] overflow-y-auto">
+        
+        <!-- Section 1: Open tabs -->
+        <div class="space-y-1">
+          <div class="px-3 pt-2 pb-1 flex items-center justify-between font-code text-code-sm uppercase tracking-wider text-light-outline">
+            <span>Open tabs</span>
+            <span>2 tabs</span>
+          </div>
+
+          <!-- [FSD: entities/tab-row] Row 1: Selected Row with SUBTLE ACCENT FILL (solid soft accent tint, not glass) -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-light-on-surface cursor-pointer shadow-sm">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <!-- Favicon -->
+              <div class="w-5 h-5 rounded bg-black/10 flex items-center justify-center shrink-0 text-light-on-surface font-code text-[11px] font-bold">
+                <span class="material-symbols-outlined text-[15px] text-light-on-surface">code</span>
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h4 class="font-label text-label-lg font-semibold text-light-on-surface truncate">
+                    Pull Request #412: Metal Tahoe Compositor Review
+                  </h4>
+                  <span class="font-code text-code-sm text-light-outline shrink-0">2m ago</span>
+                </div>
+                <p class="font-code text-code-sm text-primary font-medium truncate mt-0.5">github.com/apple/darwin-webkit-runtime</p>
+              </div>
+            </div>
+            <!-- Pinned slot badge -->
+            <div class="flex items-center gap-2 shrink-0 ml-3">
+              <span class="font-code text-code-sm px-2 py-0.5 rounded-keycap bg-primary text-on-primary font-bold shadow-sm">⌘3</span>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-white/80 border border-black/10 font-code text-code-sm text-light-outline">⏎</kbd>
+            </div>
+          </div>
+
+          <!-- [FSD: entities/tab-row] Row 2: Secondary open tab -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg hover:bg-black/5 text-light-on-surface cursor-pointer transition-colors group">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <div class="w-5 h-5 rounded bg-orange-500/10 flex items-center justify-center shrink-0 text-orange-600 font-code text-[11px]">
+                <span class="material-symbols-outlined text-[15px]">merge</span>
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h4 class="font-label text-label-lg font-medium text-light-on-surface truncate group-hover:text-primary transition-colors">
+                    GitLab CI: PR Performance Benchmarks &amp; Code Review
+                  </h4>
+                  <span class="font-code text-code-sm text-light-outline shrink-0">14m ago</span>
+                </div>
+                <p class="font-code text-code-sm text-light-outline truncate mt-0.5">gitlab.internal/webkit/ci-review</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 ml-3">
+              <span class="font-code text-code-sm px-2 py-0.5 rounded-keycap bg-black/5 border border-black/10 text-light-outline">⌘4</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: History (Dimmer rows) -->
+        <div class="space-y-1 pt-1 border-t border-light-outline-variant/30">
+          <div class="px-3 pt-2 pb-1 flex items-center justify-between font-code text-code-sm uppercase tracking-wider text-light-outline">
+            <span>History</span>
+            <span class="text-light-outline">Cross-session cache</span>
+          </div>
+
+          <!-- [FSD: entities/history-row] History Row 1: Dimmer row -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg hover:bg-black/5 opacity-75 hover:opacity-100 text-light-on-surface cursor-pointer transition-all group">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <div class="w-5 h-5 rounded bg-black/5 flex items-center justify-center shrink-0 text-light-outline">
+                <span class="material-symbols-outlined text-[15px]">history</span>
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h4 class="font-label text-label-lg font-normal text-light-on-surface truncate group-hover:text-primary transition-colors">
+                    Reviewing Pull Requests: Best Practices for Systems Engineering
+                  </h4>
+                  <span class="font-code text-[11px] text-light-outline shrink-0">Yesterday, 4:20 PM</span>
+                </div>
+                <p class="font-code text-code-sm text-light-outline truncate mt-0.5">google.github.io/eng-practices/review</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0 ml-3 text-light-outline">
+              <span class="font-code text-[11px]">Visited 6 times</span>
+            </div>
+          </div>
+
+          <!-- [FSD: entities/history-row] History Row 2: Dimmer row -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg hover:bg-black/5 opacity-75 hover:opacity-100 text-light-on-surface cursor-pointer transition-all group">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <div class="w-5 h-5 rounded bg-black/5 flex items-center justify-center shrink-0 text-light-outline">
+                <span class="material-symbols-outlined text-[15px]">history</span>
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h4 class="font-label text-label-lg font-normal text-light-on-surface truncate group-hover:text-primary transition-colors">
+                    PR Review Guidelines: Liquid Glass Accessibility Standards
+                  </h4>
+                  <span class="font-code text-[11px] text-light-outline shrink-0">Nov 17</span>
+                </div>
+                <p class="font-code text-code-sm text-light-outline truncate mt-0.5">webkit.org/spec/accessibility-review</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0 ml-3 text-light-outline">
+              <span class="font-code text-[11px]">Visited 18 times</span>
+            </div>
+          </div>
+
+          <!-- [FSD: entities/history-row] History Row 3: Dimmer row -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg hover:bg-black/5 opacity-75 hover:opacity-100 text-light-on-surface cursor-pointer transition-all group">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <div class="w-5 h-5 rounded bg-black/5 flex items-center justify-center shrink-0 text-light-outline">
+                <span class="material-symbols-outlined text-[15px]">history</span>
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h4 class="font-label text-label-lg font-normal text-light-on-surface truncate group-hover:text-primary transition-colors">
+                    Pull Request #892: Tahoe Elevation Shaders &amp; Diffusion Kernel
+                  </h4>
+                  <span class="font-code text-[11px] text-light-outline shrink-0">Nov 14</span>
+                </div>
+                <p class="font-code text-code-sm text-light-outline truncate mt-0.5">github.com/apple/darwin-webkit-runtime/pull/892</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0 ml-3 text-light-outline">
+              <span class="font-code text-[11px]">Visited 2 times</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Palette Footer Status Bar -->
+      <div class="px-5 py-2.5 bg-black/[0.02] border-t border-light-outline-variant/30 flex items-center justify-between font-code text-code-sm text-light-outline">
+        <div class="flex items-center gap-3">
+          <span class="flex items-center gap-1"><kbd class="px-1 bg-black/5 rounded text-light-on-surface">↑</kbd><kbd class="px-1 bg-black/5 rounded text-light-on-surface">↓</kbd> navigate</span>
+          <span class="flex items-center gap-1"><kbd class="px-1 bg-black/5 rounded text-light-on-surface">↵</kbd> switch / open</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span>5 Results Found</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Background Web Content (Dimmed underneath) -->
+  <main class="w-full max-w-[840px] mx-auto px-8 pt-16 pb-28 filter blur-[1px]">
+    <header class="mb-12">
+      <div class="text-content-subtext-light font-label text-label-sm uppercase mb-4">Technology &amp; Human Cognition</div>
+      <h1 class="font-serif-editorial text-[52px] text-content-text-light mb-6">The Architecture of Sovereign Attention</h1>
+      <p class="font-serif-editorial italic text-headline-lg text-content-subtext-light">Why the next era of personal computing begins by dismantling browser chrome.</p>
+    </header>
+  </main>
+
+  <div class="fixed bottom-3 right-4 pointer-events-none opacity-60">
+    <span class="font-code text-code-sm text-light-outline bg-white/80 px-2 py-1 rounded border border-light-outline-variant">[FSD: screens/goto-palette-light] • 1512x982</span>
+  </div>
+
+
+
+</body></html>

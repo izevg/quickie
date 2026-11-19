@@ -1,0 +1,234 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S7a Find Bar (Light) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .font-serif-editorial { font-family: 'Newsreader', Georgia, serif; }
+    .material-symbols-outlined { display: inline-block; width: 1em; height: 1em; line-height: 1 !important; box-sizing: content-box; overflow: hidden; white-space: nowrap; direction: ltr; vertical-align: middle; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-content-bg-light text-content-text-light antialiased min-h-[1024px] overflow-x-hidden font-body selection:bg-primary/20" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- ==============================================================
+       [FSD: widgets/find-bar] S7a COMPACT E2 PILL (Top-Right)
+       Query, "3 / 17", Up/Down arrows, Case & Regex Toggles
+       ============================================================== -->
+  <div class="fixed top-5 right-6 z-50 flex flex-col items-end pointer-events-auto">
+    
+    <!-- FSD Label tag -->
+    <div class="mb-1.5 flex items-center gap-1.5">
+      <span class="font-code text-[10px] px-2 py-0.5 rounded bg-white/95 text-light-on-surface border border-light-outline-variant shadow-sm">[FSD: widgets/find-bar]</span>
+      <span class="font-code text-[10px] px-2 py-0.5 rounded bg-blue-50 text-primary border border-blue-200">E2: Compact Pill • Top-Right</span>
+    </div>
+
+    <!-- Liquid Glass Find Pill Container (20px radius, 28px blur, specular border, soft shadow) -->
+    <div class="flex items-center gap-2 pl-3.5 pr-2 py-1.5 rounded-full bg-white/85 backdrop-blur-2xl border border-white/80 shadow-[0_16px_36px_-8px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.06)]">
+      
+      <!-- Search Icon -->
+      <span class="material-symbols-outlined text-[17px] text-primary">search</span>
+      
+      <!-- Query Text Input -->
+      <input type="text" value="sovereign" class="w-32 bg-transparent border-none p-0 focus:ring-0 font-body text-body-md text-light-on-surface font-medium select-all" readonly>
+
+      <!-- Matches Count -->
+      <span class="font-code text-code-sm text-light-outline px-1.5 border-l border-light-outline-variant/40">
+        <strong class="font-bold text-light-on-surface">3</strong> / 17
+      </span>
+
+      <!-- Up / Down Stepper Buttons -->
+      <div class="flex items-center gap-0.5 pl-1">
+        <button type="button" aria-label="Previous match (⇧Enter)" class="p-1 rounded-full hover:bg-black/5 active:scale-95 text-light-on-surface transition-colors">
+          <span class="material-symbols-outlined text-[16px]">keyboard_arrow_up</span>
+        </button>
+        <button type="button" aria-label="Next match (Enter)" class="p-1 rounded-full hover:bg-black/5 active:scale-95 text-light-on-surface transition-colors">
+          <span class="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
+        </button>
+      </div>
+
+      <!-- Case & Regex Toggle Toggles -->
+      <div class="flex items-center gap-1 pl-1 border-l border-light-outline-variant/40">
+        <!-- Match Case Toggle (Active) -->
+        <button type="button" title="Match Case (⌥C)" class="px-1.5 py-0.5 rounded font-code text-[11px] font-bold bg-primary text-on-primary shadow-xs">
+          Aa
+        </button>
+        <!-- Regex Toggle (Inactive) -->
+        <button type="button" title="Use Regular Expression (⌥R)" class="px-1.5 py-0.5 rounded font-code text-[11px] text-light-outline hover:text-light-on-surface hover:bg-black/5 transition-colors">
+          .*
+        </button>
+      </div>
+
+      <!-- Close Find Bar Button -->
+      <button type="button" aria-label="Close find bar (ESC)" class="p-1 ml-0.5 rounded-full hover:bg-black/5 text-light-outline hover:text-light-on-surface transition-colors">
+        <span class="material-symbols-outlined text-[15px]">close</span>
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- ==============================================================
+       PAGE CONTENT WITH HIGHLIGHTED MATCHES
+       ============================================================== -->
+  <main class="w-full max-w-[840px] mx-auto px-8 pt-16 pb-28">
+    
+    <header class="mb-12">
+      <div class="flex items-center justify-between text-content-subtext-light text-label-sm font-label uppercase mb-4">
+        <span>Technology &amp; Human Cognition</span>
+        <span>November 19, 2026</span>
+      </div>
+      <h1 class="font-serif-editorial text-[52px] leading-tight text-content-text-light mb-6">
+        The Architecture of 
+        <!-- Match 1: Inactive match -->
+        <mark class="bg-amber-200/80 text-black px-1 rounded-sm">sovereign</mark> 
+        Attention
+      </h1>
+      <p class="font-serif-editorial italic text-headline-lg text-content-subtext-light mb-8">
+        Why the next era of personal computing begins by dismantling thirty years of browser chrome, toolbars, and contextual clutter.
+      </p>
+    </header>
+
+    <article class="font-serif-editorial text-body-lg text-[#222225] space-y-7 leading-relaxed">
+      <p>
+        <span class="float-left text-[72px] leading-none pr-3 pt-1 font-serif-editorial font-normal text-content-text-light">W</span>hen the web was conceived at CERN, it was not framed as a software application running inside an operating system; it was an open parchment of hyperlinked documents.
+      </p>
+      <p>
+        The fundamental contention of <em>Quickie</em> is radical in its modesty: 
+        <strong>Content is 
+          <!-- Match 2: Inactive match -->
+          <mark class="bg-amber-200/80 text-black px-1 rounded-sm">sovereign</mark>
+        </strong>. When an author writes, when an engineer inspects a deployment log, or when a researcher parses a clinical trial dataset, the browser interface is not an assistant—it is friction.
+      </p>
+
+      <!-- Section with Match 3: ACTIVE CURRENT MATCH (3 / 17 highlighted in orange/accent) -->
+      <blockquote class="my-10 pl-6 border-l-2 border-content-text-light italic text-headline-lg text-content-text-light">
+        &#34;To reclaim 
+        <mark class="bg-primary text-white font-bold px-1.5 py-0.5 rounded shadow-sm ring-2 ring-primary/30">sovereign</mark> 
+        cognition, software must retreat into silence until summoned by the human hand.&#34;
+      </blockquote>
+
+      <p>
+        In macOS Tahoe, this philosophy materializes through the absolute eradication of persistent window chrome. A discreet query pill pins find queries directly into the ocular path without disrupting document reading flow.
+      </p>
+    </article>
+
+  </main>
+
+  <div class="fixed bottom-3 right-4 pointer-events-none opacity-60">
+    <span class="font-code text-code-sm text-light-outline bg-white/80 px-2 py-1 rounded border border-light-outline-variant">[FSD: screens/find-light] • 1512x982</span>
+  </div>
+
+
+
+</body></html>

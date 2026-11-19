@@ -1,0 +1,300 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S3 Command Palette (Light) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .font-serif-editorial { font-family: 'Newsreader', Georgia, serif; }
+    .material-symbols-outlined { display: inline-block; width: 1em; height: 1em; line-height: 1 !important; box-sizing: content-box; overflow: hidden; white-space: nowrap; direction: ltr; vertical-align: middle; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-content-bg-light text-content-text-light antialiased min-h-[1024px] overflow-x-hidden font-body selection:bg-primary/20" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- ==============================================================
+       DIMMED PAGE BACKGROUND (~10% Scrim as required for E2 Overlays)
+       ============================================================== -->
+  <div class="fixed inset-0 bg-black/10 backdrop-blur-[2px] z-30 pointer-events-none transition-opacity duration-200"></div>
+
+  <!-- [FSD: widgets/command-palette] FLOATING E2 COMMAND PALETTE (720px wide, near top) -->
+  <div class="fixed inset-0 z-40 flex flex-col items-center pt-[102px] pointer-events-none" data-stitch-vh="pt-[102px]===pt-[10vh]">
+    
+    <!-- Motion hint indicator label above palette -->
+    <div class="mb-2 flex items-center gap-2 pointer-events-auto">
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-white/95 text-light-on-surface border border-light-outline-variant shadow-sm">[FSD: widgets/command-palette]</span>
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-blue-50 text-primary border border-blue-200">E2: Regular Liquid Glass • 720px Panel • 10% Dim</span>
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Query Mode: &gt; Commands</span>
+    </div>
+
+    <!-- Liquid Glass Palette Container (720px width, 22px radius, 28px blur, specular border, soft medium shadow) -->
+    <div class="w-full max-w-[720px] rounded-overlay bg-white/85 backdrop-blur-2xl border border-white/80 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.22),0_0_0_1px_rgba(0,0,0,0.06)] pointer-events-auto overflow-hidden">
+      
+      <!-- Palette Input Row: Showing "> rel" with fuzzy match indicator -->
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-light-outline-variant/30 bg-white/50">
+        <span class="font-code text-lg font-bold text-primary select-none">&gt;</span>
+        <div class="flex items-center gap-1 flex-1 font-body text-[17px]">
+          <span class="font-code font-semibold text-primary">rel</span>
+          <span class="w-0.5 h-5 bg-primary animate-pulse ml-0.5"></span>
+        </div>
+        <kbd class="px-2 py-1 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-outline shadow-sm flex items-center gap-0.5">
+          <span>⎋</span>
+          <span>esc</span>
+        </kbd>
+      </div>
+
+      <!-- Command Results List Container -->
+      <div class="p-2 space-y-3 bg-white/30 max-h-[520px] overflow-y-auto">
+        
+        <!-- Group 1: Commands -->
+        <div class="space-y-1">
+          <div class="px-3 pt-2 pb-1 flex items-center justify-between font-code text-code-sm uppercase tracking-wider text-light-outline">
+            <span>Commands</span>
+            <span>3 matches</span>
+          </div>
+
+          <!-- [FSD: entities/command-row] Row 1: Reload ⌘R (Selected State) -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-primary text-on-primary cursor-pointer shadow-sm">
+            <div class="flex items-center gap-3.5">
+              <span class="material-symbols-outlined text-[20px] text-white">refresh</span>
+              <div class="flex items-center gap-2">
+                <!-- Fuzzy matched letters highlighted -->
+                <span class="font-label text-label-lg font-semibold text-white">
+                  <span class="underline decoration-white decoration-2 text-white">Rel</span>oad
+                </span>
+                <span class="font-code text-[11px] px-2 py-0.5 rounded bg-white/20 text-white uppercase tracking-wider">Navigation</span>
+              </div>
+            </div>
+            <!-- [FSD: shared/keycap] Right-aligned keycaps -->
+            <div class="flex items-center gap-1">
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-white/25 border border-white/20 font-code text-code-sm text-white">⌘</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-white/25 border border-white/20 font-code text-code-sm text-white">R</kbd>
+            </div>
+          </div>
+
+          <!-- [FSD: entities/command-row] Row 2: Reopen closed tab ⌘⇧T -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg hover:bg-black/5 text-light-on-surface cursor-pointer transition-colors group">
+            <div class="flex items-center gap-3.5">
+              <span class="material-symbols-outlined text-[20px] text-light-outline group-hover:text-light-on-surface">restore_page</span>
+              <div class="flex items-center gap-2">
+                <span class="font-label text-label-lg font-medium text-light-on-surface">
+                  <span class="text-primary font-bold">Re</span>open c<span class="text-primary font-bold">l</span>osed tab
+                </span>
+                <span class="font-code text-[11px] px-2 py-0.5 rounded bg-black/5 text-light-outline uppercase tracking-wider">Tabs</span>
+              </div>
+            </div>
+            <!-- [FSD: shared/keycap] Right-aligned keycaps -->
+            <div class="flex items-center gap-1">
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">⌘</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">⇧</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">T</kbd>
+            </div>
+          </div>
+
+          <!-- [FSD: entities/command-row] Row 3: Reload without cache ⌘⇧R -->
+          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-lg hover:bg-black/5 text-light-on-surface cursor-pointer transition-colors group">
+            <div class="flex items-center gap-3.5">
+              <span class="material-symbols-outlined text-[20px] text-light-outline group-hover:text-light-on-surface">cached</span>
+              <div class="flex items-center gap-2">
+                <span class="font-label text-label-lg font-medium text-light-on-surface">
+                  <span class="text-primary font-bold">Rel</span>oad without cache
+                </span>
+                <span class="font-code text-[11px] px-2 py-0.5 rounded bg-black/5 text-light-outline uppercase tracking-wider">Developer</span>
+              </div>
+            </div>
+            <!-- [FSD: shared/keycap] Right-aligned keycaps -->
+            <div class="flex items-center gap-1">
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">⌘</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">⇧</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">R</kbd>
+            </div>
+          </div>
+        </div>
+
+        <!-- Group 2: Recently used -->
+        <div class="space-y-1 pt-1 border-t border-light-outline-variant/30">
+          <div class="px-3 pt-2 pb-1 font-code text-code-sm uppercase tracking-wider text-light-outline">
+            <span>Recently used</span>
+          </div>
+
+          <!-- Recently used row 1 -->
+          <div class="flex items-center justify-between px-3.5 py-2 rounded-lg hover:bg-black/5 text-light-on-surface cursor-pointer transition-colors group">
+            <div class="flex items-center gap-3.5">
+              <span class="material-symbols-outlined text-[19px] text-light-outline group-hover:text-light-on-surface">terminal</span>
+              <div class="flex items-center gap-2">
+                <span class="font-label text-label-lg text-light-on-surface">Toggle Developer Web Inspector</span>
+                <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-black/5 text-light-outline">Tools</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1">
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">⌥</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">⌘</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">I</kbd>
+            </div>
+          </div>
+
+          <!-- Recently used row 2 -->
+          <div class="flex items-center justify-between px-3.5 py-2 rounded-lg hover:bg-black/5 text-light-on-surface cursor-pointer transition-colors group">
+            <div class="flex items-center gap-3.5">
+              <span class="material-symbols-outlined text-[19px] text-agent">auto_awesome</span>
+              <div class="flex items-center gap-2">
+                <span class="font-label text-label-lg text-light-on-surface">Synthesize Page Citations with Agent</span>
+                <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-800">Agent</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1">
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-amber-100 border border-amber-300 font-code text-code-sm text-amber-900 font-bold">⌥</kbd>
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-amber-100 border border-amber-300 font-code text-code-sm text-amber-900 font-bold">A</kbd>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- [FSD: widgets/command-palette] Footer hint line -->
+      <div class="px-5 py-3 bg-black/[0.03] border-t border-light-outline-variant/30 flex items-center justify-between font-code text-code-sm text-light-on-surface">
+        <div class="flex items-center gap-2 overflow-x-auto text-[12px]">
+          <span class="font-semibold text-primary">&gt; commands</span>
+          <span class="text-light-outline">·</span>
+          <span class="text-light-outline">@ headings</span>
+          <span class="text-light-outline">·</span>
+          <span class="text-light-outline"># find</span>
+          <span class="text-light-outline">·</span>
+          <span class="text-light-outline">? ask agent</span>
+          <span class="text-light-outline">·</span>
+          <span class="text-light-outline">! search engines</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-light-outline shrink-0 ml-3">
+          <kbd class="px-1.5 py-0.5 rounded bg-black/5 border border-black/10 font-code text-code-sm text-light-on-surface">↵ select</kbd>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Background Web Content (Dimmed underneath) -->
+  <main class="w-full max-w-[840px] mx-auto px-8 pt-16 pb-28 filter blur-[1px]">
+    <header class="mb-12">
+      <div class="text-content-subtext-light font-label text-label-sm uppercase mb-4">Technology &amp; Human Cognition</div>
+      <h1 class="font-serif-editorial text-[52px] text-content-text-light mb-6">The Architecture of Sovereign Attention</h1>
+      <p class="font-serif-editorial italic text-headline-lg text-content-subtext-light">Why the next era of personal computing begins by dismantling browser chrome.</p>
+    </header>
+  </main>
+
+  <div class="fixed bottom-3 right-4 pointer-events-none opacity-60">
+    <span class="font-code text-code-sm text-light-outline bg-white/80 px-2 py-1 rounded border border-light-outline-variant">[FSD: screens/command-palette-light] • 1512x982</span>
+  </div>
+
+
+
+</body></html>

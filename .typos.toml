@@ -1,5 +1,6 @@
 [files]
-extend-exclude = ["target/", "Cargo.lock"]
+# Generated design mockups: reference material, not our prose.
+extend-exclude = ["target/", "Cargo.lock", "docs/design/mocks/"]
 
 [default.extend-words]
 # ungoogled-chromium's placeholder domain for substituted Google hosts.

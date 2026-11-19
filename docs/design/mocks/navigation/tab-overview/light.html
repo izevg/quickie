@@ -1,0 +1,322 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S6 Tab Overview (Light) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .font-serif-editorial { font-family: 'Newsreader', Georgia, serif; }
+    .material-symbols-outlined { display: inline-block; width: 1em; height: 1em; line-height: 1 !important; box-sizing: content-box; overflow: hidden; white-space: nowrap; direction: ltr; vertical-align: middle; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-content-bg-light text-content-text-light antialiased min-h-[1024px] overflow-x-hidden font-body selection:bg-primary/20" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- =========================================================================
+       ZOOMED-OUT ACTIVE PAGE + DIMMED BLURRED BACKDROP
+       ========================================================================= -->
+  <div class="fixed inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none">
+    <!-- Simulated zoomed out page background (scale 0.88 + dim + blur) -->
+    <div class="w-[1512px] h-[982px] transform scale-[0.88] opacity-25 filter blur-[6px] transition-transform duration-300">
+      <div class="w-full max-w-[840px] mx-auto px-8 pt-16">
+        <div class="text-content-subtext-light font-label text-label-sm uppercase mb-4">Technology &amp; Human Cognition</div>
+        <h1 class="font-serif-editorial text-[52px] text-content-text-light mb-6">The Architecture of Sovereign Attention</h1>
+        <p class="font-serif-editorial italic text-headline-lg text-content-subtext-light">Why the next era of personal computing begins by dismantling browser chrome.</p>
+      </div>
+    </div>
+    <!-- Scrim overlay -->
+    <div class="absolute inset-0 bg-black/15 backdrop-blur-[4px]"></div>
+  </div>
+
+  <!-- [FSD: widgets/tab-overview] SINGLE E2 CONTAINER (Not one glass per card) -->
+  <div class="fixed inset-0 z-40 flex flex-col items-center justify-between p-10 pointer-events-none">
+    
+    <!-- Top Bar: Overview Header + Shortcut Hint -->
+    <div class="w-full max-w-[1360px] flex items-center justify-between pointer-events-auto">
+      <div class="flex items-center gap-3">
+        <span class="font-code text-code-sm px-2.5 py-1 rounded bg-white/90 text-light-on-surface border border-light-outline-variant shadow-sm">[FSD: widgets/tab-overview]</span>
+        <h2 class="font-headline text-headline-md font-bold text-light-on-surface">Tab Overview</h2>
+        <span class="font-code text-code-sm px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">6 Open Tabs</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="font-code text-code-sm text-light-outline">Navigate with arrow keys · </span>
+        <kbd class="px-2 py-1 rounded-keycap bg-white/90 border border-black/10 font-code text-code-sm text-light-on-surface shadow-sm">⎋ esc to return</kbd>
+      </div>
+    </div>
+
+    <!-- The Single E2 Liquid Glass Container holding the tab grid -->
+    <div class="w-full max-w-[1360px] my-auto p-7 rounded-overlay bg-white/80 backdrop-blur-3xl border border-white/80 shadow-[0_32px_80px_-16px_rgba(0,0,0,0.25),0_0_0_1px_rgba(0,0,0,0.06)] pointer-events-auto overflow-hidden">
+      
+      <!-- Grid of all open tabs as live thumbnails (3 cols x 2 rows) -->
+      <div class="grid grid-cols-3 gap-6">
+        
+        <!-- Tab 1: Pinned tab 1 (⌘1 badge) -->
+        <div class="relative flex flex-col rounded-xl bg-white border border-black/10 overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group">
+          <!-- Thumbnail Header Strip -->
+          <div class="px-3.5 py-2.5 bg-black/[0.02] border-b border-black/5 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-label text-label-sm font-semibold text-light-on-surface truncate">Sovereign Attention</span>
+            </div>
+            <!-- Pinned badge -->
+            <kbd class="px-1.5 py-0.5 rounded-keycap bg-primary text-on-primary font-code text-[11px] font-bold shadow-sm">⌘1</kbd>
+          </div>
+          <!-- Live Preview Canvas Area -->
+          <div class="w-full aspect-[16/10] p-4 bg-gradient-to-b from-[#FBFBFD] to-[#F2F2F5] flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="w-24 h-2 rounded bg-black/15"></div>
+              <div class="w-44 h-4 rounded bg-[#1D1D1F]"></div>
+              <div class="w-36 h-2 rounded bg-black/10"></div>
+            </div>
+            <p class="font-code text-code-sm text-light-outline truncate">theatlantic.com/technology</p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Pinned tab 2 (⌘2 badge) - WITH KEYBOARD FOCUS (Close button appears ONLY here) -->
+        <div class="relative flex flex-col rounded-xl bg-white border-2 border-primary ring-4 ring-primary/20 overflow-hidden shadow-lg transition-all cursor-pointer">
+          <!-- Thumbnail Header Strip -->
+          <div class="px-3.5 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-label text-label-sm font-bold text-primary truncate">SwiftUI — LiquidGlass</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- Close button (APPEARS ONLY ON FOCUSED CARD via keyboard focus, not hover) -->
+              <button type="button" aria-label="Close tab (W)" class="w-5 h-5 rounded-full bg-destructive text-on-destructive flex items-center justify-center hover:brightness-110 shadow-sm transition-transform active:scale-90">
+                <span class="material-symbols-outlined text-[14px]">close</span>
+              </button>
+              <!-- Pinned badge -->
+              <kbd class="px-1.5 py-0.5 rounded-keycap bg-primary text-on-primary font-code text-[11px] font-bold shadow-sm">⌘2</kbd>
+            </div>
+          </div>
+          <!-- Live Preview Canvas Area -->
+          <div class="w-full aspect-[16/10] p-4 bg-gradient-to-b from-white to-[#EDF2F7] flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="w-20 h-2 rounded bg-primary"></div>
+              <div class="w-48 h-4 rounded bg-[#1D1D1F]"></div>
+              <div class="w-full h-10 rounded bg-[#E2E8F0] border border-black/5 p-2 font-code text-[9px] text-[#4A5568]">
+                public struct LiquidGlassWindow: Scene { ... }
+              </div>
+            </div>
+            <div class="flex items-center justify-between font-code text-code-sm">
+              <span class="text-primary font-semibold">developer.apple.com</span>
+              <span class="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">FOCUSED (W to close)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Pinned tab 3 (⌘3 badge) -->
+        <div class="relative flex flex-col rounded-xl bg-white border border-black/10 overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group">
+          <div class="px-3.5 py-2.5 bg-black/[0.02] border-b border-black/5 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-label text-label-sm font-semibold text-light-on-surface truncate">apple/darwin-webkit</span>
+            </div>
+            <kbd class="px-1.5 py-0.5 rounded-keycap bg-primary text-on-primary font-code text-[11px] font-bold shadow-sm">⌘3</kbd>
+          </div>
+          <div class="w-full aspect-[16/10] p-4 bg-gradient-to-b from-[#0D1117] to-[#161B22] flex flex-col justify-between text-white">
+            <div class="space-y-2">
+              <div class="w-24 h-2 rounded bg-[#58A6FF]"></div>
+              <div class="w-40 h-3 rounded bg-white"></div>
+              <div class="w-full h-8 rounded bg-[#21262D] border border-[#30363D] p-2 font-code text-[8px] text-[#8B949E]">
+                LiquidGlassSurface.swift:142
+              </div>
+            </div>
+            <p class="font-code text-code-sm text-[#8B949E] truncate">github.com/apple/darwin-webkit</p>
+          </div>
+        </div>
+
+        <!-- Tab 4: Regular unpinned tab -->
+        <div class="relative flex flex-col rounded-xl bg-white border border-black/10 overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group">
+          <div class="px-3.5 py-2.5 bg-black/[0.02] border-b border-black/5 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-label text-label-sm font-medium text-light-on-surface truncate">Quickie: An OS Browser</span>
+            </div>
+            <span class="font-code text-code-sm text-light-outline">Tab 4</span>
+          </div>
+          <div class="w-full aspect-[16/10] p-4 bg-gradient-to-b from-[#F6F6EF] to-[#EFEFE6] flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="w-16 h-2 rounded bg-[#FF6600]"></div>
+              <div class="w-48 h-3 rounded bg-[#222222]"></div>
+              <div class="w-32 h-2 rounded bg-black/10"></div>
+            </div>
+            <p class="font-code text-code-sm text-light-outline truncate">news.ycombinator.com</p>
+          </div>
+        </div>
+
+        <!-- Tab 5: Regular unpinned tab -->
+        <div class="relative flex flex-col rounded-xl bg-white border border-black/10 overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group">
+          <div class="px-3.5 py-2.5 bg-black/[0.02] border-b border-black/5 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span class="font-label text-label-sm font-medium text-light-on-surface truncate">Vite React Canvas Preview</span>
+            </div>
+            <span class="font-code text-code-sm text-light-outline">Tab 5</span>
+          </div>
+          <div class="w-full aspect-[16/10] p-4 bg-gradient-to-tr from-amber-50 to-white flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="w-16 h-2 rounded bg-amber-500"></div>
+              <div class="w-40 h-3 rounded bg-[#1D1D1F]"></div>
+              <div class="w-24 h-2 rounded bg-black/10"></div>
+            </div>
+            <p class="font-code text-code-sm text-amber-800 truncate">http://localhost:5173</p>
+          </div>
+        </div>
+
+        <!-- Tab 6: Regular unpinned tab -->
+        <div class="relative flex flex-col rounded-xl bg-white border border-black/10 overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group">
+          <div class="px-3.5 py-2.5 bg-black/[0.02] border-b border-black/5 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-label text-label-sm font-medium text-light-on-surface truncate">Hardware Specular Specs</span>
+            </div>
+            <span class="font-code text-code-sm text-light-outline">Tab 6</span>
+          </div>
+          <div class="w-full aspect-[16/10] p-4 bg-gradient-to-b from-[#F7F7FA] to-[#EDEEF3] flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="w-20 h-2 rounded bg-emerald-600"></div>
+              <div class="w-44 h-3 rounded bg-[#1D1D1F]"></div>
+              <div class="w-28 h-2 rounded bg-black/10"></div>
+            </div>
+            <p class="font-code text-code-sm text-light-outline truncate">w3c.github.io/csswg-drafts</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Bottom Controls & Navigation Hints Strip -->
+    <div class="w-full max-w-[1360px] flex items-center justify-between text-xs font-code text-light-on-surface pointer-events-auto">
+      <div class="flex items-center gap-4">
+        <span class="flex items-center gap-1.5"><kbd class="px-1.5 py-0.5 rounded bg-white/90 border border-black/10 shadow-sm font-bold">← → ↑ ↓</kbd> select tab</span>
+        <span>·</span>
+        <span class="flex items-center gap-1.5"><kbd class="px-1.5 py-0.5 rounded bg-white/90 border border-black/10 shadow-sm font-bold">W</kbd> close focused</span>
+        <span>·</span>
+        <span class="flex items-center gap-1.5"><kbd class="px-1.5 py-0.5 rounded bg-white/90 border border-black/10 shadow-sm font-bold">↵</kbd> switch</span>
+      </div>
+      <div class="flex items-center gap-2 text-light-outline">
+        <span>macOS 26 Tahoe Compositor</span>
+        <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="fixed bottom-3 right-4 pointer-events-none opacity-60">
+    <span class="font-code text-code-sm text-light-outline bg-white/80 px-2 py-1 rounded border border-light-outline-variant">[FSD: screens/tab-overview-light] • 1512x982</span>
+  </div>
+
+
+
+</body></html>

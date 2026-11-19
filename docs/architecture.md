@@ -157,6 +157,9 @@ ninth context means regrouping first.
 | `entities` | `TabRow`, `TabThumbnail`, `CommandRow`, `HistoryRow`, `KeycapGroup`, `AgentBadge`, `OriginLabel` | shared, domain |
 | `shared` | `GlassSurface::new(Elevation)`, `ListView` (`NSTableView` with a diffing source), `Keycap`, spring presets (`CASpringAnimation`), colors, typography | `objc2` |
 
+The full, mockup-backed list with states is the [component inventory](design/inventory.md); the
+tokens are in the [design system](design/system.md).
+
 Rules: slices of one layer never use each other; business logic lives only in domain and
 application; lists are only `NSTableView`/`NSCollectionView`; custom views use `define_class!`,
 and private AppKit methods are never overridden.

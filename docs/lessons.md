@@ -16,6 +16,7 @@ Research as of 2026-11-19. **[weak]**: forums or anecdotes. **[unverified]**: no
 | Dia CVE-2025-13132 (fullscreen without a notice), CVE-2025-15032 (a window without about:blank in the URL): typical custom-shell bugs | Fullscreen always shows a notice; origin chip on every origin change; spoofing tests in CI | https://diabrowser.com/security/bulletins |
 | Dia: prompt-injection detection is unreliable; allowlists fall to open redirects | Provenance rule: the agent only visits URLs from the user's context | same |
 | Arc performance: RAM, battery, lag **[weak]** | Frame budgets in CI performance tests; background tabs discarded | reddit r/ArcBrowser |
+| Arc's lag came from SwiftUI and a busy main thread, not from composition | Native composition: no compositor of our own; Metal only inside one widget, after a measurement shows Core Animation missing the budget | same |
 
 ## Vivaldi
 
