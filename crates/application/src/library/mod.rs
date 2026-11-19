@@ -1,18 +1,21 @@
-//! Library use cases: history, bookmarks and their tags, search shortcuts.
+//! Library use cases: history, bookmarks and their tags, search shortcuts, downloads.
 //!
 //! The same transaction rule as browsing: a command changes a copy of one aggregate, the copy
 //! is saved, and only then does it replace the aggregate, so a failed save changes nothing. A
 //! command that changes nothing saves nothing.
 
+mod downloads;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use quickie_domain_browsing::{Jar, Timestamp};
 use quickie_domain_library::{
-    Bookmark, Bookmarks, CorruptBookmarks, CorruptHistory, CorruptShortcuts, Forgotten, History,
-    Keyword, Recorded, Saved, SearchShortcuts, Tag, UrlTemplate,
+    Bookmark, Bookmarks, CorruptBookmarks, CorruptDownloads, CorruptHistory, CorruptShortcuts,
+    DownloadId, Downloads, Forgotten, History, Keyword, Recorded, Saved, SearchShortcuts, Tag,
+    UrlTemplate,
 };
 use url::Url;
 
@@ -31,14 +34,20 @@ pub enum CorruptLibrary {
     /// The saved search shortcuts.
     #[error("saved search shortcuts are corrupt: {0}")]
     Shortcuts(#[from] CorruptShortcuts),
+    /// The saved downloads.
+    #[error("saved downloads are corrupt: {0}")]
+    Downloads(#[from] CorruptDownloads),
 }
 
-/// The library use cases over one profile's history, bookmarks and search shortcuts.
+/// The library use cases over one profile's history, bookmarks, search shortcuts and downloads.
 #[derive(Debug)]
 pub struct Library<R, C> {
     history: History,
     bookmarks: Bookmarks,
     shortcuts: SearchShortcuts,
+    downloads: Downloads,
+    /// Downloads of throwaway jars: listed while Quickie runs, never saved.
+    session_only: HashSet<DownloadId>,
     corrupt_on_start: Vec<CorruptLibrary>,
     repo: R,
     clock: C,
@@ -47,7 +56,8 @@ pub struct Library<R, C> {
 impl<R: LibraryRepo, C: Clock> Library<R, C> {
     /// Loads the saved library. A part never saved starts empty, or with the default search
     /// shortcuts; a corrupt part starts the same way and is reported by
-    /// [`Self::corrupt_on_start`]. Nothing is saved until something changes.
+    /// [`Self::corrupt_on_start`]. A download still in progress when Quickie last quit failed
+    /// with it. Nothing is saved until something changes.
     ///
     /// # Errors
     ///
@@ -64,10 +74,14 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
             SearchShortcuts::defaults,
             corrupt,
         );
+        let mut downloads = restore(saved.downloads, Downloads::restore, Downloads::new, corrupt);
+        downloads::interrupt(&mut downloads);
         Ok(Self {
             history,
             bookmarks,
             shortcuts,
+            downloads,
+            session_only: HashSet::new(),
             corrupt_on_start,
             repo,
             clock,

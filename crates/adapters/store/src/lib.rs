@@ -6,6 +6,7 @@
 //! so the shell puts the [`SqliteStore`] behind a [`WriteBehindStore`] that writes on its own
 //! thread.
 
+mod downloads;
 mod library;
 mod schema;
 mod session;
@@ -25,7 +26,9 @@ use quickie_application::{
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
-use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_library::{
+    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use rusqlite::Connection;
 use settings::{agent, keymap};
@@ -91,6 +94,10 @@ impl LibraryRepo for SqliteStore {
 
     fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError> {
         library::save_shortcuts(&mut self.db, shortcuts)
+    }
+
+    fn save_downloads(&mut self, downloads: &DownloadsSnapshot) -> Result<(), StoreError> {
+        library::save_downloads(&mut self.db, downloads)
     }
 }
 

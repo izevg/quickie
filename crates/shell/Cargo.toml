@@ -24,19 +24,23 @@ objc2-app-kit = { workspace = true, features = [
   "NSRunningApplication",
   "NSView",
   "NSWindow",
+  "NSWorkspace",
 ] }
 objc2-foundation = { workspace = true, features = [
   "block2",
+  "NSArray",
   "NSDate",
   "NSGeometry",
   "NSNotification",
   "NSOperation",
   "NSString",
   "NSTimer",
+  "NSURL",
 ] }
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
 quickie-domain-commands.workspace = true
+quickie-domain-library.workspace = true
 quickie-domain-shields.workspace = true
 quickie-engine-webkit.workspace = true
 quickie-store.workspace = true

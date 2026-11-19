@@ -9,15 +9,18 @@ mod shortcuts;
 use std::collections::HashSet;
 
 use quickie_application::{LibrarySnapshot, StoreError};
-use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_library::{
+    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+};
 use rusqlite::{Connection, Transaction};
 
-use crate::failed;
+use crate::{downloads, failed};
 
 /// The name each part is recorded under in `library_saved`.
 const HISTORY: &str = "history";
 const BOOKMARKS: &str = "bookmarks";
 const SHORTCUTS: &str = "shortcuts";
+const DOWNLOADS: &str = "downloads";
 
 /// Every part of the library that was ever saved.
 pub(crate) fn load(db: &Connection) -> Result<LibrarySnapshot, StoreError> {
@@ -34,7 +37,18 @@ pub(crate) fn load(db: &Connection) -> Result<LibrarySnapshot, StoreError> {
         shortcuts: was_saved(SHORTCUTS)
             .then(|| shortcuts::load(db))
             .transpose()?,
+        downloads: was_saved(DOWNLOADS)
+            .then(|| downloads::load(db))
+            .transpose()?,
     })
+}
+
+/// Replaces the saved downloads in one transaction.
+pub(crate) fn save_downloads(
+    db: &mut Connection,
+    snapshot: &DownloadsSnapshot,
+) -> Result<(), StoreError> {
+    save(db, DOWNLOADS, |tx| downloads::save(tx, snapshot))
 }
 
 /// Replaces the saved history in one transaction.

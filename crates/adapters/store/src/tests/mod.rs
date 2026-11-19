@@ -66,21 +66,21 @@ fn a_first_version_database_keeps_its_session_and_gains_the_library() {
 }
 
 #[test]
-fn a_sixth_version_database_gains_an_empty_agent_endpoint() {
+fn a_seventh_version_database_gains_an_empty_agent_endpoint() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shell.sqlite");
     let mut db = Connection::open(&path).unwrap();
-    for migration in &MIGRATIONS[..6] {
+    for migration in &MIGRATIONS[..7] {
         db.execute_batch(migration).unwrap();
     }
-    db.pragma_update(None, "user_version", 6).unwrap();
+    db.pragma_update(None, "user_version", 7).unwrap();
     let session = session::busy();
     crate::session::save(&mut db, &session).unwrap();
     drop(db);
 
     let store = SqliteStore::open(&path).unwrap();
 
-    assert_eq!(user_version(&store.db), 7);
+    assert_eq!(user_version(&store.db), 8);
     assert_eq!(store.load(), Ok(Some(session)));
     assert_eq!(store.load_endpoint(), Ok(None));
 }

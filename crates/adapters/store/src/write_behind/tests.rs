@@ -15,7 +15,7 @@ use quickie_application::{
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::{NextIds, Session, SessionSnapshot};
 use quickie_domain_library::{
-    Bookmarks, BookmarksSnapshot, History, HistorySnapshot, SearchShortcuts,
+    Bookmarks, BookmarksSnapshot, DownloadsSnapshot, History, HistorySnapshot, SearchShortcuts,
     SearchShortcutsSnapshot, Timestamp,
 };
 use quickie_domain_shields::{
@@ -149,6 +149,10 @@ impl LibraryRepo for Recorder {
 
     fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError> {
         self.store.save_shortcuts(shortcuts)
+    }
+
+    fn save_downloads(&mut self, downloads: &DownloadsSnapshot) -> Result<(), StoreError> {
+        self.store.save_downloads(downloads)
     }
 }
 
@@ -345,6 +349,7 @@ fn a_flush_puts_every_kind_on_disk() {
                 history: Some(history()),
                 bookmarks: Some(bookmarks()),
                 shortcuts: Some(shortcuts()),
+                downloads: None,
             }
         )
     );

@@ -2,7 +2,7 @@
 
 use quickie_domain_agents::PromptError;
 use quickie_domain_browsing::{BrowsingError, CorruptSession};
-use quickie_domain_library::NotSaved;
+use quickie_domain_library::{DownloadError, NotSaved};
 use quickie_domain_shields::SiteError;
 
 /// The engine refused or failed a command.
@@ -74,6 +74,9 @@ pub enum AppError {
     /// The command named a page that is not bookmarked.
     #[error(transparent)]
     NotSaved(#[from] NotSaved),
+    /// The command named a download that is gone, or that cannot take it in its state.
+    #[error(transparent)]
+    Download(#[from] DownloadError),
     /// The command named a page that has no site to set shields for.
     #[error(transparent)]
     NoSite(#[from] SiteError),

@@ -9,7 +9,7 @@ use super::binding::KeyBinding;
 ///
 /// `⌥⌘C` stays with "Copy as Markdown Link" as the README promises, so "Inspect Element" has no
 /// default key. The tests check that every row parses and that the keymap they make is valid.
-pub(super) const BINDINGS: [(&str, &str, Option<&str>); 43] = [
+pub(super) const BINDINGS: [(&str, &str, Option<&str>); 44] = [
     ("cmd+shift+p", "quickie.palette.openCommands", None),
     ("cmd+k", "quickie.palette.openCommands", None),
     ("cmd+p", "quickie.palette.goto", None),
@@ -59,6 +59,7 @@ pub(super) const BINDINGS: [(&str, &str, Option<&str>); 43] = [
     ("alt+cmd+c", "quickie.page.copyAsMarkdownLink", None),
     ("cmd+d", "quickie.page.bookmark", None),
     ("cmd+j", "quickie.downloads.show", None),
+    ("alt+cmd+s", "quickie.shields.open", None),
     ("alt+cmd+i", "quickie.devtools.toggle", None),
     ("alt+cmd+j", "quickie.devtools.console", None),
 ];

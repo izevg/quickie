@@ -72,6 +72,7 @@ fn the_palette_only_commands_from_the_docs_are_built_in() {
         "quickie.page.find",
         "quickie.hints.toggle",
         "quickie.downloads.show",
+        "quickie.shields.open",
     ];
 
     for text in ids {

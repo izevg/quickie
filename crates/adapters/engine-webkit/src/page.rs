@@ -116,6 +116,11 @@ impl WebPage {
         self.focused.get()
     }
 
+    /// The web view itself, to start a download in its jar.
+    pub(crate) fn web_view(&self) -> &WKWebView {
+        &self.view
+    }
+
     /// Navigates to `url`.
     pub(crate) fn load(&self, url: &Url) -> Result<(), EngineError> {
         let parsed = NSURL::URLWithString(&NSString::from_str(url.as_str()))

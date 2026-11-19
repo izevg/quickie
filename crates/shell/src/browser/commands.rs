@@ -50,6 +50,8 @@ pub enum Action {
     Hints {
         background: bool,
     },
+    ShowDownloads,
+    ShowShields,
 }
 
 impl Action {
@@ -94,6 +96,8 @@ impl Action {
             "quickie.tab.overview" => Self::Overview,
             "quickie.hints.toggle" => Self::Hints { background: false },
             "quickie.hints.openInBackground" => Self::Hints { background: true },
+            "quickie.downloads.show" => Self::ShowDownloads,
+            "quickie.shields.open" => Self::ShowShields,
             _ => return None,
         };
         Some(action)
@@ -143,6 +147,8 @@ impl Browser {
             Action::Find => return self.open_find(),
             Action::FindNext => return self.find_step(false),
             Action::FindPrevious => return self.find_step(true),
+            Action::ShowDownloads => return self.toggle_downloads(Trigger::Keyboard),
+            Action::ShowShields => return self.toggle_shields_popover(Trigger::Keyboard),
             Action::Cycle(direction) => {
                 if let Some((window, _)) = self.current() {
                     self.cycle(window, direction, holding(stroke));
@@ -183,7 +189,9 @@ impl Browser {
             | Action::FindPrevious
             | Action::Cycle(_)
             | Action::Overview
-            | Action::Hints { .. } => {}
+            | Action::Hints { .. }
+            | Action::ShowDownloads
+            | Action::ShowShields => {}
         }
         self.settle(window);
     }
@@ -303,7 +311,7 @@ impl Browser {
 
     /// Turns every allowed filter list on and fetches the ones never fetched: the user's
     /// request is what opens the connections.
-    fn enable_lists(&self) {
+    pub(super) fn enable_lists(&self) {
         let enabled = self.shields.borrow_mut().enable_lists(&FilterListId::ALL);
         if let Err(error) = enabled {
             return self.report(&error);
@@ -354,9 +362,10 @@ impl Browser {
             )),
             Err(error) => self.report(&error),
         }
+        self.refresh_shields_popover();
     }
 
-    fn active_tab(&self, window: WindowId) -> Option<quickie_domain_browsing::Tab> {
+    pub(super) fn active_tab(&self, window: WindowId) -> Option<quickie_domain_browsing::Tab> {
         let browsing = self.browsing.borrow();
         let tab = browsing.session().active(window)?;
         browsing.session().tab(tab).cloned()
@@ -412,6 +421,8 @@ mod tests {
                 "quickie.hints.openInBackground",
                 Action::Hints { background: true },
             ),
+            ("quickie.downloads.show", Action::ShowDownloads),
+            ("quickie.shields.open", Action::ShowShields),
         ];
         for (id, action) in cases {
             assert_eq!(of(id), Some(action), "{id}");
@@ -449,8 +460,8 @@ mod tests {
             .filter(|command| Action::of(&command.id).is_some())
             .count();
 
-        // 25 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 25 + 9 + 9);
+        // 27 named commands plus nine slots to go to and nine to pin.
+        assert_eq!(built, 27 + 9 + 9);
     }
 
     #[test]

@@ -15,8 +15,9 @@
 //! `⌘P` goes to a tab, bookmark, or visited page, `⌘L` opens the address overlay, `⌘T` /
 //! `⇧⌘N` open a tab / a throwaway tab, `⌘W` closes into the trash, `⌘⇧T` reopens, `⌃⇥` /
 //! `⌃⇧⇥` switch in most-recently-used order, `⌘1` … `⌘9` go to a pinned slot and `⌥⌘1` …
-//! `⌥⌘9` pin there, `⌘D` bookmarks, `⇧⌘C` / `⌥⌘C` copy the URL / a Markdown link. `⌘Q`
-//! quits. Launching opens no network connection; the start page is served from memory.
+//! `⌥⌘9` pin there, `⌘D` bookmarks, `⇧⌘C` / `⌥⌘C` copy the URL / a Markdown link, `⌘J`
+//! shows the downloads (saved to `~/Downloads`), `⌥⌘S` the site's shields. `⌘Q` quits.
+//! Launching opens no network connection; the start page is served from memory.
 
 #![expect(
     unsafe_code,
@@ -143,6 +144,10 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         .map_err(|error| error.to_string())?;
     let shields =
         Shields::start(shields_store, SystemClock, blocker).map_err(|error| error.to_string())?;
+    let downloads_folder = home_dir()?.join("Downloads");
+    browsing
+        .engine_mut()
+        .set_download_directory(downloads_folder.clone());
     let writes = vec![pending, library_pending, shields_pending];
     let services = Services {
         browsing,
@@ -153,6 +158,7 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         keymap,
         writes: writes.clone(),
         notices,
+        downloads_folder,
     };
     Ok((Browser::new(services, home, mtm), writes))
 }
@@ -216,10 +222,15 @@ fn store_path() -> Result<PathBuf, String> {
 
 /// `~/Library/Application Support/Quickie`, created.
 fn support_dir() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    let directory = PathBuf::from(home).join("Library/Application Support/Quickie");
+    let directory = home_dir()?.join("Library/Application Support/Quickie");
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     Ok(directory)
+}
+
+/// `~`, from `HOME`: downloads go to `~/Downloads`.
+fn home_dir() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+    Ok(PathBuf::from(home))
 }
 
 #[expect(

@@ -105,6 +105,9 @@ impl Browser {
         if self.cycle.borrow().is_some() {
             context = context.with_flag("switcherOpen");
         }
+        if self.popovers.is_open() {
+            context = context.with_flag("popoverOpen");
+        }
         context.with_value("focusedView", view)
     }
 
@@ -120,6 +123,9 @@ impl Browser {
 
     /// An overlay's fixed key. While an input method composes, every key is the field's.
     fn overlay_key(&self, key: OverlayKey) -> bool {
+        if self.popovers.is_open() {
+            return self.popover_key(key);
+        }
         if self.command_palette.is_open() {
             if self.command_palette.is_composing() {
                 return false;
@@ -156,6 +162,7 @@ impl Browser {
             return;
         };
         self.command_palette.hide();
+        self.hide_popovers();
         self.cancel_cycle();
         self.hide_find();
         let url = self.active(window).and_then(|tab| {
@@ -203,6 +210,7 @@ impl Browser {
         };
         self.address.hide();
         self.command_palette.hide();
+        self.hide_popovers();
         self.hide_find();
         *self.cycle.borrow_mut() = Some(CycleHold::new(cycle, window, Instant::now()));
         if held == Modifiers::NONE {

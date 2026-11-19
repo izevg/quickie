@@ -79,6 +79,9 @@ pub enum DownloadError {
     /// The download already finished, failed or was cancelled, so it no longer moves.
     #[error("{0} is no longer in progress")]
     Ended(DownloadId),
+    /// The download is still in progress, so it cannot leave the list; cancel it first.
+    #[error("{0} is still in progress")]
+    Running(DownloadId),
 }
 
 /// The downloads of one profile, in the order they started.
@@ -171,6 +174,23 @@ impl Downloads {
                 });
         self.downloads = running;
         ended.into_values().collect()
+    }
+
+    /// Takes one ended download off the list and returns it, as retrying it does: the retry is
+    /// listed anew when it starts.
+    ///
+    /// # Errors
+    ///
+    /// [`DownloadError::Unknown`] for a download not listed, [`DownloadError::Running`] for one
+    /// still in progress.
+    pub fn remove(&mut self, id: DownloadId) -> Result<Download, DownloadError> {
+        let download = self.downloads.get(&id).ok_or(DownloadError::Unknown(id))?;
+        if matches!(download.state, DownloadState::InProgress { .. }) {
+            return Err(DownloadError::Running(id));
+        }
+        self.downloads
+            .shift_remove(&id)
+            .ok_or(DownloadError::Unknown(id))
     }
 
     /// A listed download.

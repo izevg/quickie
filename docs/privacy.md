@@ -67,6 +67,15 @@ user explicitly enabled. This is checked automatically (§4), not promised.
 - Fetching goes through the engine's network stack (`HttpPort`): Chromium's network service in
   the product, `NSURLSession` in the development build.
 
+### Downloads in a throwaway jar
+
+- The file is saved to `~/Downloads` like any other: the user asked for it.
+- It is listed in the downloads popover while Quickie runs, so it can be watched, cancelled, and
+  opened, but it is never written to `shell.sqlite`. After a restart the library keeps no trace
+  of where the file came from, just as the jar's visits never reach history.
+- A cancelled or failed download's partial file is deleted. Quickie never overwrites a file in
+  `~/Downloads`: a taken name gets the next number (`report 2.pdf`).
+
 ## 4. Proof: the egress test
 
 `tools/egress-test`, in CI on every release:
