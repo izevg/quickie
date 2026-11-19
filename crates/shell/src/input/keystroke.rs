@@ -152,6 +152,47 @@ pub fn overlay_key(stroke: KeyStroke) -> Option<OverlayKey> {
     }
 }
 
+/// What a fixed key does on an E3 sheet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SheetKey {
+    /// `⏎`: OK.
+    Accept,
+    /// `⎋`: cancel, deny; the safe default.
+    Dismiss,
+    /// `1` … `9`: the numbered answer.
+    Number(u8),
+    /// `⌘B`: block the page's dialogs.
+    Block,
+    /// Any other key without `⌘` or `⌃`: it belongs to the sheet's field, or to nobody, never
+    /// to the page under the sheet.
+    Typing,
+}
+
+/// The meaning of `stroke` on a sheet; `None` leaves a `⌘` or `⌃` shortcut to the keymap.
+#[must_use]
+pub fn sheet_key(stroke: KeyStroke) -> Option<SheetKey> {
+    let none = Modifiers::NONE;
+    let reaching = |m: Modifiers| m.contains(Modifiers::COMMAND) || m.contains(Modifiers::CONTROL);
+    let number = |key: Key| match key {
+        Key::Digit(digit) => digit
+            .as_char()
+            .to_digit(10)
+            .and_then(|n| u8::try_from(n).ok())
+            .filter(|&n| n > 0),
+        _ => None,
+    };
+    match (stroke.key, stroke.modifiers) {
+        (Key::Enter, m) if m == none => Some(SheetKey::Accept),
+        (Key::Escape, m) if m == none => Some(SheetKey::Dismiss),
+        (key, m) if m == none && number(key).is_some() => number(key).map(SheetKey::Number),
+        (Key::Letter(letter), m) if m == Modifiers::COMMAND && letter.as_char() == 'b' => {
+            Some(SheetKey::Block)
+        }
+        (_, m) if reaching(m) => None,
+        _ => Some(SheetKey::Typing),
+    }
+}
+
 /// `⌘Q`: quits. It is reserved but no command, so the keymap cannot run it.
 #[must_use]
 pub fn is_quit(stroke: KeyStroke) -> bool {
@@ -163,7 +204,7 @@ pub fn is_quit(stroke: KeyStroke) -> bool {
 mod tests {
     use quickie_domain_commands::{Key, KeyStroke, Keymap, Modifiers};
 
-    use super::{OverlayKey, is_quit, key, overlay_key, stroke};
+    use super::{OverlayKey, SheetKey, is_quit, key, overlay_key, sheet_key, stroke};
 
     fn parsed(text: &str) -> KeyStroke {
         KeyStroke::try_from(text).unwrap()
@@ -252,6 +293,31 @@ mod tests {
         ];
         for (text, expected) in cases {
             assert_eq!(overlay_key(parsed(text)), expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn sheet_keys_answer_and_keep_the_page_out() {
+        let cases = [
+            ("enter", Some(SheetKey::Accept)),
+            ("escape", Some(SheetKey::Dismiss)),
+            ("1", Some(SheetKey::Number(1))),
+            ("2", Some(SheetKey::Number(2))),
+            ("9", Some(SheetKey::Number(9))),
+            ("cmd+b", Some(SheetKey::Block)),
+            ("0", Some(SheetKey::Typing)),
+            ("a", Some(SheetKey::Typing)),
+            ("shift+1", Some(SheetKey::Typing)),
+            ("shift+enter", Some(SheetKey::Typing)),
+            ("alt+escape", Some(SheetKey::Typing)),
+            ("cmd+w", None),
+            ("ctrl+tab", None),
+            ("cmd+shift+b", None),
+            ("cmd+enter", None),
+            ("ctrl+b", None),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(sheet_key(parsed(text)), expected, "{text}");
         }
     }
 

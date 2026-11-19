@@ -116,6 +116,7 @@ Curves map 1:1 onto `CAMediaTimingFunction(controlPoints:)`. `ease-out` below is
 | `gesture-settle` | spring | `CASpringAnimation(perceptualDuration: 0.3, bounce: 0)`, gesture velocity | Swipe and pinch release |
 | `origin-chip-hold` | 2.4 s | then `fade-fast` | Origin chip after navigation or tab switch |
 | `toast-hold` | 3 s | then `fade-fast`; a click dismisses | Toasts |
+| `fullscreen-notice-hold` | 3 s | then `fade-fast` | "`example.com` is full screen · ⎋ to exit", every time a page goes full screen |
 
 E3 sheets always animate even when the keyboard opened them indirectly: they interrupt the
 user for a security decision, and the motion says where the decision came from.

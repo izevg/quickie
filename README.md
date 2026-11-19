@@ -102,6 +102,7 @@ All of them are commands in the palette and can be rebound in the keymap editor.
 | `⌘W` | Close the tab (it goes to the trash, not away) |
 | `⌘J` | Downloads |
 | `⌘⌥S` | Shields for the site |
+| `⌘N` / `⌘⇧W` | New window / close the window (its tabs go to the trash) |
 
 ## Privacy
 

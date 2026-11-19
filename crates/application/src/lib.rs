@@ -13,6 +13,7 @@ mod keymap;
 mod library;
 mod palette;
 mod ports;
+mod prompts;
 mod shields;
 
 pub use agent::{Agent, AnswerEvent, AskError, Asking, LocalFound, detect_local, list_models};
@@ -29,4 +30,5 @@ pub use ports::{
     LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore, SessionRepo,
     ShieldsRepo, ShieldsSnapshot, StopSignal,
 };
+pub use prompts::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts};
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};

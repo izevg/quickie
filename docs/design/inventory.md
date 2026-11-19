@@ -39,6 +39,7 @@ Each folder also has `dark.html`. Sticker sheets of single components: [mocks/co
 | Module | What | States / variants | Seen in |
 |---|---|---|---|
 | `glass` | `GlassSurface::new(Elevation)`: material, shadow, ring, dimming scrim | E1, E2, E3; macOS 15 fallback | everywhere |
+| `sheet` | The E3 sheet: attached to the window's top edge, header (who asks), lines, an optional field, answer rows with their keys, hint bar | with or without a field; the safe default marked `Default` | permission and dialog sheets, agent approval |
 | `keycap` | One glyph chip; `KeycapGroup` for a chord | default, on a selected row (accent border) | [keycap](mocks/components/keycap.html) |
 | `pill` | Rounded capsule with icon + text | neutral, success, destructive, agent | toasts, origin chip, find bar, status chips |
 | `list` | `NSTableView` wrapper with a diffing source, keyboard selection, section headers | — | palette, popovers, keymap |
@@ -95,7 +96,7 @@ the slices inside a group still never use each other.
 | `page` | `find_bar`, `load_progress_line`, `origin_chip` |
 | `hints` | `link_hints_layer` (labels drawn natively above the page, never in its DOM) |
 | `feedback` | `toast_stack`, `fullscreen_notice` |
-| `sheets` | `permission_sheet`, `agent_approval_sheet` |
+| `sheets` | `permission_sheet`, `dialog_sheet` (a page's `alert`, `confirm`, `prompt`), `agent_approval_sheet` |
 | `popovers` | `shields_popover`, `downloads_popover` |
 | `agent` | `agent_frame` (2 px border + badge), `agent_answer_panel` (streaming, citations, empty state) |
 
