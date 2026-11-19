@@ -1,7 +1,8 @@
 //! Key presses as the keymap reads them: a hardware key code becomes a [`Key`] named as on a US
 //! layout, so `⌘L` opens the address overlay on every layout (a Russian layout types `д` on the
 //! `L` key). Also the fixed keys of an open overlay, which are not commands and cannot be
-//! rebound: `↑` `↓` `⌃N` `⌃P` move, `⏎` accepts, `⌘⏎` accepts into a new tab, `⎋` closes.
+//! rebound: `↑` `↓` `⌃N` `⌃P` move, `⏎` accepts, `⌘⏎` accepts into a new tab, `⇧⏎` goes to
+//! the previous find match, `⎋` closes.
 
 use quickie_domain_commands::{Digit, FunctionKey, Key, KeyStroke, Letter, Modifiers};
 
@@ -123,6 +124,8 @@ pub enum OverlayKey {
     Move(isize),
     /// Go with the selection; `new_tab` with `⌘`.
     Accept { new_tab: bool },
+    /// `⇧⏎`: the previous one (a find match).
+    Previous,
     /// Close the overlay.
     Dismiss,
 }
@@ -143,6 +146,7 @@ pub fn overlay_key(stroke: KeyStroke) -> Option<OverlayKey> {
         }
         (Key::Enter, m) if m == none => Some(OverlayKey::Accept { new_tab: false }),
         (Key::Enter, m) if m == Modifiers::COMMAND => Some(OverlayKey::Accept { new_tab: true }),
+        (Key::Enter, m) if m == Modifiers::SHIFT => Some(OverlayKey::Previous),
         (Key::Escape, m) if m == none => Some(OverlayKey::Dismiss),
         _ => None,
     }
@@ -239,8 +243,9 @@ mod tests {
             ("enter", Some(OverlayKey::Accept { new_tab: false })),
             ("cmd+enter", Some(OverlayKey::Accept { new_tab: true })),
             ("escape", Some(OverlayKey::Dismiss)),
+            ("shift+enter", Some(OverlayKey::Previous)),
             ("shift+up", None),
-            ("shift+enter", None),
+            ("shift+cmd+enter", None),
             ("ctrl+escape", None),
             ("ctrl+k", None),
             ("p", None),

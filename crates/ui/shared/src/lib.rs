@@ -14,7 +14,7 @@ pub mod list;
 pub mod motion;
 pub mod tokens;
 
-pub use controls::{Pill, StyledText, hint_bar, keycap_group};
+pub use controls::{Pill, StyledText, hint_bar, keycap_group, symbol};
 pub use glass::{Elevation, GlassSurface, Scrim};
 pub use list::{ListRow, ListView};
 pub use motion::{Motion, Trigger};

@@ -1,5 +1,6 @@
 //! Keycaps: one glyph per chip, a chord as a group (`docs/design/mocks/components/keycap.html`).
-//! Default on glass; inverted on a selected row, where the accent fill is behind it.
+//! Default on glass; on a selected row the glyph takes the primary text color and the border
+//! the accent, to sit on the row's accent tint.
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
@@ -78,7 +79,7 @@ fn keycap(glyph: &str, inverted: bool, mtm: MainThreadMarker) -> Retained<NSView
     cap.setWantsLayer(true);
     if let Some(layer) = cap.layer() {
         let border = if inverted {
-            color::selection_text().colorWithAlphaComponent(0.5)
+            color::accent().colorWithAlphaComponent(0.5)
         } else {
             color::separator()
         };

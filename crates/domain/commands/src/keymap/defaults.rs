@@ -4,11 +4,12 @@ use super::binding::KeyBinding;
 
 /// Key, command, and `when` clause of every default binding: the README's "Default keys" table,
 /// `⌘K` as a second key for the palette, `⌥⌘1` … `⌥⌘9` to pin a tab to a slot, and the Chrome
-/// keys for reloading, bookmarking, a throwaway window, and the developer tools.
+/// keys for reloading, bookmarking, a throwaway window, the next and previous find match, and
+/// the developer tools.
 ///
 /// `⌥⌘C` stays with "Copy as Markdown Link" as the README promises, so "Inspect Element" has no
 /// default key. The tests check that every row parses and that the keymap they make is valid.
-pub(super) const BINDINGS: [(&str, &str, Option<&str>); 39] = [
+pub(super) const BINDINGS: [(&str, &str, Option<&str>); 41] = [
     ("cmd+shift+p", "quickie.palette.openCommands", None),
     ("cmd+k", "quickie.palette.openCommands", None),
     ("cmd+p", "quickie.palette.goto", None),
@@ -41,6 +42,8 @@ pub(super) const BINDINGS: [(&str, &str, Option<&str>); 39] = [
     ("cmd+[", "quickie.navigation.back", None),
     ("cmd+]", "quickie.navigation.forward", None),
     ("cmd+f", "quickie.page.find", None),
+    ("cmd+g", "quickie.page.findNext", None),
+    ("cmd+shift+g", "quickie.page.findPrevious", None),
     (
         "f",
         "quickie.hints.toggle",

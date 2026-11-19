@@ -33,6 +33,9 @@ pub enum Action {
     CopyUrl,
     CopyMarkdownLink,
     Bookmark,
+    Find,
+    FindNext,
+    FindPrevious,
 }
 
 impl Action {
@@ -68,6 +71,9 @@ impl Action {
             "quickie.page.copyUrl" => Self::CopyUrl,
             "quickie.page.copyAsMarkdownLink" => Self::CopyMarkdownLink,
             "quickie.page.bookmark" => Self::Bookmark,
+            "quickie.page.find" => Self::Find,
+            "quickie.page.findNext" => Self::FindNext,
+            "quickie.page.findPrevious" => Self::FindPrevious,
             _ => return None,
         };
         Some(action)
@@ -109,6 +115,9 @@ impl Browser {
             Action::OpenCommands => return self.open_palette(">"),
             Action::GoTo => return self.open_palette(""),
             Action::OpenAddress => return self.open_address(),
+            Action::Find => return self.open_find(),
+            Action::FindNext => return self.find_step(false),
+            Action::FindPrevious => return self.find_step(true),
             Action::Cycle(direction) => {
                 if let Some((window, _)) = self.current() {
                     self.cycle(window, direction, holding(stroke));
@@ -135,7 +144,13 @@ impl Browser {
             Action::CopyUrl => self.copy(window, |tab| tab.url.to_string()),
             Action::CopyMarkdownLink => self.copy(window, |tab| tab.markdown_link()),
             Action::Bookmark => self.bookmark(window),
-            Action::OpenCommands | Action::GoTo | Action::OpenAddress | Action::Cycle(_) => {}
+            Action::OpenCommands
+            | Action::GoTo
+            | Action::OpenAddress
+            | Action::Find
+            | Action::FindNext
+            | Action::FindPrevious
+            | Action::Cycle(_) => {}
         }
         self.settle(window);
     }
@@ -282,6 +297,9 @@ mod tests {
             ("quickie.page.copyUrl", Action::CopyUrl),
             ("quickie.page.copyAsMarkdownLink", Action::CopyMarkdownLink),
             ("quickie.page.bookmark", Action::Bookmark),
+            ("quickie.page.find", Action::Find),
+            ("quickie.page.findNext", Action::FindNext),
+            ("quickie.page.findPrevious", Action::FindPrevious),
         ];
         for (id, action) in cases {
             assert_eq!(of(id), Some(action), "{id}");
@@ -307,7 +325,7 @@ mod tests {
     #[test]
     fn commands_not_built_yet_have_no_action() {
         for id in [
-            "quickie.page.find",
+            "quickie.reader.toggle",
             "quickie.hints.toggle",
             "quickie.devtools.toggle",
         ] {
@@ -323,8 +341,8 @@ mod tests {
             .filter(|command| Action::of(&command.id).is_some())
             .count();
 
-        // 16 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 16 + 9 + 9);
+        // 19 named commands plus nine slots to go to and nine to pin.
+        assert_eq!(built, 19 + 9 + 9);
     }
 
     #[test]

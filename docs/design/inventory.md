@@ -39,7 +39,7 @@ Each folder also has `dark.html`. Sticker sheets of single components: [mocks/co
 | Module | What | States / variants | Seen in |
 |---|---|---|---|
 | `glass` | `GlassSurface::new(Elevation)`: material, shadow, ring, dimming scrim | E1, E2, E3; macOS 15 fallback | everywhere |
-| `keycap` | One glyph chip; `KeycapGroup` for a chord | default, inverted (on a selected row) | [keycap](mocks/components/keycap.html) |
+| `keycap` | One glyph chip; `KeycapGroup` for a chord | default, on a selected row (accent border) | [keycap](mocks/components/keycap.html) |
 | `pill` | Rounded capsule with icon + text | neutral, success, destructive, agent | toasts, origin chip, find bar, status chips |
 | `list` | `NSTableView` wrapper with a diffing source, keyboard selection, section headers | — | palette, popovers, keymap |
 | `hint_bar` | Footer of key hints (`↑↓ select · ⏎ open · ⎋ close`) | — | every E2 |
@@ -51,7 +51,7 @@ Each folder also has `dark.html`. Sticker sheets of single components: [mocks/co
 
 | Module | Domain object | States | Seen in |
 |---|---|---|---|
-| `command_row` | `Command` + its binding | default, selected (accent fill), fuzzy-highlighted title, category tag | [command-row](mocks/components/command-row.html), palette |
+| `command_row` | `Command` + its binding | default, selected (accent tint), fuzzy-highlighted title, category tag | [command-row](mocks/components/command-row.html), palette |
 | `tab_row` | `Tab` | default, selected, pinned slot badge `⌘3`, age | go-to |
 | `tab_thumbnail` | `Tab` | default, selected ring, focused (`W` to close), pinned badge | switcher, overview |
 | `history_row` | `HistoryEntry` | default, selected, visit count | go-to |

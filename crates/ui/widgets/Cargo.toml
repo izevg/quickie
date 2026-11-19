@@ -1,6 +1,6 @@
 [package]
 name = "quickie-ui-widgets"
-description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher, and the toast stack"
+description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher, the toast stack, the find bar, the origin chip, and the load progress line"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,10 +11,14 @@ block2.workspace = true
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = [
   "objc2-core-foundation",
+  "objc2-quartz-core",
+  "NSButton",
   "NSCell",
   "NSColor",
   "NSControl",
   "NSGraphics",
+  "NSImage",
+  "NSImageView",
   "NSParagraphStyle",
   "NSResponder",
   "NSText",
@@ -24,17 +28,28 @@ objc2-app-kit = { workspace = true, features = [
   "NSView",
   "NSWindow",
 ] }
+objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }
+objc2-quartz-core = { workspace = true, features = [
+  "objc2-core-foundation",
+  "objc2-core-graphics",
+  "CALayer",
+  "CAMediaTimingFunction",
+  "CATransaction",
+  "CATransform3D",
+] }
 objc2-foundation = { workspace = true, features = [
   "block2",
   "NSDate",
   "NSGeometry",
   "NSNotification",
   "NSObject",
+  "NSOperation",
   "NSRange",
   "NSString",
   "NSTimer",
 ] }
 quickie-application.workspace = true
+quickie-domain-browsing.workspace = true
 quickie-ui-shared.workspace = true
 
 [dev-dependencies]
