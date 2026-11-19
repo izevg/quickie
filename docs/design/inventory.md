@@ -43,7 +43,7 @@ Each folder also has `dark.html`. Sticker sheets of single components: [mocks/co
 | `hint_bar` | Footer of key hints (`↑↓ select · ⏎ open · ⎋ close`) | — | every E2 |
 | `progress` | Thin line and ring progress | determinate, indeterminate | load line, downloads, agent ingestion |
 | `toggle_row` | Label + detail + switch | on, off, disabled | shields, settings |
-| `motion` | Timing tokens and helpers (`overlay_enter`, `sheet_enter`, `fade`) | Reduce Motion | everywhere |
+| `motion` | Timing tokens and helpers (`instant`, `overlay_enter`, `sheet_enter`, `fade`, `gesture_settle`); picks `instant` for keyboard-initiated presentation | Reduce Motion | everywhere |
 
 ## entities (one domain object, shown)
 
