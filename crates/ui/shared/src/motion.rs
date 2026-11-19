@@ -75,6 +75,8 @@ pub const SHEET_ENTER: Motion = Motion {
 pub const ORIGIN_CHIP_HOLD: f64 = 2.4;
 /// How long a toast stays before it fades.
 pub const TOAST_HOLD: f64 = 3.0;
+/// How long the full-screen notice stays before it fades.
+pub const FULLSCREEN_NOTICE_HOLD: f64 = 3.0;
 
 /// What a transition actually does once trigger and accessibility settings are known.
 #[derive(Clone, Copy, Debug, PartialEq)]

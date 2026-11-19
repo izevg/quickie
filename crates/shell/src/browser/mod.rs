@@ -5,9 +5,11 @@
 //! - [`keys`]: key events → the keymap → a command; the overlays' fixed keys; the `⌃⇥` hold.
 //! - [`commands`]: the dispatcher, from a command id to the use case that does it.
 //! - [`palette`]: the command palette's query and what choosing a row does.
-//! - [`page`]: find in page, the origin chip, and the load progress line.
+//! - [`page`]: find in page, the origin chip, the load progress line, the sheets of what pages
+//!   ask, and the full-screen notice.
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
 //! - [`popovers`]: the downloads and the shields popovers.
+//! - [`windows`]: new and closed windows, and the pages pages open or close.
 
 mod commands;
 mod keys;
@@ -15,6 +17,7 @@ mod navigation;
 mod page;
 mod palette;
 mod popovers;
+mod windows;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -174,13 +177,19 @@ impl Browser {
         }
     }
 
-    /// Records what pages committed since the last time, puts the pages' loading, finds, and
-    /// origins on screen, records downloads, and tells of a save that failed on a writer
+    /// Adopts the pages pages opened and closes those that closed themselves, records what
+    /// pages committed since the last time, puts the pages' loading, finds, origins, asks, and
+    /// full screen on screen, records downloads, and tells of a save that failed on a writer
     /// thread. Runs from the engine's waker on the main run loop, and after every command.
     pub fn drain(&self) {
+        self.adopt_opened();
+        self.close_closed_pages();
         self.record_navigations();
         self.page_reports();
         self.download_reports();
+        self.take_asks();
+        self.present_asks();
+        self.fullscreen_changes();
         for writes in &self.writes {
             if let Some(error) = writes.take_error() {
                 self.toast(&format!("Not saved: {error}"));
@@ -203,6 +212,7 @@ impl Browser {
         for navigated in navigations {
             if navigated.committed {
                 loaded.push(navigated.tab);
+                self.asks_navigated(navigated.tab);
             }
             let (url, title) = (navigated.url.clone(), navigated.title.clone());
             if let Err(error) = browsing.navigated(navigated.tab, navigated.url, navigated.title) {
@@ -243,9 +253,11 @@ impl Browser {
         self.toast(&format!("That didn't work: {error}"));
     }
 
-    /// After a command: the window's active page takes the keyboard (unless an overlay has
-    /// it), and window titles follow the session.
+    /// After a command: the active tab's sheet comes up if it asked something, the window's
+    /// active page takes the keyboard (unless an overlay or a sheet has it), and window titles
+    /// follow the session.
     fn settle(&self, window: WindowId) {
+        self.present_asks();
         let view = {
             let mut browsing = self.browsing.borrow_mut();
             let active = browsing.session().active(window);
@@ -253,7 +265,8 @@ impl Browser {
         };
         let overlay = self.address.is_open()
             || self.command_palette.is_open()
-            || self.navigation.overview_open();
+            || self.navigation.overview_open()
+            || self.sheet_open(window);
         if let (Some(ns_window), Some(view)) = (self.window(window), view)
             && !overlay
         {

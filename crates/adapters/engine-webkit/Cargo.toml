@@ -11,7 +11,13 @@ adblock.workspace = true
 block2.workspace = true
 dispatch2.workspace = true
 objc2.workspace = true
-objc2-app-kit = { workspace = true, features = ["NSGraphics", "NSImage", "NSResponder", "NSView"] }
+objc2-app-kit = { workspace = true, features = [
+  "NSEvent",
+  "NSGraphics",
+  "NSImage",
+  "NSResponder",
+  "NSView",
+] }
 objc2-foundation = { workspace = true, features = [
   "block2",
   "NSArray",
@@ -50,7 +56,9 @@ objc2-web-kit = { workspace = true, features = [
   "WKPreferences",
   "WKScriptMessage",
   "WKScriptMessageHandler",
+  "WKSecurityOrigin",
   "WKSnapshotConfiguration",
+  "WKUIDelegate",
   "WKURLSchemeHandler",
   "WKURLSchemeTask",
   "WKUserContentController",
@@ -58,6 +66,7 @@ objc2-web-kit = { workspace = true, features = [
   "WKWebView",
   "WKWebViewConfiguration",
   "WKWebsiteDataStore",
+  "WKWindowFeatures",
 ] }
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
