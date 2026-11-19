@@ -47,8 +47,8 @@ description = "Crate layers, FSD slices, unsafe policy, workspace lints"
 run = "cargo xtask layers"
 
 [tasks.shell]
-description = "Shell scripts (git hooks, agent hooks, CI scripts)"
-run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh"
+description = "Shell scripts (git hooks, agent hooks, CI scripts, engine scripts)"
+run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh engine/scripts/sync engine/scripts/apply engine/scripts/build"
 
 [tasks.actions]
 description = "GitHub Actions workflows"

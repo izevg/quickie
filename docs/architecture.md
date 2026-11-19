@@ -280,6 +280,7 @@ quickie/
 │  ├─ ui/           shared  entities  features  widgets  screens  app
 │  └─ shell/        composition root; also the dev binary on engine-webkit
 ├─ engine/
+│  ├─ README.md         fetch, apply, build; what is verified and what is not (see below)
 │  ├─ chromium.pin      Chromium version (Extended Stable) + ungoogled-chromium revision
 │  ├─ gclient.template
 │  ├─ patches/          our patches only, grouped by meaning (series + one directory per area)
@@ -296,6 +297,9 @@ quickie/
 
 Not tracked, under `.build/`: the Chromium checkout, the fetched ungoogled-chromium patch series,
 vendored crates, build output.
+
+How to fetch, patch and build the engine, and what the P1 scaffold has not yet confirmed on a real
+build: [engine/README.md](../engine/README.md).
 
 ## 7. Infrastructure
 

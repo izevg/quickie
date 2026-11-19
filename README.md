@@ -170,6 +170,7 @@ merged into `main`, where git-cliff computes the version and the release notes f
 | [Architecture](docs/architecture.md) | Stack, C1 to C4, crates and ports, Liquid Glass elevation, engine sync, repository layout, infrastructure, roadmap |
 | [Quality](docs/quality.md) | Gates, hooks, lints, the layer map, mutation testing, CI and releases |
 | [Privacy](docs/privacy.md) | The trackerless model, the Chromium services checklist, the egress test |
+| [Engine](engine/README.md) | Fetching, patching and building Chromium with `//quickie`; what is verified, what is `TODO(verify)` |
 | [Lessons](docs/lessons.md) | What went wrong in Arc, Dia, Vivaldi, Orion, Zen, Helium, and agentic browsers, and the rule each lesson became |
 | [Design system](docs/design/system.md) | Color, type, spacing, elevation, motion, and voice, mapped onto native macOS |
 | [Component inventory](docs/design/inventory.md) | Every mocked screen and component, cut into FSD layers |
