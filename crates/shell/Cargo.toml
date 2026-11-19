@@ -1,0 +1,38 @@
+[package]
+name = "quickie"
+description = "Composition root of Quickie; for now the development app on the WebKit engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+block2.workspace = true
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = [
+  "block2",
+  "objc2-core-foundation",
+  "NSApplication",
+  "NSButton",
+  "NSCell",
+  "NSControl",
+  "NSEvent",
+  "NSGraphics",
+  "NSMenu",
+  "NSMenuItem",
+  "NSResponder",
+  "NSRunningApplication",
+  "NSText",
+  "NSTextField",
+  "NSTextInputClient",
+  "NSTextView",
+  "NSView",
+  "NSWindow",
+] }
+objc2-foundation = { workspace = true, features = ["NSGeometry", "NSString"] }
+quickie-engine-webkit.workspace = true
+quickie-ui-shared.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

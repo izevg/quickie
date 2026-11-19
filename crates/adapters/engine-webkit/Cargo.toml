@@ -1,0 +1,32 @@
+[package]
+name = "quickie-engine-webkit"
+description = "Development engine of Quickie: pages on WKWebView, until the Chromium engine exists"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSResponder", "NSView"] }
+objc2-foundation = { workspace = true, features = [
+  "NSGeometry",
+  "NSKeyValueObserving",
+  "NSString",
+  "NSURL",
+  "NSURLRequest",
+  "NSDictionary",
+  "NSValue",
+] }
+objc2-web-kit = { workspace = true, features = [
+  "objc2-app-kit",
+  "objc2-core-foundation",
+  "WKPreferences",
+  "WKWebView",
+  "WKWebViewConfiguration",
+  "WKWebsiteDataStore",
+  "WKNavigation",
+] }
+
+[lints]
+workspace = true
