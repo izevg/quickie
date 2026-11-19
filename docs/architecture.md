@@ -26,7 +26,7 @@
 | Shell | Rust 2024, `objc2-app-kit`, `objc2-quartz-core`, `objc2-foundation`, `block2`, `dispatch2` | The same AppKit/CA that Swift would call |
 | Liquid Glass | `NSGlassEffectView`/`NSGlassEffectContainerView` (macOS 26), `NSVisualEffectView` fallback (macOS 15) | Through bindings, or `msg_send!` if `objc2-app-kit` lacks the class **[verify]** |
 | Shell storage | SQLite (`rusqlite`, linked against the SQLite in the Chromium tree **[verify]**), WAL, FTS5 | Sessions, MRU, palette history, keymap, agent audit |
-| Palette | `nucleo` (fuzzy matcher from Helix) + FTS5 + frecency | Fast incremental search |
+| Palette | `nucleo-matcher` (fuzzy matcher from Helix, without `nucleo`'s thread pool) + FTS5 + frecency | Fast incremental search |
 | Blocker | `adblock` crate (adblock-rust, MPL-2.0) in the network service | Network + cosmetic + scriptlets, no MV2 |
 | Built-in agent | Own client for the **OpenAI-compatible API** (`/v1/chat/completions`, SSE, tool calling); HTTP through Chromium's network service | Any endpoint: hosted OpenAI-compatible APIs, Ollama (`127.0.0.1:11434/v1`), LM Studio |
 | External agents | MCP via `rmcp` (official Rust SDK) on a Unix socket; CDP only as an internal channel | No TCP port |
@@ -42,7 +42,7 @@
 | `objc2-web-kit` | adapter `engine-webkit` | Engine stand-in for P0 and development |
 | `cxx` | adapter `engine-chromium` | Chromium boundary |
 | `rusqlite` (+ `fts5`) | adapter `store` | Persistence |
-| `nucleo` | domain `palette` | Fuzzy search |
+| `nucleo-matcher` | domain `palette` | Fuzzy search |
 | `adblock` | engine | Shields |
 | `rmcp`, `tokio` (one agent-IO thread only) | adapter `mcp` | MCP server on a Unix socket |
 | `serde`, `serde_json`, `thiserror`, `url` | everywhere | |
@@ -115,8 +115,8 @@ shell (composition root) ──▶ adapters (engine-chromium | engine-webkit, st
 ```
 
 The dependency rule points inward and is enforced by the build and by `cargo xtask layers`
-([quality.md](quality.md)). Domain crates use only `std`, `thiserror`, `indexmap`, `nucleo`,
-`serde`, `url`: no `objc2`, `cxx`, or `rusqlite`.
+([quality.md](quality.md)). Domain crates use only `std`, `thiserror`, `indexmap`,
+`nucleo-matcher`, `serde`, `url`: no `objc2`, `cxx`, or `rusqlite`.
 
 **Bounded contexts** (`crates/domain/<name>`, package `quickie-domain-<name>`). Contexts depend on
 the kernel only; cross-context work is a use case. Eight directories is the rule-of-four limit: a

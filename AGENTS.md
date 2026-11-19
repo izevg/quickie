@@ -105,7 +105,7 @@ tools/           xtask and other developer or test tools; no product dependencie
 
 | Layer | May depend on (workspace crates) | External crates | `unsafe` |
 |---|---|---|---|
-| domain kernel | nothing | `thiserror indexmap nucleo serde url` | no |
+| domain kernel | nothing | `thiserror indexmap nucleo-matcher serde url` | no |
 | domain context | kernel | same | no |
 | application | domain | same | no |
 | adapter | application, domain | any (license-checked) | opt-in |
