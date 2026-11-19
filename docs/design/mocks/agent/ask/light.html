@@ -1,0 +1,283 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S10c Ask Agent (Light) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .material-symbols-outlined { display: inline-block; width: 1em; height: 1em; line-height: 1 !important; box-sizing: content-box; overflow: hidden; white-space: nowrap; direction: ltr; vertical-align: middle; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-content-bg-light text-content-text-light antialiased min-h-[1024px] overflow-x-hidden font-body selection:bg-light-primary/20" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- ==============================================================
+       DIMMED PAGE BACKGROUND (~10% Scrim as required for E2 Overlays)
+       ============================================================== -->
+  <div class="fixed inset-0 bg-black/15 backdrop-blur-[2px] z-30 pointer-events-none transition-opacity duration-200"></div>
+
+  <!-- [FSD: widgets/agent-answer-panel] FLOATING E2 ASK AGENT PANEL (760px wide, near top) -->
+  <div class="fixed inset-0 z-40 flex flex-col items-center pt-[71px] pointer-events-none" data-stitch-vh="pt-[71px]===pt-[7vh]">
+    
+    <!-- Motion hint indicator label above panel -->
+    <div class="mb-2 flex items-center gap-2 pointer-events-auto">
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-black/90 text-white shadow-sm">[FSD: widgets/agent-answer-panel]</span>
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">E2: Expanded Command Palette • 760px Answer Panel</span>
+      <span class="font-code text-code-sm px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">Streaming Local LLM</span>
+    </div>
+
+    <!-- Liquid Glass Palette Container (Light: 760px width, 22px radius, 28px blur, specular border, soft shadow) -->
+    <div class="w-full max-w-[760px] rounded-overlay bg-white/92 backdrop-blur-2xl border border-white/80 shadow-[0_28px_64px_-12px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.06)] pointer-events-auto overflow-hidden">
+      
+      <!-- Palette Input Row: Showing "? summarize this PR and list risky changes" -->
+      <div class="flex items-center gap-3 px-5 py-3.5 border-b border-gray-200/70 bg-gray-50/70">
+        <span class="font-code text-lg font-bold text-amber-600 select-none">?</span>
+        <div class="flex items-center gap-1 flex-1 font-body text-[16px] text-gray-900 font-medium">
+          <span>summarize this PR and list risky changes</span>
+        </div>
+        
+        <!-- [FSD: entities/model-chip] Top-right chip with model and endpoint -->
+        <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100/80 border border-amber-300/80 text-amber-900 font-code text-[11px] shadow-sm">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="font-semibold">ollama</span>
+            <span class="text-amber-400">·</span>
+            <span class="font-mono text-amber-950 font-bold">qwen3:32b</span>
+            <span class="text-amber-400">·</span>
+            <span class="text-amber-800">local</span>
+          </div>
+          <kbd class="px-2 py-1 rounded-keycap bg-white border border-gray-200 font-code text-code-sm text-light-outline shadow-sm flex items-center gap-0.5">
+            <span>⎋</span>
+          </kbd>
+        </div>
+      </div>
+
+      <!-- Streaming Markdown Answer Content Area -->
+      <div class="p-6 bg-white/60 space-y-4 max-h-[560px] overflow-y-auto">
+        
+        <!-- Agent Status header row -->
+        <div class="flex items-center justify-between text-xs text-light-outline pb-1 border-b border-gray-100">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-[16px] text-amber-600 animate-spin">sync</span>
+            <span class="font-medium text-gray-700">Synthesizing pull request diff (#4182)</span>
+          </div>
+          <span class="font-code text-[11px] text-gray-500">24 tokens/sec · 0.4s TTFT</span>
+        </div>
+
+        <!-- Markdown rendered response -->
+        <div class="space-y-3 font-body text-body-md text-gray-800 leading-relaxed">
+          <p>
+            This pull request introduces the new <strong>Metal-accelerated compositor pipeline</strong> for macOS 26 Tahoe, replacing the legacy CoreAnimation tile tree.
+          </p>
+
+          <h4 class="font-headline font-bold text-gray-900 text-sm pt-1 flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[18px] text-amber-600">warning</span>
+            <span>Identified Risky Changes</span>
+          </h4>
+
+          <ul class="space-y-2 list-none pl-1">
+            <li class="flex items-start gap-2">
+              <span class="font-code text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-semibold border border-red-200 mt-0.5">HIGH</span>
+              <div class="flex-1 text-xs">
+                <strong>Direct VRAM Buffer Mapping in</strong> <code class="font-code text-[11px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">compositor_metal.mm#L142</code>:
+                Drops implicit fence synchronizations. May cause flicker on multi-display hot-plugging.
+              </div>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="font-code text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold border border-amber-200 mt-0.5">MED</span>
+              <div class="flex-1 text-xs">
+                <strong>Shader cache invalidation logic</strong> <code class="font-code text-[11px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">pipeline_cache.rs#L88</code>:
+                Skips checksum validation when running under Quickie sandboxed profiles.
+              </div>
+            </li>
+          </ul>
+
+          <div class="p-3 bg-gray-50 rounded-xl border border-gray-200 font-code text-[12px] text-gray-800 overflow-x-auto">
+            <div class="text-[10px] text-gray-400 mb-1">// Proposed fix in compositor_metal.mm</div>
+            <code><span class="text-purple-600">id&lt;MTLSharedEvent&gt;</span> syncEvent = [device <span class="text-blue-600">newSharedEvent</span>];<br>
+[commandBuffer <span class="text-blue-600">encodeSignalEvent</span>:syncEvent value:++m_timeline];</code>
+            <span class="inline-block w-2 h-4 bg-amber-500 animate-pulse ml-1 align-middle"></span>
+          </div>
+        </div>
+
+        <!-- [FSD: entities/sources-footer] Sources Footer with Chips pointing to sections of page -->
+        <div class="pt-3 border-t border-gray-200/80">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="material-symbols-outlined text-[15px] text-gray-500">menu_book</span>
+            <span class="font-code text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Sources from this page:</span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-200/80 font-code text-code-sm text-gray-700 transition-colors">
+              <span class="text-amber-600">#</span>
+              <span>compositor_metal.mm:142-168</span>
+            </button>
+            <button class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-200/80 font-code text-code-sm text-gray-700 transition-colors">
+              <span class="text-amber-600">#</span>
+              <span>pipeline_cache.rs:88</span>
+            </button>
+            <button class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-200/80 font-code text-code-sm text-gray-700 transition-colors">
+              <span class="text-amber-600">#</span>
+              <span>PR #4182 Discussion</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Action Row: Copy, Follow-up, Act on this page -->
+      <div class="px-5 py-3 border-t border-gray-200/70 bg-gray-50/90 flex items-center justify-between">
+        
+        <!-- Left: Act on this page… (opens agent tab) -->
+        <button class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 font-label text-label-md font-semibold transition-colors shadow-sm">
+          <span class="material-symbols-outlined text-[16px] text-amber-700">bolt</span>
+          <span>Act on this page…</span>
+          <kbd class="px-1.5 py-0.5 rounded-keycap bg-white text-amber-900 border border-amber-300 font-code text-[10px]">⌥⏎</kbd>
+        </button>
+
+        <!-- Right: Follow-up & Copy actions -->
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-1 text-xs text-light-outline">
+            <span>Follow-up</span>
+            <kbd class="px-1.5 py-0.5 rounded-keycap bg-white text-gray-600 border border-gray-200 font-code text-[11px]">⏎</kbd>
+          </div>
+          
+          <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-gray-100 text-gray-800 border border-gray-200 font-label text-label-md font-semibold transition-colors shadow-sm">
+            <span class="material-symbols-outlined text-[16px]">content_copy</span>
+            <span>Copy answer</span>
+            <kbd class="px-1.5 py-0.5 rounded-keycap bg-gray-100 text-gray-600 border border-gray-200 font-code text-[10px]">⌘C</kbd>
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Underlying Mock Page Content: GitHub PR review -->
+  <main class="max-w-4xl mx-auto px-8 pt-16 pb-16 opacity-35">
+    <div class="flex items-center justify-between pb-4 border-b border-gray-200 mb-8">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-gray-900">PR #4182: Metal compositor rewrite</h1>
+        <p class="font-code text-xs text-gray-500 mt-1">quickie-browser/engine · master branch</p>
+      </div>
+      <div class="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-code text-xs font-semibold">Open</div>
+    </div>
+    <div class="space-y-4">
+      <div class="h-16 bg-gray-100 rounded-xl border border-gray-200"></div>
+      <div class="h-48 bg-gray-100 rounded-xl border border-gray-200"></div>
+      <div class="h-48 bg-gray-100 rounded-xl border border-gray-200"></div>
+    </div>
+  </main>
+
+
+
+</body></html>

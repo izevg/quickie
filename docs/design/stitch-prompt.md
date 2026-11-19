@@ -110,9 +110,11 @@ Screen S12 "Toasts": stack of E1 pills bottom-center: "URL copied", "Tab restore
 
 ## After generation
 
-1. Export each screen as PNG (light and dark) into `docs/design/mocks/<screen>/` (four files per
-   directory: light, dark, and up to two variants).
-2. Build a component inventory from the `[FSD: …]` tags in `docs/design/inventory.md` (layer,
-   slice, screens, states).
-3. Stitch's HTML is only a reference for proportions and tokens; the implementation is AppKit
-   through `objc2` in the `crates/ui/*` crates (`GlassSurface::new(Elevation::E2)` and so on).
+Done for the first round (2026-11-19):
+
+1. The exported HTML lives in [mocks/](mocks/), grouped as `mocks/<group>/<screen>/{light,dark}.html`
+   (groups: content, navigation, system, agent, settings; sticker sheets in `mocks/components/`).
+2. The component inventory, cut into FSD layers: [inventory.md](inventory.md). The tokens, mapped
+   to native macOS: [system.md](system.md). The generator's ideas, with verdicts: [ideas.md](ideas.md).
+3. Stitch's HTML is only a reference for proportions, tokens, and copy; the implementation is
+   AppKit through `objc2` in the `crates/ui/*` crates (`GlassSurface::new(Elevation::E2)` and so on).

@@ -171,7 +171,10 @@ merged into `main`, where git-cliff computes the version and the release notes f
 | [Quality](docs/quality.md) | Gates, hooks, lints, the layer map, mutation testing, CI and releases |
 | [Privacy](docs/privacy.md) | The trackerless model, the Chromium services checklist, the egress test |
 | [Lessons](docs/lessons.md) | What went wrong in Arc, Dia, Vivaldi, Orion, Zen, Helium, and agentic browsers, and the rule each lesson became |
-| [Stitch prompt](docs/design/stitch-prompt.md) | Reference mockups for every screen, tagged for slicing into FSD components |
+| [Design system](docs/design/system.md) | Color, type, spacing, elevation, motion, and voice, mapped onto native macOS |
+| [Component inventory](docs/design/inventory.md) | Every mocked screen and component, cut into FSD layers |
+| [Design ideas](docs/design/ideas.md) | What the mockups proposed, and what we adopt, defer, or reject |
+| [Stitch prompt](docs/design/stitch-prompt.md) | The prompt behind the [mockups](docs/design/mocks/) |
 | [Releases](https://github.com/izevg/quickie/releases) | Every release, with notes generated from Conventional Commits |
 
 ## Contributing

@@ -1,0 +1,236 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Idle State (Light) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .font-serif-editorial { font-family: 'Newsreader', Georgia, serif; }
+    /* Hide scrollbars for pure edge-to-edge illusion while retaining scrollability */
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-[#FBFBFD] text-[#1D1D1F] antialiased min-h-[1024px] overflow-x-hidden selection:bg-primary/20" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- [FSD: app/window-container] Edge-to-edge container (No titlebar, no tabs, no address bar, no traffic lights) -->
+  <div class="relative w-full min-h-[1024px] flex flex-col justify-between" data-stitch-vh="min-h-[1024px]===min-h-screen">
+    
+    <!-- Top FSD Architecture Margin Annotations -->
+    <div class="fixed top-3 left-4 z-50 pointer-events-none flex items-center gap-2 opacity-75">
+      <span class="inline-flex items-center px-2 py-0.5 rounded font-code text-code-sm bg-black/5 text-light-outline border border-light-outline-variant backdrop-blur-sm">[FSD: screens/idle-content]</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded font-code text-code-sm bg-emerald-500/10 text-emerald-700 border border-emerald-500/20">E0: Web Content (0px Elevation / No Glass)</span>
+    </div>
+
+    <!-- [FSD: widgets/load-progress-line] 2px Accent Progress Line at the very top edge at 70% -->
+    <div class="fixed top-0 left-0 right-0 h-[2px] z-50 overflow-hidden bg-transparent pointer-events-none">
+      <div class="h-full bg-primary w-[70%] rounded-r-full shadow-none transition-all duration-300"></div>
+    </div>
+
+    <!-- Active Web Page: The Atlantic Style In-Depth Longform Feature Article -->
+    <main class="w-full max-w-[840px] mx-auto px-8 pt-16 pb-28">
+      
+      <!-- Article Header -->
+      <header class="mb-12">
+        <div class="flex items-center justify-between text-[#86868B] text-[13px] font-label tracking-wide uppercase mb-4">
+          <span>Technology &amp; Human Cognition</span>
+          <span>November 19, 2026</span>
+        </div>
+        <h1 class="font-serif-editorial text-[52px] leading-[1.12] tracking-tight font-normal text-[#111112] mb-6">
+          The Architecture of Sovereign Attention
+        </h1>
+        <p class="font-serif-editorial italic text-[22px] leading-[1.4] text-[#555558] mb-8">
+          Why the next era of personal computing begins by dismantling thirty years of browser chrome, toolbars, and contextual clutter.
+        </p>
+
+        <div class="flex items-center justify-between py-4 border-y border-black/10 text-[14px]">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-[#1D1D1F] text-white flex items-center justify-center font-serif-editorial text-lg">
+              E
+            </div>
+            <div>
+              <p class="font-medium text-[#111112]">Elena Rostova</p>
+              <p class="text-[12px] text-[#86868B]">Fellow at The Center for Applied Interface Aesthetics</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-4 text-[#86868B] text-[13px]">
+            <span>11 min read</span>
+            <span>•</span>
+            <span>Edition 402</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Realistic Longform Editorial Article Body -->
+      <article class="font-serif-editorial text-[20px] leading-[1.75] text-[#222225] space-y-7">
+        <p>
+          <span class="float-left text-[72px] leading-[0.8] pr-3 pt-1 font-serif-editorial font-normal text-[#111112]">W</span>hen the web was conceived at CERN, it was not framed as a software application running inside an operating system; it was an open parchment of hyperlinked documents. Yet over the intervening three decades, our portals into this medium have progressively encrusted themselves in tab trays, extensions, side panels, reading lists, AI sidecars, and battery monitoring widgets.
+        </p>
+        <p>
+          The fundamental contention of <em>Quickie</em> is radical in its modesty: <strong>Content is sovereign</strong>. When an author writes, when an engineer inspects a deployment log, or when a researcher parses a clinical trial dataset, the browser interface is not an assistant—it is friction. Every visible pixel dedicated to window framing, bookmarks, or inactive tab titles constitutes cognitive rent paid against human working memory.
+        </p>
+
+        <!-- Pull Quote -->
+        <blockquote class="my-10 pl-6 border-l-2 border-[#111112] italic text-[24px] leading-[1.45] text-[#111112]">
+          &#34;The most sophisticated interface is the one that recedes entirely into the physical hardware until called upon by deliberate human intention.&#34;
+        </blockquote>
+
+        <p>
+          In macOS Tahoe, this philosophy materializes through the absolute eradication of persistent window chrome. There are no traffic light circles hovering at top-left; there is no address bar waiting for a cursor; there are no edge-hover trigger zones waiting to bounce into view when a pointer wanders near the bezel. 
+        </p>
+
+        <!-- Visual Demonstration Card inside Web Content (E0) -->
+        <div class="my-12 p-8 rounded-2xl bg-[#F0F0F3] border border-black/5 font-sans">
+          <div class="flex items-center justify-between mb-4">
+            <span class="font-code text-xs text-[#86868B] uppercase tracking-wider">Fig 1.2 — Interface Latency vs Cognitive Retain</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-black/5 text-[#555558] font-medium">Empirical Study N=420</span>
+          </div>
+          <div class="grid grid-cols-3 gap-6 text-left">
+            <div class="p-4 bg-white rounded-xl border border-black/5 shadow-sm">
+              <span class="text-[28px] font-bold text-[#1D1D1F]">0.0%</span>
+              <p class="text-xs text-[#86868B] mt-1">Chrome Overhead in Idle State</p>
+            </div>
+            <div class="p-4 bg-white rounded-xl border border-black/5 shadow-sm">
+              <span class="text-[28px] font-bold text-primary">100%</span>
+              <p class="text-xs text-[#86868B] mt-1">Direct Content Viewport Area</p>
+            </div>
+            <div class="p-4 bg-white rounded-xl border border-black/5 shadow-sm">
+              <span class="text-[28px] font-bold text-emerald-600">&lt; 12ms</span>
+              <p class="text-xs text-[#86868B] mt-1">Palette Invocation Latency</p>
+            </div>
+          </div>
+        </div>
+
+        <p>
+          When interaction is required, it occurs through discrete, high-speed keyboard chords. A tap of <code class="font-code text-[16px] px-2 py-0.5 rounded bg-black/5 border border-black/10">⌘K</code> projects the floating Liquid Glass command palette; <code class="font-code text-[16px] px-2 py-0.5 rounded bg-black/5 border border-black/10">⌘T</code> surfaces the tab switcher; <code class="font-code text-[16px] px-2 py-0.5 rounded bg-black/5 border border-black/10">⌘F</code> pins the find query directly into the ocular path. Once the action concludes, the glass evaporates, restoring total dominion to the page.
+        </p>
+      </article>
+
+      <!-- Article Footer -->
+      <footer class="mt-16 pt-8 border-t border-black/10 flex items-center justify-between text-[#86868B] text-sm">
+        <span>Published in San Francisco, CA</span>
+        <div class="flex items-center gap-2">
+          <span>Invoke Quickie Palette:</span>
+          <kbd class="px-2 py-0.5 rounded bg-black/5 border border-black/10 font-code text-xs text-[#1D1D1F]">⌘ K</kbd>
+        </div>
+      </footer>
+    </main>
+
+    <!-- FSD Annotation Watermark Bottom Right -->
+    <div class="fixed bottom-3 right-4 pointer-events-none opacity-60">
+      <span class="font-code text-[10px] text-[#86868B] bg-white/80 px-2 py-1 rounded border border-black/5">[FSD: screens/idle-content-light] • 1512x982 Macbook Pro 14</span>
+    </div>
+
+  </div>
+
+
+
+</body></html>

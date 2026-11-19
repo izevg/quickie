@@ -1,0 +1,214 @@
+<!DOCTYPE html><html lang="en" class="dark"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S12 Toasts Stack (Dark) — Quickie</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0071E3',
+        'primary': '#0071E3',
+        'on-primary': '#FFFFFF',
+        'destructive': '#FF3B30',
+        'on-destructive': '#212121',
+        'agent': '#FF9F0A',
+        'on-agent': '#000000',
+        'success': '#34C759',
+        'on-success': '#424242',
+        'content-bg-light': '#FBFBFD',
+        'content-text-light': '#1D1D1F',
+        'content-subtext-light': '#6E6E73',
+        'content-bg-dark': '#0D1117',
+        'content-card-dark': '#161B22',
+        'content-text-dark': '#C9D1D9',
+        'content-subtext-dark': '#8B949E',
+        'content-border-dark': '#30363D',
+        'syntax-keyword': '#FF7B72',
+        'syntax-entity': '#79C0FF',
+        'syntax-string': '#A5D6FF',
+        'light-primary': '#0071E3',
+        'light-on-primary': '#FFFFFF',
+        'light-surface': '#FFFFFF',
+        'light-on-surface': '#1D1D1F',
+        'light-surface-container': '#F5F5F7',
+        'light-on-surface-container': '#1D1D1F',
+        'light-surface-container-high': '#E8E8ED',
+        'light-outline': '#86868B',
+        'light-outline-variant': '#D2D2D7',
+        'dark-primary': '#0A84FF',
+        'dark-on-primary': '#1F1F1F',
+        'dark-surface': '#1C1C1E',
+        'dark-on-surface': '#F5F5F7',
+        'dark-surface-container': '#2C2C2E',
+        'dark-on-surface-container': '#F5F5F7',
+        'dark-surface-container-high': '#3A3A3C',
+        'dark-outline': '#8E8E93',
+        'dark-outline-variant': '#48484A',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'keycap': '6px',
+        'md': '10px',
+        'lg': '16px',
+        'overlay': '22px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '12px',
+        'gutter-lg': '16px',
+        'gutter-xl': '24px',
+        'palette-padding': '20px',
+        'keycap-gap': '8px',
+        'section': '32px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Geist"', 'sans-serif'],
+        'headline': ['"Geist"', 'sans-serif'],
+        'body': ['"Geist"', 'sans-serif'],
+        'label': ['"Geist"', 'sans-serif'],
+        'code': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.3px', fontWeight: '600' }],
+        'headline-lg-mobile': ['20px', { lineHeight: '28px', letterSpacing: '-0.2px', fontWeight: '600' }],
+        'headline-md': ['18px', { lineHeight: '24px', fontWeight: '600' }],
+        'body-lg': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'label-lg': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+        'code-md': ['13px', { lineHeight: '18px', fontWeight: '500' }],
+        'code-sm': ['11px', { lineHeight: '14px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'overlay-enter': '200ms',
+        'sheet-enter': '250ms',
+        'fade-fast': '120ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'overlay-enter': '0ms',
+        'sheet-enter': '0ms',
+        'fade-fast': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'overlay-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-enter': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-fast': 'ease-out',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .material-symbols-outlined { display: inline-block; width: 1em; height: 1em; line-height: 1 !important; box-sizing: content-box; overflow: hidden; white-space: nowrap; direction: ltr; vertical-align: middle; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-[#0B0D13] text-[#E1E4EA] antialiased min-h-[1024px] overflow-x-hidden font-body selection:bg-dark-primary/30" data-stitch-vh="min-h-[1024px]===min-h-screen">
+
+  <!-- ==============================================================
+       [FSD: widgets/toast-stack] E1 TRANSIENT TOAST PILLS STACK (Dark)
+       Position: Bottom-Center, thin clear Liquid Glass, 0px Shadow, 16px Blur
+       Pills: "URL copied", "Tab restored · ⌘⇧T", "Shields blocked 12 requests"
+       ============================================================== -->
+  <div class="fixed bottom-7 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-auto select-none">
+    
+    <!-- Motion and Elevation Annotation Tag -->
+    <div class="flex items-center gap-2 mb-1">
+      <span class="font-code text-[11px] bg-black/90 text-white px-2 py-0.5 rounded border border-white/10 shadow-sm">[FSD: widgets/toast-stack]</span>
+      <span class="font-code text-[11px] bg-blue-950 text-blue-300 border border-blue-800 px-2 py-0.5 rounded">E1: 16px Blur • 0px Shadow • Thin Specular Ring</span>
+    </div>
+
+    <!-- Stack of E1 Liquid Glass Pills -->
+    <div class="flex flex-col items-center gap-2 w-max">
+      
+      <!-- Toast 1: "URL copied" (Top of stack / secondary) -->
+      <div class="flex items-center gap-2.5 px-4 py-2 rounded-full bg-[#181B22]/70 backdrop-blur-xl border border-white/15 ring-1 ring-white/5 shadow-none transition-all hover:bg-[#181B22]/85">
+        <span class="material-symbols-outlined text-[17px] text-emerald-400">check_circle</span>
+        <span class="font-label text-label-md font-medium text-white">URL copied</span>
+        <span class="font-code text-[11px] text-dark-outline pl-1 border-l border-white/10">to clipboard</span>
+      </div>
+
+      <!-- Toast 2: "Tab restored · ⌘⇧T" (Middle pill) -->
+      <div class="flex items-center gap-2.5 px-4 py-2 rounded-full bg-[#181B22]/75 backdrop-blur-xl border border-white/15 ring-1 ring-white/5 shadow-none transition-all hover:bg-[#181B22]/90">
+        <span class="material-symbols-outlined text-[17px] text-dark-primary" data-original-icon="tab_unfreeze">circle</span>
+        <span class="font-label text-label-md font-medium text-white">Tab restored</span>
+        <span class="text-white/40">·</span>
+        <div class="flex items-center gap-0.5 font-code text-code-sm">
+          <kbd class="px-1.5 py-0.5 rounded-keycap bg-white/10 border border-white/15 text-white">⌘</kbd>
+          <kbd class="px-1.5 py-0.5 rounded-keycap bg-white/10 border border-white/15 text-white">⇧</kbd>
+          <kbd class="px-1.5 py-0.5 rounded-keycap bg-white/10 border border-white/15 text-white">T</kbd>
+        </div>
+      </div>
+
+      <!-- Toast 3: "Shields blocked 12 requests" (Front/Active pill with shield indicator) -->
+      <div class="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#151D19]/85 backdrop-blur-xl border border-emerald-500/30 ring-1 ring-emerald-400/20 shadow-none transition-all hover:bg-[#151D19]/95">
+        <div class="w-5 h-5 rounded-full bg-emerald-950 flex items-center justify-center text-emerald-400 border border-emerald-800">
+          <span class="material-symbols-outlined text-[15px]">verified_user</span>
+        </div>
+        <div class="flex items-center gap-1.5 font-label text-label-md font-semibold text-white">
+          <span>Shields blocked</span>
+          <span class="px-2 py-0.5 rounded-full bg-emerald-900/80 text-emerald-300 font-code text-[11px] font-bold border border-emerald-700/60">12 requests</span>
+        </div>
+        <span class="text-xs text-emerald-400 font-medium pl-1 border-l border-white/10 flex items-center gap-1">
+          <span>Protection is on</span>
+        </span>
+      </div>
+
+    </div>
+
+    <!-- Micro hint line -->
+    <div class="text-[10px] text-dark-outline font-code mt-0.5">
+      Fades out automatically in 3s · Click to dismiss
+    </div>
+
+  </div>
+
+  <!-- Background Web Content: Clean documentation page (E0 Level) -->
+  <main class="max-w-4xl mx-auto px-8 pt-16 pb-36">
+    <div class="space-y-6">
+      <div class="border-b border-white/10 pb-5">
+        <span class="font-code text-xs font-semibold text-dark-primary uppercase tracking-wider">Quickie Architecture Spec</span>
+        <h1 class="text-3xl font-bold tracking-tight text-white mt-1">Liquid Glass Elevation Model</h1>
+        <p class="text-content-subtext-dark text-sm mt-1">macOS 26 (Tahoe) Native Compositing Pipeline</p>
+      </div>
+
+      <div class="prose text-gray-300 text-sm leading-relaxed space-y-4">
+        <p>
+          Quickie radically simplifies desktop browser interfaces by eliminating persistent toolbars and tab strips. The webpage content occupies 100% of the window surface (E0 tier), allowing reader mode immersion on every page.
+        </p>
+        <div class="grid grid-cols-3 gap-4 pt-2">
+          <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02]">
+            <div class="font-semibold text-xs text-white mb-1">E0 Content Canvas</div>
+            <p class="text-xs text-content-subtext-dark">Unfiltered web canvas, zero tint, zero scrim.</p>
+          </div>
+          <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02]">
+            <div class="font-semibold text-xs text-white mb-1">E1 Micro Indicators</div>
+            <p class="text-xs text-content-subtext-dark">16px blur, 0px shadow, non-modal status pills.</p>
+          </div>
+          <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02]">
+            <div class="font-semibold text-xs text-white mb-1">E2 Floating Overlays</div>
+            <p class="text-xs text-content-subtext-dark">28px blur, specular rim, keyboard invocation.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+
+
+</body></html>
