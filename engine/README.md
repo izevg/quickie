@@ -73,6 +73,13 @@ needs `engine/scripts/sync --reset` first, which discards everything `apply` did
   navigation committed, title changed, page opened a tab. `bridge/tab_registry.*` maps tab ids to
   WebContents and keeps one `Browser` per (shell window, profile), so Chromium's `TabStripModel`
   stays the truth about live pages (architecture section 4.3) and `chrome.tabs` sees them.
+- **The port.** `ChromiumEngine` in the Rust crate implements the application's `EnginePort` on
+  the bridge. It keeps what the C++ side leaves to Rust: which tabs have a page, the tab a window
+  is to show before the shell attached its host view (shown on `attach_host`), and which
+  throwaway jars got a profile (`destroy_jar` of a jar whose tabs were never shown calls nothing).
+  Events are recorded, never handled inside a bridge call: Rust asks `ScheduleWake` to post
+  `RunWake`, and the shell drains `take_navigations` and `take_opened` from that task, like the
+  `WebKit` engine's waker.
 - **Window.** The factory override asks `quickie::MaybeCreateBrowserWindow` first. Browsers the
   registry creates, and normal or popup Browsers Chromium creates on its own, get a
   `QuickieBrowserWindow`: no Views, the active page's `NSView` added under the shell's host view.
@@ -87,8 +94,8 @@ needs `engine/scripts/sync --reset` first, which discards everything `apply` did
 - **Linking.** Both hooks into Chromium code (`CreateBrowserMainExtraParts`,
   `MaybeCreateBrowserWindow`) have weak defaults on Chromium's side, so test targets that do not
   link `//quickie` still link. The Rust crate builds under GN with the `chromium` feature; Cargo
-  builds it without, where every call returns `EngineError::Unavailable` and nothing references a
-  C++ symbol (tests never call FFI).
+  builds it without, where every engine call fails as unavailable and nothing references a C++
+  symbol (tests never call FFI; `ChromiumEngine` is tested against a fake bridge).
 
 ## Verified at the pin
 
@@ -103,8 +110,9 @@ profile rules and `ProfileDestroyer`; `NativeWebKeyboardEvent::os_event` as `Own
 the `rust_static_library` parameters (`cxx_bindings`, `allow_unsafe`, `features`, `edition`) and
 the generated header path; the cxx include path `third_party/rust/cxx/v1/cxx.h`; the GN args in
 `args.gn` that exist at the pin; both patches apply (`patch --dry-run`) to the pinned files, and
-no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compiles against
-`quickie_bridge.h` (`clang++ -fsyntax-only` with cxx 1.0.202's header).
+no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compiled against
+`quickie_bridge.h` (`clang++ -fsyntax-only` with cxx 1.0.202's header) before `ScheduleWake` and
+`RunWake` were added; that check is not repeated yet (see below).
 
 ## TODO(verify)
 
@@ -117,7 +125,9 @@ no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compi
 | [scripts/apply](scripts/apply) | Siso remote execution and the symlinks out of the checkout (local builds follow them) |
 | [scripts/args.gn](scripts/args.gn) | Official build with `symbol_level = 0` (dSYM steps) |
 | [patches/startup/browser-main-parts.patch](patches/startup/browser-main-parts.patch), [overrides/](overrides/) | ld64 resolves the weak defaults to the strong definitions in `//quickie` |
-| [quickie/BUILD.gn](quickie/BUILD.gn) | Dependency labels (`gn check`); `crate_root` outside the target's directory |
+| [quickie/BUILD.gn](quickie/BUILD.gn) | Dependency labels (`gn check`); `crate_root` outside the target's directory; GN targets for the crate's new dependencies (`quickie-application`, `quickie-domain-browsing`, `url`) |
+| [quickie/bridge/quickie_bridge.cc](quickie/bridge/quickie_bridge.cc) | `ScheduleWake`: `base::BindOnce(&RunWake)` on the cxx-generated `extern "Rust"` function; the generated `ffi.rs.h` still passes `clang++ -fsyntax-only` with `ScheduleWake` and `RunWake` (`base/task/sequenced_task_runner.h`) |
+| [../crates/adapters/engine-chromium/src/engine/reports.rs](../crates/adapters/engine-chromium/src/engine/reports.rs) | A commit keeps the last title until the page reports one: that Chromium calls `TitleWasSet` after every cross-document commit, even without a `<title>` (`content/browser/web_contents/web_contents_impl.cc`) |
 | [quickie/bridge/tab_registry.h](quickie/bridge/tab_registry.h) | DevTools-prefixed OTR profiles as jars: other `IsDevTools()` effects; extensions off there (`chrome/browser/profiles/profile.cc`) |
 | [quickie/bridge/tab_registry.cc](quickie/bridge/tab_registry.cc) | A Browser Chromium creates may get its first tab before the factory returns (covered by a posted scan); pages Chromium destroys are not reported to Rust yet |
 | [quickie/main_parts.cc](quickie/main_parts.cc) | Dock-icon reopen (`chrome/browser/app_controller_mac.mm`) still creates a Browser |
@@ -142,11 +152,15 @@ no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compi
    (`crates/shell`) exists. The plan is an `extern "Rust"` symbol the shell crate defines and this
    crate declares, so the adapter never depends on the shell; GN then links the shell crate into
    `//quickie`.
-7. Rust crates beyond `cxx`: once the adapter depends on `quickie-application`, every workspace
+7. Rust crates beyond `cxx`: the adapter now depends on `quickie-application`, so every workspace
    crate it reaches needs a GN `rust_static_library`, and third-party crates go through `gnrt`
    into `.build/` (architecture section 1).
 8. Pages closed by Chromium itself (`window.close()`, a crashed renderer) need an engine event so
    the domain moves the tab to the trash instead of losing track of it.
+9. Opened pages: `Browsing::adopt` (application) shows the new tab before the shell can call
+   `ChromiumEngine::adopt` with its id, so that first show fails with "no page"; the use case
+   needs the engine's page handle, or the port an adopt step. Pages Chromium opened and Rust never
+   adopts have no bridge call to close them; they go only with their jar or the Browser.
 
 ## Rebasing to a new Extended Stable
 
