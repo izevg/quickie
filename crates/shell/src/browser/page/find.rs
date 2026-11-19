@@ -65,6 +65,11 @@ impl Browser {
         }
     }
 
+    /// True when the find bar's field has the keyboard: a letter typed now is the query's.
+    pub(in crate::browser) fn find_focused(&self) -> bool {
+        self.page.find_bar.is_open() && self.page.find_bar.has_focus()
+    }
+
     /// Takes the bar and the marks away, leaving the keyboard where it is: another E2 is about
     /// to take it, or another tab came forward.
     pub(in crate::browser) fn hide_find(&self) {

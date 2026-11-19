@@ -261,7 +261,8 @@ Hot-path budgets:
 |---|---|---|
 | Ctrl+Tab → switch | ≤ 1 frame | MRU in memory; the overlay appears only after a hold > 150 ms |
 | Open the palette | ≤ 16 ms to first frame | Prewarmed window; first batch from the in-memory MRU, FTS fills in |
-| Swipe back | 120 Hz | Cached snapshot, animation on a `CALayer` |
+| Swipe back | 120 Hz | Cached snapshot, animation on a `CALayer`; on `engine-webkit`, `WKWebView`'s own `allowsBackForwardNavigationGestures` does exactly this |
+| Tab overview pinch | 120 Hz | Thumbnails cached per tab (drawn off the main thread when a tab is hidden); the grid follows the fingers by scrubbing a paused animation |
 | First agent token | ≤ endpoint TTFT + 20 ms | SSE streams straight into `AgentAnswerPanel` |
 | Cold start to first frame | ≤ 300 ms **[target]** | Lazy restore; background tabs discarded |
 

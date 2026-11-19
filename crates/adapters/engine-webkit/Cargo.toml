@@ -11,7 +11,7 @@ adblock.workspace = true
 block2.workspace = true
 dispatch2.workspace = true
 objc2.workspace = true
-objc2-app-kit = { workspace = true, features = ["NSGraphics", "NSResponder", "NSView"] }
+objc2-app-kit = { workspace = true, features = ["NSGraphics", "NSImage", "NSResponder", "NSView"] }
 objc2-foundation = { workspace = true, features = [
   "block2",
   "NSArray",
@@ -42,9 +42,13 @@ objc2-web-kit = { workspace = true, features = [
   "WKNavigation",
   "WKNavigationDelegate",
   "WKPreferences",
+  "WKScriptMessage",
+  "WKScriptMessageHandler",
+  "WKSnapshotConfiguration",
   "WKURLSchemeHandler",
   "WKURLSchemeTask",
   "WKUserContentController",
+  "WKUserScript",
   "WKWebView",
   "WKWebViewConfiguration",
   "WKWebsiteDataStore",

@@ -672,6 +672,7 @@ dependencies = [
  "quickie-domain-shields",
  "quickie-engine-webkit",
  "quickie-store",
+ "quickie-ui-shared",
  "quickie-ui-widgets",
  "url",
 ]

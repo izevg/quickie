@@ -14,6 +14,7 @@ use quickie_domain_browsing::{Direction, Focus, JarChoice, PinnedSlot, WindowId}
 use quickie_domain_commands::{CommandId, KeyStroke, Modifiers};
 use quickie_domain_shields::FilterListId;
 use quickie_engine_webkit::UrlSessionHttp;
+use quickie_ui_shared::Trigger;
 use url::Url;
 
 use super::Browser;
@@ -44,6 +45,11 @@ pub enum Action {
     ToggleShields,
     EnableLists,
     RefreshLists,
+    Overview,
+    /// Link hints; `background` opens a followed link in a background tab.
+    Hints {
+        background: bool,
+    },
 }
 
 impl Action {
@@ -85,6 +91,9 @@ impl Action {
             "quickie.shields.toggleSite" => Self::ToggleShields,
             "quickie.shields.enableLists" => Self::EnableLists,
             "quickie.shields.refreshLists" => Self::RefreshLists,
+            "quickie.tab.overview" => Self::Overview,
+            "quickie.hints.toggle" => Self::Hints { background: false },
+            "quickie.hints.openInBackground" => Self::Hints { background: true },
             _ => return None,
         };
         Some(action)
@@ -122,6 +131,11 @@ impl Browser {
             self.toast(&format!("Not yet: {title}"));
             return;
         };
+        match action {
+            Action::Overview => return self.toggle_overview(Trigger::Keyboard),
+            Action::Hints { background } => return self.open_hints(background),
+            _ => self.hide_navigation(),
+        }
         match action {
             Action::OpenCommands => return self.open_palette(">"),
             Action::GoTo => return self.open_palette(""),
@@ -167,7 +181,9 @@ impl Browser {
             | Action::Find
             | Action::FindNext
             | Action::FindPrevious
-            | Action::Cycle(_) => {}
+            | Action::Cycle(_)
+            | Action::Overview
+            | Action::Hints { .. } => {}
         }
         self.settle(window);
     }
@@ -390,6 +406,12 @@ mod tests {
             ("quickie.shields.toggleSite", Action::ToggleShields),
             ("quickie.shields.enableLists", Action::EnableLists),
             ("quickie.shields.refreshLists", Action::RefreshLists),
+            ("quickie.tab.overview", Action::Overview),
+            ("quickie.hints.toggle", Action::Hints { background: false }),
+            (
+                "quickie.hints.openInBackground",
+                Action::Hints { background: true },
+            ),
         ];
         for (id, action) in cases {
             assert_eq!(of(id), Some(action), "{id}");
@@ -414,11 +436,7 @@ mod tests {
 
     #[test]
     fn commands_not_built_yet_have_no_action() {
-        for id in [
-            "quickie.reader.toggle",
-            "quickie.hints.toggle",
-            "quickie.devtools.toggle",
-        ] {
+        for id in ["quickie.reader.toggle", "quickie.devtools.toggle"] {
             assert_eq!(of(id), None, "{id}");
         }
     }
@@ -431,8 +449,8 @@ mod tests {
             .filter(|command| Action::of(&command.id).is_some())
             .count();
 
-        // 22 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 22 + 9 + 9);
+        // 25 named commands plus nine slots to go to and nine to pin.
+        assert_eq!(built, 25 + 9 + 9);
     }
 
     #[test]

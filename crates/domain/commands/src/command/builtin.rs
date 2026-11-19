@@ -6,7 +6,7 @@ use super::{Category, Command};
 
 /// Id, title, and category of every built-in command, in palette order. The tests check that
 /// every id parses, so a typo here fails the build's tests, not the user.
-pub(super) const COMMANDS: [(&str, &str, Category); 53] = [
+pub(super) const COMMANDS: [(&str, &str, Category); 55] = [
     (
         "quickie.palette.openCommands",
         "Show Command Palette",
@@ -129,6 +129,7 @@ pub(super) const COMMANDS: [(&str, &str, Category); 53] = [
         "Pin Tab to Slot 9",
         Category::Tabs,
     ),
+    ("quickie.tab.overview", "Show Tab Overview", Category::Tabs),
     (
         "quickie.tab.openInThrowawayJar",
         "Open in Throwaway Jar",
@@ -155,6 +156,11 @@ pub(super) const COMMANDS: [(&str, &str, Category); 53] = [
     ("quickie.page.findNext", "Find Next", Category::Page),
     ("quickie.page.findPrevious", "Find Previous", Category::Page),
     ("quickie.hints.toggle", "Toggle Link Hints", Category::Page),
+    (
+        "quickie.hints.openInBackground",
+        "Open Link Hint in Background Tab",
+        Category::Page,
+    ),
     ("quickie.page.copyUrl", "Copy URL", Category::Page),
     ("quickie.page.bookmark", "Bookmark Page", Category::Page),
     (
