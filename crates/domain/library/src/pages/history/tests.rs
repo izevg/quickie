@@ -96,6 +96,40 @@ mod recording {
     }
 
     #[test]
+    fn a_later_title_renames_the_entry_without_a_visit() {
+        let mut history = History::new();
+        history.record_visit(&page("a"), "", at(10));
+
+        let changed = history.retitle(&url("https://example.test/a#top"), "Loaded");
+
+        assert!(changed);
+        let entry = history.get(&page("a")).unwrap();
+        assert_eq!(entry.title, "Loaded");
+        assert_eq!((entry.visit_count, entry.recent_visits.len()), (1, 1));
+    }
+
+    #[test]
+    fn retitling_with_nothing_new_changes_nothing() {
+        let mut history = History::new();
+        history.record_visit(&page("a"), "Same", at(10));
+        let before = history.clone();
+
+        assert!(!history.retitle(&page("a"), "Same"));
+        assert!(!history.retitle(&page("a"), ""));
+        assert_eq!(history, before);
+    }
+
+    #[test]
+    fn a_title_alone_puts_no_page_in_history() {
+        let mut history = History::new();
+
+        let changed = history.retitle(&page("a"), "Never visited");
+
+        assert!(!changed);
+        assert_eq!(history, History::new());
+    }
+
+    #[test]
     fn fragments_of_one_page_share_its_entry() {
         let mut history = History::new();
 

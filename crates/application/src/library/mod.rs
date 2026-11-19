@@ -119,6 +119,26 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
         Ok(recorded)
     }
 
+    /// Gives a visited page the title it reported after its visit was recorded, without counting
+    /// another visit. A throwaway jar's pages are not in history, so nothing changes for them.
+    /// Returns whether the title changed; only then is history saved.
+    ///
+    /// # Errors
+    ///
+    /// The store failed.
+    pub fn retitle_visit(&mut self, url: &Url, title: &str, jar: Jar) -> Result<bool, AppError> {
+        if let Jar::Throwaway(_) = jar {
+            return Ok(false);
+        }
+        let mut next = self.history.clone();
+        if !next.retitle(url, title) {
+            return Ok(false);
+        }
+        self.repo.save_history(&next.snapshot())?;
+        self.history = next;
+        Ok(true)
+    }
+
     /// Forgets every visit of the last `span` ("forget the last hour"); an entry left without a
     /// known visit goes as a whole.
     ///

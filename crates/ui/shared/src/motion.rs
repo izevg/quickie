@@ -21,6 +21,8 @@ use objc2_quartz_core::{
 pub enum Trigger {
     Keyboard,
     Pointer,
+    /// Quickie itself, not a key or a gesture: a toast, a status chip. It animates.
+    App,
 }
 
 /// The geometric part of an entrance, on top of the fade.
@@ -86,7 +88,7 @@ impl Motion {
     pub fn plan(self, trigger: Trigger, reduce_motion: bool) -> Plan {
         let duration = match trigger {
             Trigger::Keyboard => 0.0,
-            Trigger::Pointer => self.duration,
+            Trigger::Pointer | Trigger::App => self.duration,
         };
         let entrance = if reduce_motion {
             Entrance::Fade

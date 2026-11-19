@@ -1,7 +1,7 @@
 //! What pages reported since the shell last asked: committed navigations and title changes,
 //! folded into one [`Navigated`] per tab. Pure, so the folding is tested without `WebKit`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use quickie_domain_browsing::TabId;
 use url::Url;
@@ -12,6 +12,9 @@ pub struct Navigated {
     pub tab: TabId,
     pub url: Url,
     pub title: String,
+    /// The page committed a navigation since the last report: a visit. `false` when only its
+    /// title changed.
+    pub committed: bool,
 }
 
 /// Page reports waiting for the shell, in the order tabs first changed.
@@ -21,6 +24,8 @@ pub(crate) struct Reports {
     current: HashMap<TabId, (Url, String)>,
     /// Tabs that changed since the last [`Reports::take`].
     changed: Vec<TabId>,
+    /// Tabs that committed a navigation since the last [`Reports::take`].
+    committed: HashSet<TabId>,
 }
 
 impl Reports {
@@ -31,6 +36,7 @@ impl Reports {
             return;
         };
         self.current.insert(tab, (url, title.unwrap_or_default()));
+        self.committed.insert(tab);
         self.mark(tab);
     }
 
@@ -49,6 +55,7 @@ impl Reports {
     /// The tab's page is gone; nothing more is reported for it.
     pub(crate) fn forget(&mut self, tab: TabId) {
         self.current.remove(&tab);
+        self.committed.remove(&tab);
         self.changed.retain(|&changed| changed != tab);
     }
 
@@ -68,6 +75,7 @@ impl Reports {
                     tab,
                     url: url.clone(),
                     title: title.clone(),
+                    committed: self.committed.remove(&tab),
                 })
             })
             .collect()
@@ -92,7 +100,29 @@ mod tests {
             tab: TabId::new(tab),
             url: Url::parse(url).unwrap(),
             title: title.to_owned(),
+            committed: true,
         }
+    }
+
+    fn retitled(tab: u64, url: &str, title: &str) -> Navigated {
+        Navigated {
+            committed: false,
+            ..navigated(tab, url, title)
+        }
+    }
+
+    #[test]
+    fn a_title_after_the_report_of_its_commit_is_no_visit() {
+        let mut reports = Reports::default();
+        reports.committed(TabId::new(1), Some("https://a.example/"), None);
+        let _ = reports.take();
+
+        reports.titled(TabId::new(1), Some("Loaded".into()));
+
+        assert_eq!(
+            reports.take(),
+            [retitled(1, "https://a.example/", "Loaded")]
+        );
     }
 
     #[test]

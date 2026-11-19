@@ -100,6 +100,19 @@ impl History {
         recorded
     }
 
+    /// Gives a visited page the title it reported after its visit was recorded; pages usually
+    /// name themselves only once they load. An empty title keeps the one it had, and a page not
+    /// in history stays out: a title is not a visit. Returns whether the title changed.
+    pub fn retitle(&mut self, url: &Url, title: &str) -> bool {
+        match self.entries.get_mut(&page_url(url)) {
+            Some(entry) if !title.is_empty() && entry.title != title => {
+                title.clone_into(&mut entry.title);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Removes a page from history, whatever fragment `url` carries, and returns its entry.
     pub fn remove(&mut self, url: &Url) -> Option<HistoryEntry> {
         self.entries.shift_remove(&page_url(url))

@@ -14,20 +14,13 @@ objc2-app-kit = { workspace = true, features = [
   "objc2-core-foundation",
   "NSApplication",
   "NSButton",
-  "NSCell",
-  "NSColor",
   "NSControl",
   "NSEvent",
-  "NSGraphics",
   "NSMenu",
   "NSMenuItem",
-  "NSParagraphStyle",
+  "NSPasteboard",
   "NSResponder",
   "NSRunningApplication",
-  "NSText",
-  "NSTextField",
-  "NSTextInputClient",
-  "NSTextView",
   "NSView",
   "NSWindow",
 ] }
@@ -42,9 +35,10 @@ objc2-foundation = { workspace = true, features = [
 ] }
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
+quickie-domain-commands.workspace = true
 quickie-engine-webkit.workspace = true
 quickie-store.workspace = true
-quickie-ui-shared.workspace = true
+quickie-ui-widgets.workspace = true
 url.workspace = true
 
 [lints]
