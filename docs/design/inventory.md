@@ -110,6 +110,10 @@ the slices inside a group still never use each other.
 
 ## Follow-ups for the code
 
+- `download_row` and `filter_list_row` live inside their popover slices
+  (`widgets/popovers/downloads_popover`, `shields_popover`) until an `entities` crate exists.
+  `toggle_row` is in `shared/form`; sizes and ages read through `shared/format`.
+
 - The mockups' window chrome, sample pages, and API names (`LiquidGlassWindow`,
   `.windowChromePresentation`, a Metal compositor) are invented by the generator: reference for
   look and copy only, never for APIs.

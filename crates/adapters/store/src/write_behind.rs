@@ -22,7 +22,9 @@ use quickie_application::{
     ShieldsSnapshot, StoreError,
 };
 use quickie_domain_browsing::SessionSnapshot;
-use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_library::{
+    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 
 use crate::SqliteStore;
@@ -186,6 +188,10 @@ impl LibraryRepo for WriteBehindStore {
 
     fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError> {
         self.hand_over(Save::Shortcuts(shortcuts.clone()))
+    }
+
+    fn save_downloads(&mut self, downloads: &DownloadsSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Downloads(downloads.clone()))
     }
 }
 

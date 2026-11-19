@@ -37,6 +37,7 @@ impl Browser {
             return;
         };
         self.address.hide();
+        self.hide_popovers();
         self.cancel_cycle();
         self.hide_find();
         self.command_palette.show(&host, &ns_window, prefix);

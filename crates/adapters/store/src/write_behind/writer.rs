@@ -11,7 +11,9 @@ use quickie_application::{
     ShieldsSnapshot, StoreError,
 };
 use quickie_domain_browsing::SessionSnapshot;
-use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_library::{
+    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 
 use super::Failure;
@@ -38,6 +40,8 @@ pub(super) enum Save {
     Bookmarks(BookmarksSnapshot),
     /// The search shortcuts.
     Shortcuts(SearchShortcutsSnapshot),
+    /// The downloads.
+    Downloads(DownloadsSnapshot),
     /// The per-site shields exceptions.
     Sites(SitePoliciesSnapshot),
     /// The filter list states.
@@ -68,6 +72,7 @@ struct Batch {
     history: Option<HistorySnapshot>,
     bookmarks: Option<BookmarksSnapshot>,
     shortcuts: Option<SearchShortcutsSnapshot>,
+    downloads: Option<DownloadsSnapshot>,
     sites: Option<SitePoliciesSnapshot>,
     lists: Option<FilterListSetSnapshot>,
     bodies: BTreeMap<FilterListId, Vec<u8>>,
@@ -81,6 +86,7 @@ impl Batch {
             Save::History(history) => self.history = Some(history),
             Save::Bookmarks(bookmarks) => self.bookmarks = Some(bookmarks),
             Save::Shortcuts(shortcuts) => self.shortcuts = Some(shortcuts),
+            Save::Downloads(downloads) => self.downloads = Some(downloads),
             Save::Sites(sites) => self.sites = Some(sites),
             Save::Lists(lists) => self.lists = Some(lists),
             Save::Body(list, body) => {
@@ -111,6 +117,9 @@ impl Batch {
             self.shortcuts
                 .take()
                 .map(|shortcuts| store.save_shortcuts(&shortcuts)),
+            self.downloads
+                .take()
+                .map(|downloads| store.save_downloads(&downloads)),
             self.sites.take().map(|sites| store.save_sites(&sites)),
             self.lists.take().map(|lists| store.save_lists(&lists)),
         ];

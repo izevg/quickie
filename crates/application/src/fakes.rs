@@ -4,7 +4,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
-use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_library::{
+    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+};
 use url::Url;
 
 use crate::{
@@ -56,6 +58,12 @@ impl LibraryRepo for FakeLibraryRepo {
     fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError> {
         self.save()?;
         self.saved.shortcuts = Some(shortcuts.clone());
+        Ok(())
+    }
+
+    fn save_downloads(&mut self, downloads: &DownloadsSnapshot) -> Result<(), StoreError> {
+        self.save()?;
+        self.saved.downloads = Some(downloads.clone());
         Ok(())
     }
 }

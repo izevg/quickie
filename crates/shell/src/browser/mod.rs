@@ -7,15 +7,18 @@
 //! - [`palette`]: the command palette's query and what choosing a row does.
 //! - [`page`]: find in page, the origin chip, and the load progress line.
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
+//! - [`popovers`]: the downloads and the shields popovers.
 
 mod commands;
 mod keys;
 mod navigation;
 mod page;
 mod palette;
+mod popovers;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
 use objc2::rc::Retained;
@@ -47,6 +50,8 @@ pub struct Services {
     pub writes: Vec<PendingWrites>,
     /// What went wrong while starting, told once the windows are on screen.
     pub notices: Vec<String>,
+    /// Where downloads are saved.
+    pub downloads_folder: PathBuf,
 }
 
 pub struct Browser {
@@ -64,6 +69,7 @@ pub struct Browser {
     navigation: NavigationOverlays,
     toasts: Rc<ToastStack>,
     page: page::PageWidgets,
+    popovers: popovers::Popovers,
     /// The palette's answer on screen, in its order.
     results: RefCell<Vec<PaletteItem>>,
     cycle: RefCell<Option<CycleHold>>,
@@ -118,6 +124,7 @@ impl Browser {
             navigation: NavigationOverlays::new(mtm),
             toasts: ToastStack::new(mtm),
             page: page::PageWidgets::new(mtm),
+            popovers: popovers::Popovers::new(services.downloads_folder, mtm),
             results: RefCell::new(Vec::new()),
             cycle: RefCell::new(None),
             cycle_modifiers: Cell::new(Modifiers::CONTROL),
@@ -131,6 +138,7 @@ impl Browser {
         browser.wire_palette();
         browser.wire_find();
         browser.wire_navigation();
+        browser.wire_popovers();
         // Only lists the user enabled and that never arrived, or stale ones when the user keeps
         // lists fresh: nothing on a fresh profile.
         let due = browser.shields.borrow().due_fetches();
@@ -167,11 +175,12 @@ impl Browser {
     }
 
     /// Records what pages committed since the last time, puts the pages' loading, finds, and
-    /// origins on screen, and tells of a save that failed on a writer thread. Runs from the
-    /// engine's waker on the main run loop, and after every command.
+    /// origins on screen, records downloads, and tells of a save that failed on a writer
+    /// thread. Runs from the engine's waker on the main run loop, and after every command.
     pub fn drain(&self) {
         self.record_navigations();
         self.page_reports();
+        self.download_reports();
         for writes in &self.writes {
             if let Some(error) = writes.take_error() {
                 self.toast(&format!("Not saved: {error}"));
@@ -190,7 +199,11 @@ impl Browser {
             return;
         }
         let mut failures = Vec::new();
+        let mut loaded = Vec::new();
         for navigated in navigations {
+            if navigated.committed {
+                loaded.push(navigated.tab);
+            }
             let (url, title) = (navigated.url.clone(), navigated.title.clone());
             if let Err(error) = browsing.navigated(navigated.tab, navigated.url, navigated.title) {
                 failures.push(error);
@@ -212,6 +225,9 @@ impl Browser {
         drop(browsing);
         for error in failures {
             self.report(&error);
+        }
+        for tab in loaded {
+            self.applied(tab);
         }
         self.refresh_titles();
     }
@@ -304,6 +320,7 @@ impl Browser {
     fn close_overlays(&self) {
         self.address.hide();
         self.command_palette.hide();
+        self.hide_popovers();
         self.cancel_cycle();
     }
 }
