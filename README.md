@@ -1,41 +1,186 @@
+<div align="center">
+
+<img src="docs/assets/logo.png" width="180" alt="Quickie logo: a glass Q with a fast-forward sign, a lipstick mark, and a Do Not Disturb hanger">
+
 # Quickie
 
-A personal, macOS-only web browser: a Chromium fork with a native Rust/AppKit shell.
-Full-bleed content, no hover-revealed panels, VS Code-style keyboard control, Liquid Glass with
-real elevation, trackerless by default, a built-in agent on any OpenAI-compatible endpoint, and
-MCP for external agents.
+**Fast. Discreet. Leaves no trace.**
 
-| Document | About |
-|---|---|
-| [AGENTS.md](AGENTS.md) | Binding rules: language, commits, the rule of four, layers, invariants, gates |
-| [docs/architecture.md](docs/architecture.md) | C1–C4, stack and crates, DDD/hexagonal/clean + FSD, repository layout, infrastructure, roadmap |
-| [docs/quality.md](docs/quality.md) | The quality harness: gates, hooks, lints, layer map, mutation testing |
-| [docs/lessons.md](docs/lessons.md) | Other browsers' mistakes turned into our rules, with sources |
-| [docs/privacy.md](docs/privacy.md) | Trackerless: what we remove, what replaces it, how we prove it |
-| [docs/design/stitch-prompt.md](docs/design/stitch-prompt.md) | Google Stitch prompt for reference mockups, tagged for FSD slicing |
+The web, edge to edge; everything else is one keystroke away.
+A personal, macOS-only web browser: Chromium underneath, a native Rust and AppKit shell on top.
+The page fills the window, the interface answers the keyboard like VS Code, Liquid Glass appears
+only where something floats, and nothing phones home.
 
-## Getting started
+[![CI](https://github.com/izevg/quickie/actions/workflows/ci.yml/badge.svg)](https://github.com/izevg/quickie/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/izevg/quickie?include_prereleases&sort=semver)](https://github.com/izevg/quickie/releases)
+[![Rust edition 2024](https://img.shields.io/badge/rust-edition%202024-orange.svg)](Cargo.toml)
+![Platform](https://img.shields.io/badge/platform-macOS%2026-lightgrey.svg)
+![Engine](https://img.shields.io/badge/engine-Chromium-4285F4.svg)
+![Telemetry: none](https://img.shields.io/badge/telemetry-none-brightgreen.svg)
 
-```sh
-mise install && mise trust && mise run setup   # tools and git hooks
-mise run pre-commit                            # the fast gates
+</div>
+
+> **Status: pre-alpha.** The design and the quality harness are in place; there is no browser
+> code yet. Next is phase P0: the shell on a WebKit stand-in, so the interface can be lived in
+> before the first Chromium build. See the [roadmap](#roadmap).
+
+## Why
+
+Every browser picks a compromise this one refuses:
+
+- **Arc** proved a browser can be rethought, then sank under its own weight: "bloated", a
+  SwiftUI and TCA stack its makers abandoned, tabs lost to sync, and a shutdown on 2026-12-22.
+- **Vivaldi** hides its panels behind hover zones that fire when you don't want them and miss
+  when you do.
+- **Mainstream browsers** ship telemetry, field trials, and search suggestions that send every
+  keystroke with a persistent ID.
+- **Agentic browsers** let page content steer the agent with your logins attached.
+
+Quickie keeps the good idea (the page is the app, the keyboard is the interface) and drops the
+rest. In the idle state you see only the site. Everything else appears on a keystroke, floats on
+glass above the page, and is gone when you are done:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│                 the page, edge to edge                       │
+│        no tab bar · no toolbar · no sidebar · no hover       │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+                              ⌘⇧P
+┌──────────────────────────────────────────────────────────────┐
+│          ╭────────────────────────────────────────╮          │
+│          │ > reo                                  │          │
+│          │   Reopen closed tab            ⌘ ⇧ T   │          │
+│          │   Restore last session                 │          │
+│          │   > commands · @ headings · ? agent    │          │
+│          ╰────────────────────────────────────────╯          │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Key decisions
+## What it does
 
-1. **Engine: Chromium.** WebKit is out (no CDP for agents, weak inspector). Our own engine is out
-   (years and tens of millions).
-2. **Languages: C++ where it is Chromium; Rust everywhere else.** No Swift/SwiftUI. AppKit and
-   Core Animation through `objc2`, the Chromium boundary through `cxx`.
-3. **One build system: GN**, with Rust built in-tree as Chromium supports it. A Cargo workspace
-   builds the shell against a WebKit stand-in for phase P0, without a Chromium build.
-4. **Base: ungoogled-chromium patches** (BSD-3) plus our own, Brave-style (file overrides before
-   patches). Branch: **Extended Stable** (a rebase every 8 weeks).
-5. **Application logic: DDD + hexagonal + clean.** A bounded context is a crate, a port is a
-   trait; the build and `cargo xtask layers` enforce the direction.
-6. **UI: Feature-Sliced Design** as crates `ui/{shared,entities,features,widgets,screens,app}`.
-7. **Provably trackerless:** an egress test on a fresh profile; all traffic, LLM calls included,
-   goes through Chromium's network stack and shows up in the netlog.
-8. **Agents:** the built-in one talks to any OpenAI-compatible endpoint (Ollama and others), no
-   Apple Foundation Models; external ones connect over MCP on a Unix socket. Acting happens only
-   in an isolated agent profile with approvals. No TCP debugging port, ever.
+| Area | What you get | Phase |
+|---|---|---|
+| Content first | Full-bleed pages; no tab bar, toolbar, or sidebar; nothing revealed on hover | P0 |
+| Command palette | `⌘⇧P` for every command, `⌘P` for tabs and history, fuzzy search, frecency, prefixes `>` `@` `#` `?` `!` | P0 |
+| Smart tab switching | `⌃⇥` in most-recently-used order: a quick tap flips back, a hold shows thumbnails you can filter by typing | P0 |
+| Keymap | VS Code-style bindings with `when` contexts and chords, all rebindable; works on non-Latin layouts | P0 |
+| Gestures | Native two-finger back and forward with a live preview, pinch for a tab overview | P0 |
+| Liquid Glass with elevation | Four levels (page, indicators, overlays, sheets); glass only where something floats, never glass on glass | P0 |
+| Chromium engine | Web compatibility, DevTools, MV3 extensions | P1 |
+| Trackerless | ungoogled-chromium base, built-in ad and tracker blocking, an egress test that proves zero phone-home | P2 |
+| Built-in agent | `?` in the palette asks any OpenAI-compatible endpoint (Ollama, LM Studio, hosted APIs) about the page | P4 |
+| External agents | MCP over a Unix socket; actions only in an isolated agent profile, with approvals | P4 |
+| Anti-fingerprinting | Per-site, per-session noise for canvas, audio, and WebGL | P5 |
+
+### Default keys
+
+All of them are commands in the palette and can be rebound in the keymap editor.
+
+| Keys | Command |
+|---|---|
+| `⌘⇧P` | Command palette |
+| `⌘P` | Go to tab or history |
+| `⌘L` | Address overlay (current URL, site actions) |
+| `⌘T` | New tab (opens the address overlay) |
+| `⌃⇥` / `⌃⇧⇥` | Next / previous tab in most-recently-used order |
+| `⌘1` … `⌘9` | Pinned slots |
+| `⌘[` / `⌘]` | Back / forward |
+| `⌘F` | Find in page |
+| `F` | Link hints (when no text field has focus) |
+| `⌘⇧C` | Copy the URL |
+| `⌘⌥C` | Copy as Markdown link |
+| `⌘⇧T` | Reopen the closed tab |
+| `⌘W` | Close the tab (it goes to the trash, not away) |
+
+## Privacy
+
+Trackerless here means a fresh profile opens **zero** connections on its own, and the build proves
+it: the egress test starts the browser with a clean profile, records the netlog, and fails on any
+host that is not on the allowlist.
+
+| Chrome sends | Quickie |
+|---|---|
+| Usage metrics, crash reports, field trials | Removed at build time; crash dumps stay on disk |
+| Search suggestions with every keystroke | Off |
+| Safe Browsing lookups, component updates | Off, or through your own server |
+| Sync, Google sign-in, Translate, Privacy Sandbox | Removed |
+| Gemini and other AI features | Removed; the built-in agent talks only to the endpoint you configure, only when you ask |
+
+Details, the full checklist, and what breaks: [docs/privacy.md](docs/privacy.md).
+
+## How it is built
+
+```
+ui (Feature-Sliced Design) ──▶ application (use cases, port traits) ──▶ domain (pure)
+                                     ▲
+shell (composition root) ──▶ adapters: Chromium (cxx) · WebKit stand-in · SQLite · LLM · MCP · Keychain
+```
+
+- **C++ where it is Chromium; Rust everywhere else.** AppKit and Core Animation through `objc2`,
+  the Chromium boundary through `cxx`. No Swift, no SwiftUI, no HTML chrome.
+- **DDD, hexagonal, clean.** Each bounded context is a crate; the build rejects a wrong-way import.
+- **Small diff against Chromium.** ungoogled-chromium patches plus our own, on the Extended Stable
+  channel, rebased with agent help.
+- **One network stack.** Every request, LLM calls included, goes through Chromium, so the egress
+  test sees everything.
+
+The whole picture (C1 to C4, crates, hot-path budgets, security): [docs/architecture.md](docs/architecture.md).
+
+## Roadmap
+
+| Phase | Result | Done when |
+|---|---|---|
+| P0 | The shell on a WebKit stand-in: palette, switcher, glass, gestures, keymap | It works as a daily browser for a week, without extensions |
+| P1 | Chromium with ungoogled patches, the native window, the `cxx` bridge | The same UI on Chromium, with DevTools and extensions |
+| P2 | Shields, privacy patches, egress test in CI | A fresh profile reaches no unsolicited host in 10 minutes |
+| P3 | Native sheets instead of Chromium bubbles, link hints, tab overview, keymap editor | — |
+| P4 | Built-in and external agents, approvals, audit log | `?` answers through Ollama; an external agent drives a tab in the agent profile |
+| P5 | Anti-fingerprinting, self-hosted services | privacytests.org results on par with Brave |
+
+## Development
+
+Requirements: macOS on Apple Silicon and [mise](https://mise.jdx.dev). Every other tool is pinned
+in `.mise.toml` and installed into `~/.local`.
+
+```sh
+git clone git@github.com:izevg/quickie.git && cd quickie
+mise install && mise trust && mise run setup   # tools and git hooks
+mise run pre-commit                            # the fast gates
+mise run pre-push                              # everything, mutation testing included
+```
+
+| Gate | Runs |
+|---|---|
+| pre-commit | rustfmt, taplo, typos, the rule of four, the layer map, shellcheck, actionlint, secret scan, clippy (pedantic, warnings are errors), tests |
+| commit-msg | Conventional Commits, no agent attribution |
+| pre-push | all of the above, cargo-deny (no GPL family), unused dependencies, Markdown links, cargo-mutants on domain and application |
+| CI | the same tasks on macOS; on pull requests also mutation testing of the changed code |
+
+Work happens on feature branches, squash merged into `release/X.Y.Z`; a release branch is rebase
+merged into `main`, where git-cliff computes the version and the release notes from the commits.
+
+## Documentation
+
+| Page | Covers |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Binding rules for humans and agents: language, commits, branches, the rule of four, layers, invariants, gates |
+| [Architecture](docs/architecture.md) | Stack, C1 to C4, crates and ports, Liquid Glass elevation, engine sync, repository layout, infrastructure, roadmap |
+| [Quality](docs/quality.md) | Gates, hooks, lints, the layer map, mutation testing, CI and releases |
+| [Privacy](docs/privacy.md) | The trackerless model, the Chromium services checklist, the egress test |
+| [Lessons](docs/lessons.md) | What went wrong in Arc, Dia, Vivaldi, Orion, Zen, Helium, and agentic browsers, and the rule each lesson became |
+| [Stitch prompt](docs/design/stitch-prompt.md) | Reference mockups for every screen, tagged for slicing into FSD components |
+| [Releases](https://github.com/izevg/quickie/releases) | Every release, with notes generated from Conventional Commits |
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) first. Quickie is built for one person, but the rules hold for anyone,
+human or agent: English only, Conventional Commits without agent attribution, the rule of four for
+the file tree, the layer map, and the quality gates. Hooks are never bypassed.
+
+## License
+
+Not chosen yet. Until a `LICENSE` file lands, all rights are reserved. Chromium and
+ungoogled-chromium are BSD-3-Clause, and every dependency must stay license-compatible with them
+(`cargo deny`).
