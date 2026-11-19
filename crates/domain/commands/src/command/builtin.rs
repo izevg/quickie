@@ -6,7 +6,7 @@ use super::{Category, Command};
 
 /// Id, title, and category of every built-in command, in palette order. The tests check that
 /// every id parses, so a typo here fails the build's tests, not the user.
-pub(super) const COMMANDS: [(&str, &str, Category); 50] = [
+pub(super) const COMMANDS: [(&str, &str, Category); 53] = [
     (
         "quickie.palette.openCommands",
         "Show Command Palette",
@@ -171,6 +171,21 @@ pub(super) const COMMANDS: [(&str, &str, Category); 50] = [
         "quickie.downloads.show",
         "Show Downloads",
         Category::Downloads,
+    ),
+    (
+        "quickie.shields.toggleSite",
+        "Toggle Shields for This Site",
+        Category::Shields,
+    ),
+    (
+        "quickie.shields.enableLists",
+        "Enable Filter Lists",
+        Category::Shields,
+    ),
+    (
+        "quickie.shields.refreshLists",
+        "Refresh Filter Lists",
+        Category::Shields,
     ),
     (
         "quickie.devtools.toggle",

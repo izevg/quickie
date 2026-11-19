@@ -12,13 +12,15 @@ mod keymap;
 mod library;
 mod palette;
 mod ports;
+mod shields;
 
 pub use browsing::Browsing;
-pub use error::{AppError, EngineError, StoreError};
+pub use error::{AppError, BlockerError, EngineError, HttpError, StoreError};
 pub use keymap::{LoadedKeymap, RejectedEntry, Rejection, load_keymap};
 pub use library::{CorruptLibrary, Library};
 pub use palette::{Palette, PaletteItem, Sources, Target};
 pub use ports::{
-    Clock, EnginePort, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, Navigation,
-    SessionRepo,
+    BlockerRules, Clock, ContentBlockerPort, EnginePort, HttpPort, KeybindingText, KeymapRepo,
+    LibraryRepo, LibrarySnapshot, ListRules, Navigation, SessionRepo, ShieldsRepo, ShieldsSnapshot,
 };
+pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};

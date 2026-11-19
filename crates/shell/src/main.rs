@@ -42,10 +42,10 @@ use objc2_app_kit::{
     NSMenuItem,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSString};
-use quickie_application::{Browsing, Clock, Library, LoadedKeymap, load_keymap};
+use quickie_application::{Browsing, Clock, Library, LoadedKeymap, Shields, load_keymap};
 use quickie_domain_browsing::Timestamp;
 use quickie_domain_commands::{Catalog, Keymap};
-use quickie_engine_webkit::WebKitEngine;
+use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use quickie_store::{PendingWrites, WriteBehindStore};
 use url::Url;
 
@@ -59,6 +59,9 @@ pub type Lib = Library<WriteBehindStore, SystemClock>;
 
 /// The palette query as the app composes it.
 pub type Palette = quickie_application::Palette<SystemClock>;
+
+/// The shields use cases as the app composes them.
+pub type Guard = Shields<WriteBehindStore, SystemClock, WebKitContentBlocker>;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
@@ -121,7 +124,7 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let pending = store.pending();
     let engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
-    let browsing =
+    let mut browsing =
         Browsing::start(engine, store, SystemClock, &home).map_err(|error| error.to_string())?;
     // The library and the key bindings have a writer, and a connection, of their own.
     let library_store =
@@ -130,10 +133,21 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let catalog = Catalog::builtin();
     let (keymap, notices) = keymap(&library_store, &catalog);
     let library = Library::start(library_store, SystemClock).map_err(|error| error.to_string())?;
-    let writes = vec![pending, library_pending];
+    // The shields too; they never fetch on their own (docs/privacy.md).
+    let shields_store =
+        WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let shields_pending = shields_store.pending();
+    let blocker = browsing
+        .engine_mut()
+        .content_blocker(&support_dir()?.join("ContentRules"))
+        .map_err(|error| error.to_string())?;
+    let shields =
+        Shields::start(shields_store, SystemClock, blocker).map_err(|error| error.to_string())?;
+    let writes = vec![pending, library_pending, shields_pending];
     let services = Services {
         browsing,
         library,
+        shields,
         palette: Palette::new(catalog.clone(), SystemClock),
         catalog,
         keymap,
@@ -197,10 +211,15 @@ fn unsaved(reason: &str) {
 
 /// `~/Library/Application Support/Quickie/shell.sqlite`, its directory created.
 fn store_path() -> Result<PathBuf, String> {
+    Ok(support_dir()?.join("shell.sqlite"))
+}
+
+/// `~/Library/Application Support/Quickie`, created.
+fn support_dir() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
     let directory = PathBuf::from(home).join("Library/Application Support/Quickie");
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    Ok(directory.join("shell.sqlite"))
+    Ok(directory)
 }
 
 #[expect(

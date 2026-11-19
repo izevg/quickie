@@ -110,6 +110,32 @@ fn bookmarking_and_throwaway_tabs_are_built_in() {
 }
 
 #[test]
+fn the_shields_commands_are_built_in() {
+    let catalog = Catalog::builtin();
+
+    let titles: Vec<(&str, Category)> = [
+        "quickie.shields.toggleSite",
+        "quickie.shields.enableLists",
+        "quickie.shields.refreshLists",
+    ]
+    .into_iter()
+    .map(|text| {
+        let command = catalog.get(&id(text)).unwrap();
+        (command.title, command.category)
+    })
+    .collect();
+
+    assert_eq!(
+        titles,
+        [
+            ("Toggle Shields for This Site", Category::Shields),
+            ("Enable Filter Lists", Category::Shields),
+            ("Refresh Filter Lists", Category::Shields),
+        ]
+    );
+}
+
+#[test]
 fn every_title_starts_with_a_capitalized_word() {
     let catalog = Catalog::builtin();
 
@@ -127,6 +153,7 @@ fn every_category_has_its_label() {
         (Category::Navigation, "Navigation"),
         (Category::Page, "Page"),
         (Category::Downloads, "Downloads"),
+        (Category::Shields, "Shields"),
         (Category::Developer, "Developer"),
     ];
 

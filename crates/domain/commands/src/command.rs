@@ -31,6 +31,8 @@ pub enum Category {
     Page,
     /// Files the browser downloaded.
     Downloads,
+    /// Tracker and ad blocking: per-site shields and the filter lists.
+    Shields,
     /// The developer tools and their panels.
     Developer,
 }
@@ -45,6 +47,7 @@ impl Category {
             Self::Navigation => "Navigation",
             Self::Page => "Page",
             Self::Downloads => "Downloads",
+            Self::Shields => "Shields",
             Self::Developer => "Developer",
         }
     }
