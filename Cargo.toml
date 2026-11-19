@@ -1,7 +1,14 @@
 [workspace]
 resolver = "3"
 # Add a glob here when its directory gets its first crate (crates/adapters/*, crates/ui/*, ...).
-members = ["crates/domain/*", "crates/application", "crates/adapters/*", "tools/xtask"]
+members = [
+  "crates/domain/*",
+  "crates/application",
+  "crates/adapters/*",
+  "crates/ui/*",
+  "crates/shell",
+  "tools/xtask",
+]
 
 [workspace.package]
 version = "0.0.0"
@@ -18,7 +25,20 @@ rusqlite = { version = "0.43", features = ["bundled"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-url = "2"
+url = "2.5"
+# AppKit, Core Animation and WebKit through objc2 (docs/architecture.md §1). Features are opted
+# into per crate; the framework crates' defaults would compile every header.
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std"] }
+# Workspace crates carry a version so that `cargo deny` does not read them as wildcards.
+quickie-engine-webkit = { path = "crates/adapters/engine-webkit", version = "0.0.0" }
+quickie-ui-shared = { path = "crates/ui/shared", version = "0.0.0" }
 
 # Every crate opts in with `[lints] workspace = true`; `cargo xtask layers` checks that it does.
 [workspace.lints.rust]
