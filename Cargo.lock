@@ -635,6 +635,9 @@ name = "quickie-engine-chromium"
 version = "0.0.0"
 dependencies = [
  "cxx",
+ "quickie-application",
+ "quickie-domain-browsing",
+ "url",
 ]
 
 [[package]]

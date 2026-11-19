@@ -1,6 +1,6 @@
 [package]
 name = "quickie-engine-chromium"
-description = "Engine adapter on Chromium: the Rust side of the cxx bridge to //quickie"
+description = "Engine adapter on Chromium: EnginePort over the cxx bridge to //quickie"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,6 +13,9 @@ chromium = []
 
 [dependencies]
 cxx.workspace = true
+quickie-application.workspace = true
+quickie-domain-browsing.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

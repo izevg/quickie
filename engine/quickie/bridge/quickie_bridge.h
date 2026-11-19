@@ -42,6 +42,10 @@ bool AdoptTab(std::uint64_t page, std::uint64_t tab);
 // Destroys throwaway jar `jar` and its storage. Fails while a tab still uses it.
 bool DestroyJar(std::uint64_t jar);
 
+// Posts RunWake (defined in Rust) to the UI thread's task queue: Rust records events as they
+// come, from inside bridge calls too, and lets the shell drain them only from this later task.
+void ScheduleWake();
+
 }  // namespace quickie
 
 #endif  // QUICKIE_BRIDGE_QUICKIE_BRIDGE_H_

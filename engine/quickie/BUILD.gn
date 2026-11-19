@@ -70,7 +70,11 @@ source_set("bridge_header") {
 rust_static_library("engine_chromium") {
   crate_root = "$_engine_chromium/lib.rs"
   sources = [
-    "$_engine_chromium/dispatch.rs",
+    "$_engine_chromium/bridge.rs",
+    "$_engine_chromium/bridge/dispatch.rs",
+    "$_engine_chromium/engine.rs",
+    "$_engine_chromium/engine/inbox.rs",
+    "$_engine_chromium/engine/reports.rs",
     "$_engine_chromium/ffi.rs",
     "$_engine_chromium/lib.rs",
   ]
@@ -86,5 +90,8 @@ rust_static_library("engine_chromium") {
   rustflags = [ "-Dunsafe_code" ]
 
   # The generated C++ includes bridge/quickie_bridge.h.
+  # TODO(verify): the crate now also depends on quickie-application, quickie-domain-browsing and
+  # url (crates/adapters/engine-chromium/Cargo.toml); each needs a GN target here, the workspace
+  # crates as rust_static_library and url through gnrt (engine/README.md, open question 7).
   deps = [ ":bridge_header" ]
 }

@@ -1,4 +1,5 @@
-//! Delivery of engine events and key equivalents to the handlers the shell installed.
+//! Delivery of what the C++ side reports (engine events, key equivalents, wakes) to the handlers
+//! the engine installed.
 //!
 //! Everything runs on the main thread (Chromium's UI thread), so the handlers live in a
 //! thread-local. A handler may call back into the engine, and the engine may report an event
@@ -8,15 +9,17 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
-use crate::{Event, KeyEquivalent};
+use super::{Event, KeyEquivalent};
 
-type EventHandler = Box<dyn FnMut(Event)>;
-type KeyHandler = Box<dyn FnMut(KeyEquivalent) -> bool>;
+pub(crate) type EventHandler = Box<dyn FnMut(Event)>;
+pub(crate) type KeyHandler = Box<dyn FnMut(KeyEquivalent) -> bool>;
+pub(crate) type WakeHandler = Box<dyn FnMut()>;
 
 #[derive(Default)]
 struct Handlers {
     events: Option<EventHandler>,
     keys: Option<KeyHandler>,
+    wake: Option<WakeHandler>,
     queue: VecDeque<Event>,
     delivering: bool,
     /// Bumped by every install and uninstall, so a running handler is not put back over them.
@@ -28,19 +31,21 @@ thread_local! {
 }
 
 /// Installs the handlers, replacing earlier ones.
-pub(crate) fn install(events: EventHandler, keys: KeyHandler) {
+pub(crate) fn install(events: EventHandler, keys: KeyHandler, wake: WakeHandler) {
     HANDLERS.with_borrow_mut(|handlers| {
         handlers.events = Some(events);
         handlers.keys = Some(keys);
+        handlers.wake = Some(wake);
         handlers.generation += 1;
     });
 }
 
-/// Removes the handlers; later events are dropped and keys go to the page.
+/// Removes the handlers; later events and wakes are dropped and keys go to the page.
 pub(crate) fn uninstall() {
     HANDLERS.with_borrow_mut(|handlers| {
         handlers.events = None;
         handlers.keys = None;
+        handlers.wake = None;
         handlers.queue.clear();
         handlers.generation += 1;
     });
@@ -91,17 +96,29 @@ pub(crate) fn deliver_event(event: Event) {
 /// Asks the key handler whether it consumes a key equivalent; without one, or while it is
 /// running, the key goes to the page.
 pub(crate) fn deliver_key(key: KeyEquivalent) -> bool {
-    let Some((mut handler, generation)) = HANDLERS.with_borrow_mut(|handlers| {
-        let handler = handlers.keys.take()?;
+    run_alone(|handlers| &mut handlers.keys, |handler| handler(key)).unwrap_or(false)
+}
+
+/// Runs the wake handler; without one, or while it is running, the wake is dropped.
+pub(crate) fn deliver_wake() {
+    run_alone(|handlers| &mut handlers.wake, |handler| handler());
+}
+
+/// Takes a handler out of its slot while it runs, so it cannot be entered again, and puts it
+/// back unless it was replaced or removed meanwhile. `None` when there was no handler to run.
+fn run_alone<H, R>(
+    slot: fn(&mut Handlers) -> &mut Option<H>,
+    run: impl FnOnce(&mut H) -> R,
+) -> Option<R> {
+    let (mut handler, generation) = HANDLERS.with_borrow_mut(|handlers| {
+        let handler = slot(handlers).take()?;
         Some((handler, handlers.generation))
-    }) else {
-        return false;
-    };
-    let consumed = handler(key);
+    })?;
+    let result = run(&mut handler);
     HANDLERS.with_borrow_mut(|handlers| {
         if handlers.generation == generation {
-            handlers.keys = Some(handler);
+            *slot(handlers) = Some(handler);
         }
     });
-    consumed
+    Some(result)
 }

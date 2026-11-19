@@ -7,6 +7,9 @@
 #include <string_view>
 
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/location.h"
+#include "base/task/sequenced_task_runner.h"
 #include "content/public/browser/browser_thread.h"
 #include "quickie/bridge/tab_registry.h"
 #include "quickie_crates/adapters/engine-chromium/src/ffi.rs.h"
@@ -51,6 +54,14 @@ bool AdoptTab(std::uint64_t page, std::uint64_t tab) {
 bool DestroyJar(std::uint64_t jar) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return TabRegistry::Get().DestroyJar(jar);
+}
+
+void ScheduleWake() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  // base/task/sequenced_task_runner.h. TODO(verify): RunWake, generated into ffi.rs.h, binds to
+  // base::BindOnce as a plain function (cxx emits extern "Rust" functions as free functions).
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+                                                           base::BindOnce(&RunWake));
 }
 
 }  // namespace quickie
