@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 # Add a glob here when its directory gets its first crate (crates/adapters/*, crates/ui/*, ...).
-members = ["crates/domain/*", "crates/application", "tools/xtask"]
+members = ["crates/domain/*", "crates/application", "crates/adapters/*", "tools/xtask"]
 
 [workspace.package]
 version = "0.0.0"
@@ -11,9 +11,12 @@ publish = false
 
 [workspace.dependencies]
 indexmap = "2"
+quickie-application = { path = "crates/application" }
 quickie-domain-browsing = { path = "crates/domain/browsing" }
 quickie-domain-kernel = { path = "crates/domain/kernel" }
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde_json = "1"
+tempfile = "3"
 thiserror = "2"
 url = "2"
 
