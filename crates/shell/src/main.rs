@@ -13,7 +13,8 @@
 //! `~/Library/Application Support/Quickie/shell.sqlite`. Every key is a command of the keymap
 //! (`docs/design/inventory.md`, README "Default keys"): `⇧⌘P` / `⌘K` open the command palette,
 //! `⌘P` goes to a tab, bookmark, or visited page, `⌘L` opens the address overlay, `⌘T` /
-//! `⇧⌘N` open a tab / a throwaway tab, `⌘W` closes into the trash, `⌘⇧T` reopens, `⌃⇥` /
+//! `⇧⌘N` open a tab / a throwaway tab, `⌘W` closes into the trash, `⌘N` / `⌘⇧W` open / close
+//! a window, `⌘⇧T` reopens, `⌃⇥` /
 //! `⌃⇧⇥` switch in most-recently-used order, `⌘1` … `⌘9` go to a pinned slot and `⌥⌘1` …
 //! `⌥⌘9` pin there, `⌘D` bookmarks, `⇧⌘C` / `⌥⌘C` copy the URL / a Markdown link, `⌘J`
 //! shows the downloads (saved to `~/Downloads`), `⌥⌘S` the site's shields. `⌘Q` quits.

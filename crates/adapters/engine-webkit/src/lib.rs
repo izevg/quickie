@@ -10,6 +10,11 @@
 //! the engine schedules the shell's waker on the main run loop, and the shell drains
 //! [`WebKitEngine::take_navigations`] into `Browsing::navigated`.
 //!
+//! Pages open pages of their own (`window.open`, `target=_blank`, `⌘`-click): the engine makes
+//! them at once, from the configuration `WebKit` passes, so they share the opener's process and
+//! jar, and the shell hands each one ([`WebKitEngine::take_opened`]) to `Browsing::adopt`. A
+//! page's dialogs and permission requests wait as [`Ask`]s until the shell answers them.
+//!
 //! Every page shares one user content controller, so the [`WebKitContentBlocker`] the engine
 //! hands out ([`WebKitEngine::content_blocker`]) blocks on all of them. [`UrlSessionHttp`] is the
 //! network for the browser's own requests, such as fetching filter lists.
@@ -21,11 +26,12 @@
 #![expect(
     unsafe_code,
     reason = "WebKit through objc2: its bindings mark most methods unsafe; KVO, the navigation \
-              and download delegates and the scheme handler need classes; content rule lists \
-              cross threads"
+              UI, and download delegates and the scheme handler need classes; content rule \
+              lists cross threads"
 )]
 
 mod downloads;
+mod inbox;
 mod network;
 mod page;
 mod reports;
@@ -35,26 +41,27 @@ mod shields;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
-use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrderingMode};
-use objc2_foundation::{NSRunLoop, NSString, NSURL};
+use objc2_foundation::{NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{EngineError, EnginePort, Navigation};
-use quickie_domain_browsing::{FindMatches, Jar, JarId, TabId, WindowId};
+use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
 
 use downloads::DownloadCenter;
 pub use downloads::{DownloadKey, DownloadReport};
+pub use inbox::{Ask, AskId, Found, Opened, OpenedPage};
+use inbox::{Inbox, Owner};
 pub use network::UrlSessionHttp;
 pub use page::FindStep;
+use page::WebPage;
+pub use page::asks::{Answer, AskKind, Dialog};
 pub use page::scripts::hints::{Followed, LinkTarget};
-use page::{PageEvent, WebPage};
 pub use reports::Navigated;
-use reports::Reports;
 use scheme::InternalPages;
 pub use shields::{BlockerStatus, WebKitContentBlocker};
 
@@ -75,8 +82,6 @@ pub struct WebKitEngine {
     /// Shared by every page: the content blocker installs its rule lists here.
     content: Retained<WKUserContentController>,
     downloads: Rc<DownloadCenter>,
-    /// The jar of each page, for the downloads it starts.
-    tab_jars: HashMap<TabId, Jar>,
     inbox: Rc<Inbox>,
     /// The last picture of each page, taken when it was hidden or asked for.
     thumbnails: Thumbnails,
@@ -97,7 +102,10 @@ impl WebKitEngine {
     /// custom scheme such as `quickie:`; they load from memory.
     #[must_use]
     pub fn new(internal: &[(Url, String)], mtm: MainThreadMarker) -> Self {
-        let inbox: Rc<Inbox> = Rc::default();
+        // SAFETY: a fresh controller has no preconditions.
+        let content = unsafe { WKUserContentController::new(mtm) };
+        let inbox = Rc::<Inbox>::default();
+        page::install_focus_script(&content, Rc::clone(&inbox.focus), mtm);
         let waiting = Rc::downgrade(&inbox);
         let downloads = DownloadCenter::new(
             move || {
@@ -108,6 +116,7 @@ impl WebKitEngine {
             },
             mtm,
         );
+        *inbox.downloads.borrow_mut() = Rc::downgrade(&downloads);
         Self {
             mtm,
             pages: HashMap::new(),
@@ -115,10 +124,8 @@ impl WebKitEngine {
             shown: HashMap::new(),
             jars: HashMap::new(),
             internal: InternalPages::new(internal, mtm),
-            // SAFETY: a fresh controller has no preconditions.
-            content: unsafe { WKUserContentController::new(mtm) },
+            content,
             downloads,
-            tab_jars: HashMap::new(),
             inbox,
             thumbnails: Rc::default(),
         }
@@ -202,7 +209,7 @@ impl WebKitEngine {
     /// The tab has no page.
     pub fn download(&self, tab: TabId, url: &Url) -> Result<(), EngineError> {
         let page = self.page(tab)?;
-        let jar = self.tab_jars.get(&tab).copied().unwrap_or(Jar::Main);
+        let jar = self.inbox.jar_of(tab);
         DownloadCenter::start(&self.downloads, page.web_view(), url, tab, jar);
         Ok(())
     }
@@ -305,6 +312,60 @@ impl WebKitEngine {
         std::mem::take(&mut *self.inbox.found.borrow_mut())
     }
 
+    /// The pages pages opened since the last call, oldest first, each to adopt into a tab.
+    /// A link opened in another tab gets its page now, in its opener's data store; one whose
+    /// opener has closed is dropped.
+    pub fn take_opened(&mut self) -> Vec<Opened> {
+        let links = std::mem::take(&mut *self.inbox.links.borrow_mut());
+        for link in links {
+            let (Some(opener), Ok(url)) = (self.pages.get(&link.opener), Url::parse(&link.url))
+            else {
+                continue;
+            };
+            let owner = Owner::default();
+            let page = WebPage::with_configuration(
+                &opener.configuration(),
+                Inbox::hooks(&self.inbox, &owner, self.mtm),
+                Rc::clone(&self.inbox.focus),
+                self.mtm,
+            );
+            if page.load(&url).is_ok() {
+                self.inbox.opened.borrow_mut().push(Opened {
+                    opener: link.opener,
+                    page: OpenedPage {
+                        page,
+                        owner,
+                        opener: link.opener,
+                    },
+                    url,
+                    focus: link.focus,
+                });
+            }
+        }
+        std::mem::take(&mut *self.inbox.opened.borrow_mut())
+    }
+
+    /// The tabs whose pages closed themselves (`window.close()`) since the last call.
+    pub fn take_closed(&mut self) -> Vec<TabId> {
+        std::mem::take(&mut *self.inbox.closed.borrow_mut())
+    }
+
+    /// The tabs whose pages entered (`true`) or left full screen since the last call, in order.
+    pub fn take_fullscreen(&mut self) -> Vec<(TabId, bool)> {
+        std::mem::take(&mut *self.inbox.fullscreen.borrow_mut())
+    }
+
+    /// The dialogs and permission requests pages made since the last call, oldest first. Each
+    /// waits until [`Self::answer`]; closing its tab declines it.
+    pub fn take_asks(&mut self) -> Vec<Ask> {
+        self.inbox.take_asks()
+    }
+
+    /// Answers an ask; false when its page no longer waits.
+    pub fn answer(&mut self, ask: AskId, answer: &Answer) -> bool {
+        self.inbox.answer(ask, answer)
+    }
+
     fn store(&mut self, jar: Jar) -> Retained<WKWebsiteDataStore> {
         let mtm = self.mtm;
         match jar {
@@ -319,6 +380,14 @@ impl WebKitEngine {
         }
     }
 
+    /// Lays a new page out at a window's size, so a background page draws and has a picture
+    /// for the overview before it is ever shown.
+    fn lay_out(&self, page: &WebPage) {
+        if let Some(host) = self.hosts.values().next() {
+            page.view().setFrame(host.bounds());
+        }
+    }
+
     fn page(&self, tab: TabId) -> Result<&WebPage, EngineError> {
         self.pages
             .get(&tab)
@@ -327,12 +396,32 @@ impl WebKitEngine {
 }
 
 impl EnginePort for WebKitEngine {
-    /// The development engine opens no pages by itself yet (`window.open` and ⌘-click become
-    /// the `WKUIDelegate`'s job), so there is no page to adopt.
-    type Page = std::convert::Infallible;
+    /// A page a page opened, from [`WebKitEngine::take_opened`].
+    type Page = OpenedPage;
 
-    fn adopt(&mut self, page: Self::Page, _tab: TabId) -> Result<(), EngineError> {
-        match page {}
+    /// From now on the page reports for `tab`; what it committed before is reported now.
+    fn adopt(&mut self, page: Self::Page, tab: TabId) -> Result<(), EngineError> {
+        if self.pages.contains_key(&tab) {
+            return Err(EngineError(format!("{tab} already has a page")));
+        }
+        let OpenedPage {
+            page,
+            owner,
+            opener,
+        } = page;
+        let jar = self.inbox.jar_of(opener);
+        self.inbox.jars.borrow_mut().insert(tab, jar);
+        owner.set(Some(tab));
+        self.lay_out(&page);
+        if let Some((url, title)) = page.committed() {
+            self.inbox
+                .reports
+                .borrow_mut()
+                .committed(tab, Some(&url), title);
+            Inbox::schedule(&self.inbox);
+        }
+        self.pages.insert(tab, page);
+        Ok(())
     }
 
     fn create(&mut self, tab: TabId, url: &Url, jar: Jar) -> Result<(), EngineError> {
@@ -340,30 +429,20 @@ impl EnginePort for WebKitEngine {
             return Err(EngineError(format!("{tab} already has a page")));
         }
         let store = self.store(jar);
-        let inbox = Rc::downgrade(&self.inbox);
-        let downloads = Rc::downgrade(&self.downloads);
+        // Known before the page exists: a download it starts at once needs its jar.
+        self.inbox.jars.borrow_mut().insert(tab, jar);
+        let owner: Owner = Rc::new(Cell::new(Some(tab)));
         let page = WebPage::new(
             &store,
             &self.content,
             &self.internal,
-            move |event| match event {
-                PageEvent::Download(download) => {
-                    if let Some(downloads) = downloads.upgrade() {
-                        downloads.adopt(tab, jar, &download);
-                    }
-                }
-                event => Inbox::record(&inbox, tab, event),
-            },
+            Inbox::hooks(&self.inbox, &owner, self.mtm),
+            Rc::clone(&self.inbox.focus),
             self.mtm,
         );
-        // Laid out at a window's size from the start, so a background page draws and has a
-        // picture for the overview before it is ever shown.
-        if let Some(host) = self.hosts.values().next() {
-            page.view().setFrame(host.bounds());
-        }
+        self.lay_out(&page);
         let loaded = page.load(url);
         self.pages.insert(tab, page);
-        self.tab_jars.insert(tab, jar);
         loaded
     }
 
@@ -399,9 +478,8 @@ impl EnginePort for WebKitEngine {
 
     fn close(&mut self, tab: TabId) -> Result<(), EngineError> {
         self.shown.retain(|_, shown| *shown != tab);
-        self.inbox.reports.borrow_mut().forget(tab);
+        self.inbox.forget(tab);
         self.thumbnails.borrow_mut().remove(&tab);
-        self.tab_jars.remove(&tab);
         match self.pages.remove(&tab) {
             Some(_page) => Ok(()),
             None => Err(EngineError(format!("no page for {tab}"))),
@@ -428,77 +506,4 @@ fn place(view: &NSView, host: &NSView) {
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     host.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Below, None);
-}
-
-/// The matches of a find in a tab's page, answering [`WebKitEngine::find`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Found {
-    pub tab: TabId,
-    /// The query they match, to tell an answer to an older query apart.
-    pub query: String,
-    pub matches: FindMatches,
-}
-
-/// Where pages record reports, and how the shell hears about them.
-#[derive(Default)]
-struct Inbox {
-    reports: RefCell<Reports>,
-    progressed: Cell<bool>,
-    /// The download center has reports.
-    downloaded: Cell<bool>,
-    found: RefCell<Vec<Found>>,
-    wake: RefCell<Option<Rc<dyn Fn()>>>,
-    scheduled: Cell<bool>,
-}
-
-impl Inbox {
-    fn record(inbox: &Weak<Self>, tab: TabId, event: PageEvent) {
-        let Some(inbox) = inbox.upgrade() else {
-            return;
-        };
-        {
-            let mut reports = inbox.reports.borrow_mut();
-            match event {
-                PageEvent::Committed { url, title } => {
-                    reports.committed(tab, url.as_deref(), title);
-                }
-                PageEvent::TitleChanged(title) => reports.titled(tab, title),
-                PageEvent::Progress => inbox.progressed.set(true),
-                // The page's handler gives downloads to the download center instead.
-                PageEvent::Download(_) => {}
-            }
-        }
-        Self::schedule(&inbox);
-    }
-
-    /// True when nothing waits for the shell.
-    fn is_quiet(&self) -> bool {
-        self.reports.borrow().is_empty()
-            && !self.progressed.get()
-            && !self.downloaded.get()
-            && self.found.borrow().is_empty()
-    }
-
-    /// Wakes the shell on a later turn of the main run loop, once per batch of reports. A shell
-    /// too busy to drain leaves them, and the next turn tries again.
-    fn schedule(inbox: &Rc<Self>) {
-        if inbox.scheduled.get() || inbox.is_quiet() {
-            return;
-        }
-        let Some(wake) = inbox.wake.borrow().clone() else {
-            return;
-        };
-        inbox.scheduled.set(true);
-        let weak = Rc::downgrade(inbox);
-        let block = RcBlock::new(move || {
-            wake();
-            if let Some(inbox) = weak.upgrade() {
-                inbox.scheduled.set(false);
-                Self::schedule(&inbox);
-            }
-        });
-        // SAFETY: the block captures `Rc`s, which is sound because it runs on the main run
-        // loop, the thread that scheduled it and owns them.
-        unsafe { NSRunLoop::mainRunLoop().performBlock(&block) };
-    }
 }

@@ -43,6 +43,8 @@ pub mod overlay {
     pub const PALETTE_WIDTH: CGFloat = 720.0;
     /// Popovers: shields, downloads.
     pub const POPOVER_WIDTH: CGFloat = 360.0;
+    /// E3 sheets: permission requests and page dialogs.
+    pub const SHEET_WIDTH: CGFloat = 440.0;
     /// One tab in the `⌃⇥` switcher strip (titles only, until thumbnails).
     pub const SWITCHER_CELL_WIDTH: CGFloat = 200.0;
     /// Palettes sit this fraction of the window height below its top edge.

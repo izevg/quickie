@@ -16,6 +16,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSAccessibility",
   "NSAccessibilityProtocols",
   "NSAttributedString",
+  "NSButton",
   "NSCell",
   "NSClipView",
   "NSColor",
@@ -25,6 +26,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSGlassEffectView",
   "NSImage",
   "NSImageView",
+  "NSLayoutConstraint",
   "NSParagraphStyle",
   "NSResponder",
   "NSScroller",
@@ -38,6 +40,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSUserInterfaceItemIdentification",
   "NSView",
   "NSVisualEffectView",
+  "NSWindow",
   "NSWorkspace",
 ] }
 objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }

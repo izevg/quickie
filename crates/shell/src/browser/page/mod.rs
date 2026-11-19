@@ -1,8 +1,11 @@
 //! What floats over the page: find in page (`⌘F`, `⌘G`, `⇧⌘G`), the origin chip after a
-//! cross-origin navigation or a tab switch, and the load progress line. The engine's reports
-//! reach them from [`Browser::drain`], tab switches from [`Browser::settle`].
+//! cross-origin navigation or a tab switch, the load progress line, the sheets of what pages
+//! ask ([`asks`]), and the full-screen notice ([`fullscreen`]). The engine's reports reach them
+//! from [`Browser::drain`], tab switches from [`Browser::settle`].
 
+mod asks;
 mod find;
+mod fullscreen;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -10,13 +13,17 @@ use std::rc::Rc;
 
 use objc2::MainThreadMarker;
 use quickie_domain_browsing::{Origin, TabId, WindowId, is_cross_origin};
-use quickie_ui_widgets::{FindBar, LoadProgressLine, OriginChip};
+use quickie_ui_widgets::{FindBar, FullscreenNotice, LoadProgressLine, OriginChip};
 use url::Url;
+
+pub use asks::SheetRoute;
 
 use super::Browser;
 
 /// The page widgets and what they last showed.
 pub struct PageWidgets {
+    asks: asks::PageAsks,
+    fullscreen: Rc<FullscreenNotice>,
     find_bar: FindBar,
     /// The tab the find bar searches.
     find_tab: Cell<Option<TabId>>,
@@ -30,6 +37,8 @@ pub struct PageWidgets {
 impl PageWidgets {
     pub fn new(mtm: MainThreadMarker) -> Self {
         Self {
+            asks: asks::PageAsks::new(mtm),
+            fullscreen: FullscreenNotice::new(mtm),
             find_bar: FindBar::new(mtm),
             find_tab: Cell::new(None),
             chip: OriginChip::new(mtm),
@@ -61,6 +70,14 @@ fn change(before: Option<&(TabId, Url)>, tab: TabId, url: &Url) -> Change {
 }
 
 impl Browser {
+    /// A window closed: its progress line and what it last showed go.
+    pub(super) fn forget_window_page(&self, window: WindowId) {
+        if let Some(line) = self.page.lines.borrow_mut().remove(&window) {
+            line.reset();
+        }
+        self.page.seen.borrow_mut().remove(&window);
+    }
+
     /// After the engine reported: matches of a find, loading progress, and the origin of what
     /// committed.
     pub(super) fn page_reports(&self) {

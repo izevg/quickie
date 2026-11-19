@@ -20,6 +20,8 @@ use quickie_domain_browsing::{Direction, WindowId};
 use quickie_domain_commands::{Key, KeyStroke, Modifiers, Resolution, WhenContext};
 use url::Url;
 
+use super::commands::Action;
+use super::page::SheetRoute;
 use super::{Browser, label};
 use crate::input::cycle::CycleHold;
 use crate::input::destination::destination;
@@ -33,7 +35,9 @@ impl Browser {
                 self.route(stroke)
             } else {
                 self.pending.set(None);
-                false
+                // A key the keymap cannot name (the keypad, a media key) is the sheet's field's,
+                // or nobody's while a sheet waits: never the page's under it.
+                self.sheet_takes_unnamed()
             };
         self.drain();
         handled
@@ -43,6 +47,9 @@ impl Browser {
         if self.cycle.borrow().is_some() && stroke.key == Key::Escape {
             self.cancel_cycle();
             return true;
+        }
+        if let Some(route) = self.sheet_route(stroke) {
+            return self.past_sheet(stroke, route);
         }
         if self.navigation_key(stroke) {
             return true;
@@ -72,6 +79,32 @@ impl Browser {
                 } else {
                     false
                 }
+            }
+        }
+    }
+
+    /// A key while a sheet waits: the sheet's own keys are taken, its field types, and of the
+    /// shortcuts only those that leave the page (closing or switching tabs and windows) and
+    /// `⌘Q` run; the page under the sheet never gets a key.
+    fn past_sheet(&self, stroke: KeyStroke, route: SheetRoute) -> bool {
+        match route {
+            SheetRoute::Taken => true,
+            SheetRoute::Field => false,
+            SheetRoute::Keymap => {
+                let pending = self.pending.take();
+                match self.keymap.resolve(stroke, pending, &self.when()) {
+                    Resolution::Command(id)
+                        if Action::of(&id).is_some_and(Action::passes_sheet) =>
+                    {
+                        self.dispatch(&id, Some(stroke));
+                    }
+                    Resolution::Pending(first) => self.pending.set(Some(first)),
+                    _ if is_quit(stroke) => {
+                        NSApplication::sharedApplication(self.mtm).terminate(None);
+                    }
+                    _ => {}
+                }
+                true
             }
         }
     }
