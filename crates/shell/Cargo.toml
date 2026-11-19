@@ -35,6 +35,8 @@ objc2-foundation = { workspace = true, features = [
   "block2",
   "NSDate",
   "NSGeometry",
+  "NSNotification",
+  "NSOperation",
   "NSString",
   "NSTimer",
 ] }

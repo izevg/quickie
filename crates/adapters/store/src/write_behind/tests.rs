@@ -1,0 +1,376 @@
+//! The write-behind store against real SQLite in temporary files. A [`Recorder`] in front of
+//! the SQLite store counts the writes that actually happen, and can hold the first one to make
+//! a burst arrive while the writer is busy.
+
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use quickie_application::{
+    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+};
+use quickie_domain_browsing::{NextIds, Session, SessionSnapshot};
+use quickie_domain_library::{
+    Bookmarks, BookmarksSnapshot, History, HistorySnapshot, SearchShortcuts,
+    SearchShortcutsSnapshot, Timestamp,
+};
+use rusqlite::{Connection, params};
+use url::Url;
+
+use super::WriteBehindStore;
+use crate::SqliteStore;
+
+/// Long enough that nothing is written by settling while a test runs.
+const NEVER: Duration = Duration::from_secs(3600);
+
+/// A session with `windows` empty windows, so each count is a different snapshot.
+fn session(windows: usize) -> SessionSnapshot {
+    let mut session = Session::new();
+    for _ in 0..windows {
+        session.open_window();
+    }
+    session.snapshot()
+}
+
+/// A session the SQLite store refuses to write: its next tab id does not fit a column.
+fn unwritable() -> SessionSnapshot {
+    SessionSnapshot {
+        next: NextIds {
+            tab: u64::MAX,
+            ..NextIds::default()
+        },
+        ..session(0)
+    }
+}
+
+fn history() -> HistorySnapshot {
+    let mut history = History::new();
+    let page = Url::parse("https://example.test/").unwrap();
+    history.record_visit(&page, "Example", Timestamp::from_millis(1));
+    history.snapshot()
+}
+
+fn bookmarks() -> BookmarksSnapshot {
+    let mut bookmarks = Bookmarks::new();
+    let page = Url::parse("https://example.test/saved").unwrap();
+    bookmarks.save(&page, "Saved".to_owned(), Timestamp::from_millis(2));
+    bookmarks.snapshot()
+}
+
+fn shortcuts() -> SearchShortcutsSnapshot {
+    SearchShortcuts::defaults().snapshot()
+}
+
+/// A fresh database file in its own temporary directory.
+fn database() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shell.sqlite");
+    drop(SqliteStore::open(&path).unwrap());
+    (dir, path)
+}
+
+/// What a second connection reads from the file.
+fn on_disk(path: &Path) -> (Option<SessionSnapshot>, LibrarySnapshot) {
+    let store = SqliteStore::open(path).unwrap();
+    (store.load().unwrap(), store.load_library().unwrap())
+}
+
+/// Polls until `done` holds, for at most a few seconds.
+fn eventually(done: impl Fn() -> bool) {
+    let give_up = Instant::now() + Duration::from_secs(5);
+    while !done() && Instant::now() < give_up {
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Holds the first session write until released, after telling that it began.
+struct Gate {
+    began: Sender<()>,
+    release: Receiver<()>,
+}
+
+/// The SQLite store, recording each session it writes. It can hold the first write at a
+/// [`Gate`], and dies in a load when told to, as a writer thread that panics would.
+struct Recorder {
+    store: SqliteStore,
+    written: Arc<Mutex<Vec<SessionSnapshot>>>,
+    gate: Option<Gate>,
+    dies_in_load: bool,
+}
+
+impl Recorder {
+    fn new(path: &Path) -> (Self, Arc<Mutex<Vec<SessionSnapshot>>>) {
+        let written = Arc::default();
+        let recorder = Self {
+            store: SqliteStore::open(path).unwrap(),
+            written: Arc::clone(&written),
+            gate: None,
+            dies_in_load: false,
+        };
+        (recorder, written)
+    }
+}
+
+impl SessionRepo for Recorder {
+    fn load(&self) -> Result<Option<SessionSnapshot>, StoreError> {
+        assert!(!self.dies_in_load, "the writer dies");
+        self.store.load()
+    }
+
+    fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError> {
+        if let Some(gate) = self.gate.take() {
+            gate.began.send(()).unwrap();
+            gate.release.recv().unwrap();
+        }
+        self.written.lock().unwrap().push(snapshot.clone());
+        self.store.save(snapshot)
+    }
+}
+
+impl LibraryRepo for Recorder {
+    fn load_library(&self) -> Result<LibrarySnapshot, StoreError> {
+        self.store.load_library()
+    }
+
+    fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError> {
+        self.store.save_history(history)
+    }
+
+    fn save_bookmarks(&mut self, bookmarks: &BookmarksSnapshot) -> Result<(), StoreError> {
+        self.store.save_bookmarks(bookmarks)
+    }
+
+    fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError> {
+        self.store.save_shortcuts(shortcuts)
+    }
+}
+
+impl KeymapRepo for Recorder {
+    fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
+        self.store.load_keybindings()
+    }
+}
+
+#[test]
+fn a_burst_while_the_writer_is_busy_costs_one_more_write_of_the_last_snapshot() {
+    let (_dir, path) = database();
+    let (mut recorder, written) = Recorder::new(&path);
+    let (began, wait_began) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    recorder.gate = Some(Gate {
+        began,
+        release: released,
+    });
+    let mut store = WriteBehindStore::spawn(recorder, Duration::ZERO).unwrap();
+    store.save(&session(1)).unwrap();
+    wait_began.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    for windows in 2..=20 {
+        store.save(&session(windows)).unwrap();
+    }
+    release.send(()).unwrap();
+    store.flush().unwrap();
+
+    assert_eq!(*written.lock().unwrap(), vec![session(1), session(20)]);
+    assert_eq!(on_disk(&path).0, Some(session(20)));
+}
+
+#[test]
+fn saves_within_the_settle_time_share_one_write() {
+    let (_dir, path) = database();
+    let (recorder, written) = Recorder::new(&path);
+    let mut store = WriteBehindStore::spawn(recorder, Duration::from_millis(500)).unwrap();
+
+    store.save(&session(1)).unwrap();
+    thread::sleep(Duration::from_millis(50));
+    store.save(&session(2)).unwrap();
+    eventually(|| !written.lock().unwrap().is_empty());
+
+    assert_eq!(*written.lock().unwrap(), vec![session(2)]);
+}
+
+#[test]
+fn a_settled_batch_is_written_without_anyone_waiting_for_it() {
+    let (_dir, path) = database();
+    let (recorder, written) = Recorder::new(&path);
+    let mut store = WriteBehindStore::spawn(recorder, Duration::from_millis(1)).unwrap();
+
+    store.save(&session(3)).unwrap();
+    eventually(|| !written.lock().unwrap().is_empty());
+
+    assert_eq!(on_disk(&path).0, Some(session(3)));
+}
+
+#[test]
+fn a_flush_puts_every_kind_on_disk() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    store.save(&session(2)).unwrap();
+    store.save_history(&history()).unwrap();
+    store.save_bookmarks(&bookmarks()).unwrap();
+    store.save_shortcuts(&shortcuts()).unwrap();
+
+    let flushed = store.flush();
+
+    assert_eq!(flushed, Ok(()));
+    assert_eq!(
+        on_disk(&path),
+        (
+            Some(session(2)),
+            LibrarySnapshot {
+                history: Some(history()),
+                bookmarks: Some(bookmarks()),
+                shortcuts: Some(shortcuts()),
+            }
+        )
+    );
+}
+
+#[test]
+fn opening_a_file_gives_a_store_that_writes_to_it() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::open(&path).unwrap();
+
+    store.save(&session(4)).unwrap();
+    store.pending().flush().unwrap();
+
+    assert_eq!(on_disk(&path).0, Some(session(4)));
+}
+
+#[test]
+fn opening_a_newer_database_fails() {
+    let (_dir, path) = database();
+    Connection::open(&path)
+        .unwrap()
+        .pragma_update(None, "user_version", 999)
+        .unwrap();
+
+    let opened = WriteBehindStore::open(&path);
+
+    assert!(opened.is_err());
+}
+
+#[test]
+fn dropping_the_store_writes_what_is_pending() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let pending = store.pending();
+    store.save(&session(5)).unwrap();
+
+    drop(store);
+
+    assert_eq!(on_disk(&path).0, Some(session(5)));
+    assert_eq!(pending.flush(), Ok(()));
+}
+
+#[test]
+fn a_failed_write_is_kept_until_taken_once() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    store.save(&unwritable()).unwrap();
+
+    let flushed = store.flush();
+
+    assert!(matches!(flushed, Err(StoreError(message)) if message.contains("does not fit")));
+    assert_eq!(store.take_error(), None);
+}
+
+#[test]
+fn a_failed_write_waits_for_the_shell_to_take_it() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    store.save(&unwritable()).unwrap();
+    store.load().unwrap();
+
+    let taken = store.take_error();
+
+    assert!(taken.is_some());
+    assert_eq!(store.take_error(), None);
+}
+
+#[test]
+fn a_failed_kind_does_not_keep_the_others_from_the_disk() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    store.save(&unwritable()).unwrap();
+    store.save_history(&history()).unwrap();
+
+    store.flush().unwrap_err();
+
+    assert_eq!(on_disk(&path).1.history, Some(history()));
+}
+
+#[test]
+fn a_failure_after_the_store_is_gone_still_reaches_the_shell() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let pending = store.pending();
+    store.save(&unwritable()).unwrap();
+
+    drop(store);
+
+    assert!(pending.flush().is_err());
+}
+
+#[test]
+fn loads_see_the_saves_made_before_them() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    store.save(&session(6)).unwrap();
+    store.save_bookmarks(&bookmarks()).unwrap();
+
+    let session_loaded = store.load();
+    let library_loaded = store.load_library();
+
+    assert_eq!(session_loaded, Ok(Some(session(6))));
+    assert_eq!(
+        library_loaded.map(|library| library.bookmarks),
+        Ok(Some(bookmarks()))
+    );
+}
+
+#[test]
+fn key_bindings_load_through_the_writer() {
+    let (_dir, path) = database();
+    let entry = KeybindingText {
+        key: "cmd+k".to_owned(),
+        command: "quickie.palette.open".to_owned(),
+        when: None,
+    };
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO keybindings (position, key, command, when_clause)
+             VALUES (0, ?1, ?2, NULL)",
+            params![entry.key, entry.command],
+        )
+        .unwrap();
+    let store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+
+    let loaded = store.load_keybindings();
+
+    assert_eq!(loaded, Ok(vec![entry]));
+}
+
+#[test]
+fn a_store_whose_writer_died_refuses_everything() {
+    let (_dir, path) = database();
+    let (mut recorder, _) = Recorder::new(&path);
+    recorder.dies_in_load = true;
+    let mut store = WriteBehindStore::spawn(recorder, NEVER).unwrap();
+
+    let died = store.load();
+    eventually(|| store.writer.as_ref().unwrap().is_finished());
+
+    let stopped = StoreError("the store writer stopped".to_owned());
+    assert_eq!(died, Err(stopped.clone()));
+    assert_eq!(store.save(&session(1)), Err(stopped.clone()));
+    assert_eq!(store.load_library(), Err(stopped.clone()));
+    assert_eq!(store.save_history(&history()), Err(stopped.clone()));
+    assert_eq!(store.save_bookmarks(&bookmarks()), Err(stopped.clone()));
+    assert_eq!(store.save_shortcuts(&shortcuts()), Err(stopped.clone()));
+    assert_eq!(store.load_keybindings(), Err(stopped));
+    assert_eq!(store.flush(), Ok(()));
+}
