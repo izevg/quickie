@@ -1,16 +1,11 @@
 use quickie_application::{SessionRepo, StoreError};
 use quickie_domain_browsing::{Focus, JarChoice, PinnedSlot, Session, SessionSnapshot, Timestamp};
-use url::Url;
 
+use super::url;
 use crate::SqliteStore;
-use crate::schema::VERSION;
-
-fn url(path: &str) -> Url {
-    Url::parse(&format!("https://example.test/{path}")).unwrap()
-}
 
 /// Two windows, a throwaway pair, a titled tab, a pinned tab, one tab in the trash.
-fn busy() -> SessionSnapshot {
+pub(super) fn busy() -> SessionSnapshot {
     let mut session = Session::new();
     let first = session.open_window();
     let second = session.open_window();
@@ -97,20 +92,6 @@ fn the_session_survives_reopening_the_file() {
 }
 
 #[test]
-fn a_database_from_a_newer_build_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("shell.sqlite");
-    let db = rusqlite::Connection::open(&path).unwrap();
-    db.pragma_update(None, "user_version", i64::try_from(VERSION + 1).unwrap())
-        .unwrap();
-    drop(db);
-
-    let result = SqliteStore::open(&path);
-
-    assert!(matches!(result, Err(StoreError(message)) if message.contains("schema 2")));
-}
-
-#[test]
 fn a_corrupt_url_is_an_error_not_a_panic() {
     let mut store = SqliteStore::in_memory().unwrap();
     store.save(&busy()).unwrap();
@@ -133,7 +114,9 @@ fn a_negative_id_is_an_error() {
         .execute("UPDATE meta SET value = -1 WHERE key = 'next_tab'", [])
         .unwrap();
 
-    assert!(matches!(store.load(), Err(StoreError(message)) if message.contains("negative id -1")));
+    assert!(
+        matches!(store.load(), Err(StoreError(message)) if message.contains("negative number -1"))
+    );
 }
 
 #[test]

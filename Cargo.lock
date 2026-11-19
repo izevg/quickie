@@ -460,6 +460,9 @@ name = "quickie-application"
 version = "0.0.0"
 dependencies = [
  "quickie-domain-browsing",
+ "quickie-domain-commands",
+ "quickie-domain-library",
+ "quickie-domain-palette",
  "thiserror",
  "url",
 ]
@@ -491,6 +494,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quickie-domain-library"
+version = "0.0.0"
+dependencies = [
+ "indexmap",
+ "quickie-domain-kernel",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "quickie-domain-palette"
 version = "0.0.0"
 dependencies = [
@@ -515,6 +528,7 @@ version = "0.0.0"
 dependencies = [
  "quickie-application",
  "quickie-domain-browsing",
+ "quickie-domain-library",
  "rusqlite",
  "tempfile",
  "url",
@@ -531,16 +545,6 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "objc2-quartz-core",
-]
-
-[[package]]
-name = "quickie-domain-library"
-version = "0.0.0"
-dependencies = [
- "indexmap",
- "quickie-domain-kernel",
- "thiserror",
- "url",
 ]
 
 [[package]]

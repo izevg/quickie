@@ -1,6 +1,6 @@
 [package]
 name = "quickie-store"
-description = "SQLite persistence of Quickie: the session, later history and the keymap"
+description = "SQLite persistence of Quickie: the session, the library, and the user's key bindings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
+quickie-domain-library.workspace = true
 rusqlite.workspace = true
 url.workspace = true
 
