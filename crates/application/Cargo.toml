@@ -8,6 +8,9 @@ publish.workspace = true
 
 [dependencies]
 quickie-domain-browsing.workspace = true
+quickie-domain-commands.workspace = true
+quickie-domain-library.workspace = true
+quickie-domain-palette.workspace = true
 thiserror.workspace = true
 url.workspace = true
 

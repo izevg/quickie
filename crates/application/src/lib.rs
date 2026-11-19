@@ -6,8 +6,19 @@
 
 mod browsing;
 mod error;
+#[cfg(test)]
+mod fakes;
+mod keymap;
+mod library;
+mod palette;
 mod ports;
 
 pub use browsing::Browsing;
 pub use error::{AppError, EngineError, StoreError};
-pub use ports::{Clock, EnginePort, Navigation, SessionRepo};
+pub use keymap::{LoadedKeymap, RejectedEntry, Rejection, load_keymap};
+pub use library::{CorruptLibrary, Library};
+pub use palette::{Palette, PaletteItem, Sources, Target};
+pub use ports::{
+    Clock, EnginePort, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, Navigation,
+    SessionRepo,
+};

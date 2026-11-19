@@ -6,8 +6,6 @@
 //! the change and the engine catches up: pages are created lazily whenever a tab is shown.
 
 #[cfg(test)]
-mod fakes;
-#[cfg(test)]
 mod tests;
 
 use std::collections::HashSet;

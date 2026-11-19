@@ -1,0 +1,125 @@
+use quickie_domain_commands::{
+    BindingError, Catalog, ChordError, CommandId, KeyStroke, Keymap, KeymapError, Resolution,
+    WhenContext,
+};
+
+use super::{LoadedKeymap, RejectedEntry, Rejection, load_keymap};
+use crate::fakes::FakeKeymapRepo;
+use crate::{AppError, KeybindingText, StoreError};
+
+fn entry(key: &str, command: &str) -> KeybindingText {
+    KeybindingText {
+        key: key.to_owned(),
+        command: command.to_owned(),
+        when: None,
+    }
+}
+
+fn load(entries: Vec<KeybindingText>) -> LoadedKeymap {
+    let repo = FakeKeymapRepo {
+        entries,
+        ..FakeKeymapRepo::default()
+    };
+    load_keymap(&repo, &Catalog::builtin()).unwrap()
+}
+
+fn runs(keymap: &Keymap, key: &str) -> Resolution {
+    let stroke = KeyStroke::try_from(key).unwrap();
+    keymap.resolve(stroke, None, &WhenContext::new())
+}
+
+fn command(id: &str) -> Resolution {
+    Resolution::Command(CommandId::try_from(id).unwrap())
+}
+
+#[test]
+fn without_user_entries_the_defaults_apply() {
+    let loaded = load(Vec::new());
+
+    assert_eq!(loaded.keymap, Keymap::default());
+    assert_eq!(loaded.rejected, []);
+}
+
+#[test]
+fn a_user_binding_is_applied() {
+    let loaded = load(vec![entry("cmd+e", "quickie.page.find")]);
+
+    assert_eq!(runs(&loaded.keymap, "cmd+e"), command("quickie.page.find"));
+}
+
+#[test]
+fn a_user_entry_keeps_its_when_clause() {
+    let loaded = load(vec![KeybindingText {
+        when: Some("inputFocused".to_owned()),
+        ..entry("cmd+e", "quickie.page.find")
+    }]);
+
+    assert_eq!(runs(&loaded.keymap, "cmd+e"), Resolution::Unbound);
+}
+
+#[test]
+fn a_user_entry_can_remove_a_default() {
+    let loaded = load(vec![entry("cmd+f", "-quickie.page.find")]);
+
+    assert_eq!(runs(&loaded.keymap, "cmd+f"), Resolution::Unbound);
+}
+
+#[test]
+fn a_malformed_entry_is_reported_and_the_rest_still_apply() {
+    let bad = entry("", "quickie.page.find");
+
+    let loaded = load(vec![bad.clone(), entry("cmd+e", "quickie.page.find")]);
+
+    assert_eq!(
+        loaded.rejected,
+        [RejectedEntry {
+            position: 0,
+            entry: bad,
+            reason: Rejection::Malformed(BindingError::Chord(ChordError::Empty)),
+        }]
+    );
+    assert_eq!(runs(&loaded.keymap, "cmd+e"), command("quickie.page.find"));
+}
+
+#[test]
+fn an_unknown_command_is_reported_and_left_out() {
+    let loaded = load(vec![
+        entry("cmd+e", "quickie.page.find"),
+        entry("cmd+g", "quickie.page.nothing"),
+    ]);
+
+    let unknown = CommandId::try_from("quickie.page.nothing").unwrap();
+    assert_eq!(loaded.rejected.len(), 1);
+    assert_eq!(loaded.rejected[0].position, 1);
+    assert_eq!(
+        loaded.rejected[0].reason,
+        Rejection::Invalid(KeymapError::UnknownCommand(unknown))
+    );
+    assert_eq!(loaded.keymap.user_entries().len(), 1);
+}
+
+#[test]
+fn a_conflicting_entry_is_left_out_and_the_default_keeps_its_key() {
+    let loaded = load(vec![entry("cmd+t", "quickie.tab.close")]);
+
+    assert!(matches!(
+        loaded.rejected.as_slice(),
+        [RejectedEntry {
+            reason: Rejection::Invalid(KeymapError::Conflict(_)),
+            ..
+        }]
+    ));
+    assert_eq!(runs(&loaded.keymap, "cmd+t"), command("quickie.tab.new"));
+}
+
+#[test]
+fn a_failed_read_is_an_error() {
+    let repo = FakeKeymapRepo {
+        load_fails: true,
+        ..FakeKeymapRepo::default()
+    };
+
+    let result = load_keymap(&repo, &Catalog::builtin());
+
+    assert_eq!(result, Err(AppError::Store(StoreError("load".to_owned()))));
+}

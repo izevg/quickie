@@ -1,8 +1,11 @@
-//! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`].
+//! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
+//! [`LibraryRepo`] and [`KeymapRepo`].
 //!
-//! A save replaces the whole session inside one transaction, so a crash mid-save leaves the
-//! previous session intact. Write-ahead logging keeps saves cheap enough for every command.
+//! A save replaces one aggregate inside one transaction, so a crash mid-save leaves the previous
+//! version intact. Write-ahead logging keeps saves cheap enough for every command.
 
+mod keymap;
+mod library;
 mod schema;
 mod session;
 #[cfg(test)]
@@ -10,8 +13,11 @@ mod tests;
 
 use std::path::Path;
 
-use quickie_application::{SessionRepo, StoreError};
+use quickie_application::{
+    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+};
 use quickie_domain_browsing::SessionSnapshot;
+use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
 use rusqlite::Connection;
 
 /// The SQLite store.
@@ -57,6 +63,30 @@ impl SessionRepo for SqliteStore {
 
     fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError> {
         session::save(&mut self.db, snapshot)
+    }
+}
+
+impl LibraryRepo for SqliteStore {
+    fn load_library(&self) -> Result<LibrarySnapshot, StoreError> {
+        library::load(&self.db)
+    }
+
+    fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError> {
+        library::save_history(&mut self.db, history)
+    }
+
+    fn save_bookmarks(&mut self, bookmarks: &BookmarksSnapshot) -> Result<(), StoreError> {
+        library::save_bookmarks(&mut self.db, bookmarks)
+    }
+
+    fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError> {
+        library::save_shortcuts(&mut self.db, shortcuts)
+    }
+}
+
+impl KeymapRepo for SqliteStore {
+    fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
+        keymap::load(&self.db)
     }
 }
 
