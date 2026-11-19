@@ -10,7 +10,11 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+indexmap = "2"
+quickie-domain-kernel = { path = "crates/domain/kernel" }
 serde_json = "1"
+thiserror = "2"
+url = "2"
 
 # Every crate opts in with `[lints] workspace = true`; `cargo xtask layers` checks that it does.
 [workspace.lints.rust]
