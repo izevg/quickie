@@ -118,6 +118,18 @@ pub enum Navigation {
 /// The browser engine: Chromium in the product, `WebKit` in development. It owns live pages;
 /// it learns about tabs only through these calls, keyed by the domain's [`TabId`].
 pub trait EnginePort {
+    /// The engine's handle on a page it opened by itself (a popup, a ⌘-click), before the
+    /// session gives it a [`TabId`].
+    type Page;
+
+    /// Binds a page the engine opened to the tab the session made for it. Called before the
+    /// tab is shown, so the engine knows which page to show.
+    ///
+    /// # Errors
+    ///
+    /// The page is gone, or the tab already has a page.
+    fn adopt(&mut self, page: Self::Page, tab: TabId) -> Result<(), EngineError>;
+
     /// Creates the page for a tab, in its jar. Called lazily: a restored tab gets a page only
     /// when it is first shown.
     ///

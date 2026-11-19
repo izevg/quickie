@@ -121,17 +121,25 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         Ok(tab)
     }
 
-    /// Adopts a tab a page opened (a popup, a ⌘-click). The engine already has its page; the
-    /// returned id is how the adapter refers to it from now on. It stays in its opener's window
+    /// Adopts a tab a page opened (a popup, a ⌘-click). The engine already has its page; it is
+    /// bound to the new tab's id before anything shows it. The tab stays in its opener's window
     /// and jar.
     ///
     /// # Errors
     ///
-    /// The opener is gone, the store failed, or the engine failed to show the tab.
-    pub fn adopt(&mut self, opener: TabId, url: Url, focus: Focus) -> Result<TabId, AppError> {
+    /// The opener is gone, the store failed, or the engine failed to bind or show the page. A
+    /// failed bind leaves the tab without a page; showing it later creates a fresh one.
+    pub fn adopt(
+        &mut self,
+        opener: TabId,
+        page: E::Page,
+        url: Url,
+        focus: Focus,
+    ) -> Result<TabId, AppError> {
         let window = self.window_of(opener)?;
         let tab =
             self.commit(|session| session.open(window, url, JarChoice::SameAs(opener), focus))?;
+        self.engine.adopt(page, tab)?;
         self.pages.insert(tab);
         self.show_if_active(window, tab)?;
         Ok(tab)

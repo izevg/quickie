@@ -157,10 +157,9 @@ no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compi
    into `.build/` (architecture section 1).
 8. Pages closed by Chromium itself (`window.close()`, a crashed renderer) need an engine event so
    the domain moves the tab to the trash instead of losing track of it.
-9. Opened pages: `Browsing::adopt` (application) shows the new tab before the shell can call
-   `ChromiumEngine::adopt` with its id, so that first show fails with "no page"; the use case
-   needs the engine's page handle, or the port an adopt step. Pages Chromium opened and Rust never
-   adopts have no bridge call to close them; they go only with their jar or the Browser.
+9. Opened pages: `EnginePort::adopt` binds the engine's page handle to the new tab before
+   `Browsing::adopt` shows it (resolved). Still open: pages Chromium opened and Rust never adopts
+   have no bridge call to close them; they go only with their jar or the Browser.
 
 ## Rebasing to a new Extended Stable
 
