@@ -56,6 +56,14 @@ fn the_literals_are_constant() {
 }
 
 #[test]
+fn the_literals_ignore_keys_of_the_same_name() {
+    let context = WhenContext::new().with_flag("false").with_value("true", "");
+
+    assert!(!holds("false", &context));
+    assert!(holds("true", &context));
+}
+
+#[test]
 fn not_inverts() {
     let context = flags(&["inputFocused"]);
 
