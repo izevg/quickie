@@ -8,7 +8,7 @@ use quickie_domain_browsing::{
 use url::Url;
 
 use super::Browsing;
-use super::fakes::{Call, FakeClock, FakeEngine, FakeRepo};
+use crate::fakes::{Call, FakeClock, FakeEngine, FakeRepo};
 use crate::{AppError, EngineError, Navigation, StoreError};
 
 type Subject = Browsing<FakeEngine, FakeRepo, FakeClock>;

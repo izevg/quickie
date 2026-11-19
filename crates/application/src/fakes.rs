@@ -4,9 +4,78 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
+use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
 use url::Url;
 
-use crate::{Clock, EngineError, EnginePort, Navigation, SessionRepo, StoreError};
+use crate::{
+    Clock, EngineError, EnginePort, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
+    Navigation, SessionRepo, StoreError,
+};
+
+/// Keeps what was saved last, like a store would; counts saves per part, and fails loads or
+/// saves on request.
+#[derive(Debug, Default)]
+pub struct FakeLibraryRepo {
+    pub saved: LibrarySnapshot,
+    pub saves: usize,
+    pub load_fails: bool,
+    pub save_fails: bool,
+}
+
+impl FakeLibraryRepo {
+    fn save(&mut self) -> Result<(), StoreError> {
+        if self.save_fails {
+            return Err(StoreError("save".to_owned()));
+        }
+        self.saves += 1;
+        Ok(())
+    }
+}
+
+impl LibraryRepo for FakeLibraryRepo {
+    fn load_library(&self) -> Result<LibrarySnapshot, StoreError> {
+        if self.load_fails {
+            Err(StoreError("load".to_owned()))
+        } else {
+            Ok(self.saved.clone())
+        }
+    }
+
+    fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError> {
+        self.save()?;
+        self.saved.history = Some(history.clone());
+        Ok(())
+    }
+
+    fn save_bookmarks(&mut self, bookmarks: &BookmarksSnapshot) -> Result<(), StoreError> {
+        self.save()?;
+        self.saved.bookmarks = Some(bookmarks.clone());
+        Ok(())
+    }
+
+    fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError> {
+        self.save()?;
+        self.saved.shortcuts = Some(shortcuts.clone());
+        Ok(())
+    }
+}
+
+/// The user's `keybindings.json` entries, or a failing read.
+#[derive(Debug, Default)]
+pub struct FakeKeymapRepo {
+    pub entries: Vec<KeybindingText>,
+    pub load_fails: bool,
+}
+
+impl KeymapRepo for FakeKeymapRepo {
+    fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
+        if self.load_fails {
+            Err(StoreError("load".to_owned()))
+        } else {
+            Ok(self.entries.clone())
+        }
+    }
+}
 
 /// One call the engine received.
 #[derive(Clone, Debug, PartialEq, Eq)]

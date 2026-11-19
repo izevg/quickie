@@ -6,23 +6,9 @@ use quickie_domain_browsing::{
     ClosedTab, Jar, JarId, NextIds, PinnedSlot, SessionSnapshot, Tab, TabId, Timestamp, WindowId,
 };
 use rusqlite::{Connection, Row, params};
-use url::Url;
 
 use crate::failed;
-
-/// Ids are `u64` in the domain and `INTEGER` (`i64`) in SQLite; real ids never reach 2^63.
-fn to_sql(raw: u64) -> Result<i64, StoreError> {
-    i64::try_from(raw).map_err(|_| StoreError(format!("id {raw} does not fit SQLite")))
-}
-
-/// A position in an ordered list, as SQLite stores it.
-pub(crate) fn ordinal(n: usize) -> Result<i64, StoreError> {
-    i64::try_from(n).map_err(|_| StoreError(format!("position {n} does not fit SQLite")))
-}
-
-fn from_sql(raw: i64) -> Result<u64, StoreError> {
-    u64::try_from(raw).map_err(|_| StoreError(format!("negative id {raw}")))
-}
+use crate::schema::columns::{from_sql, ordinal, to_sql, url};
 
 fn jar_to_sql(jar: Jar) -> Result<Option<i64>, StoreError> {
     match jar {
@@ -36,10 +22,6 @@ fn jar_from_sql(raw: Option<i64>) -> Result<Jar, StoreError> {
         None => Ok(Jar::Main),
         Some(id) => Ok(Jar::Throwaway(JarId::new(from_sql(id)?))),
     }
-}
-
-fn url(raw: &str) -> Result<Url, StoreError> {
-    Url::parse(raw).map_err(|error| StoreError(format!("bad URL {raw:?}: {error}")))
 }
 
 /// Raw columns of a tab row: id, url, title, jar.
