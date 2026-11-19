@@ -534,6 +534,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quickie-domain-library"
+version = "0.0.0"
+dependencies = [
+ "indexmap",
+ "quickie-domain-kernel",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
