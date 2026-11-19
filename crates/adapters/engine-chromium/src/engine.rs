@@ -130,11 +130,7 @@ impl ChromiumEngine {
     }
 
     /// Gives a page Chromium opened its tab id; from now on it is that tab's page.
-    ///
-    /// # Errors
-    ///
-    /// The tab already has a page, or the engine no longer has the opened page.
-    pub fn adopt(&mut self, page: PageHandle, tab: TabId) -> Result<(), EngineError> {
+    fn bind_opened(&mut self, page: PageHandle, tab: TabId) -> Result<(), EngineError> {
         self.vacant(tab)?;
         self.bridge.adopt_tab(page.0, tab.get()).map_err(|cause| {
             failed(format_args!("adopt opened page {} as {tab}", page.0), cause)
@@ -178,6 +174,12 @@ impl Drop for ChromiumEngine {
 }
 
 impl EnginePort for ChromiumEngine {
+    type Page = PageHandle;
+
+    fn adopt(&mut self, page: PageHandle, tab: TabId) -> Result<(), EngineError> {
+        self.bind_opened(page, tab)
+    }
+
     fn create(&mut self, tab: TabId, url: &Url, jar: Jar) -> Result<(), EngineError> {
         self.vacant(tab)?;
         let (throwaway, raw_jar) = match jar {
