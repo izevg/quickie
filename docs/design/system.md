@@ -24,7 +24,7 @@ Contrast, and the Clear/Tinted glass setting without any work on our side.
 | `label` / `secondary-label` | `#1D1D1F` / `#6E6E73` | `labelColor` / `secondaryLabelColor` | Text on glass |
 | `separator` | `#D2D2D7` / `#48484A` | `separatorColor` | Hairlines inside overlays |
 | `surface*` | `#F5F5F7` … `#3A3A3C` | none: glass materials (see Elevation) | — |
-| `selection-fill` | accent at 100 % behind the selected row | `controlAccentColor`, text `alternateSelectedControlTextColor` | Selected palette row: fill, never glass |
+| `selection-fill` | accent at 18 % behind the selected row | `controlAccentColor` at 18 % alpha, text `labelColor`, match highlights stay accent | Selected palette row: a subtle tint, never glass |
 
 The `content-*` and `syntax-*` colors in the Stitch file describe the sample web pages, not the
 browser; they are not tokens.

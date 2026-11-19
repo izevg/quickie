@@ -94,16 +94,20 @@ pub mod color {
         NSColor::separatorColor()
     }
 
-    /// Fill behind a selected row; never glass.
+    /// How much accent a selected row's fill has over the glass.
+    pub const SELECTION_FILL_ALPHA: objc2_core_foundation::CGFloat = 0.18;
+
+    /// Fill behind a selected row: a subtle accent tint, never glass.
     #[must_use]
     pub fn selection_fill() -> Retained<NSColor> {
-        NSColor::controlAccentColor()
+        NSColor::controlAccentColor().colorWithAlphaComponent(SELECTION_FILL_ALPHA)
     }
 
-    /// Text on [`selection_fill`].
+    /// Text on [`selection_fill`]: the primary label color, so the tint stays quiet and the
+    /// accent match highlights stay visible.
     #[must_use]
     pub fn selection_text() -> Retained<NSColor> {
-        NSColor::alternateSelectedControlTextColor()
+        NSColor::labelColor()
     }
 }
 
