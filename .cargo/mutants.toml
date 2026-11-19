@@ -1,0 +1,8 @@
+# cargo-mutants settings; policy in docs/quality.md.
+# Domain and application must kill every mutant. Add an `exclude_re` entry here, with the reason,
+# only for a mutant that cannot be tested.
+
+examine_globs = ["crates/domain/**/*.rs", "crates/application/**/*.rs"]
+output = "target"
+profile = "mutants"
+timeout_multiplier = 3

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fast quality gates before every commit (docs/quality.md). Never bypass with --no-verify.
+set -eu
+mise="${MISE:-$HOME/.local/bin/mise}"
+if [ ! -x "$mise" ]; then
+  echo "pre-commit: mise not found at $mise; install it or set MISE (docs/quality.md)" >&2
+  exit 1
+fi
+exec "$mise" run --quiet pre-commit

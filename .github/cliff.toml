@@ -1,0 +1,48 @@
+# git-cliff configuration: the next version and the release notes, both from Conventional Commits.
+# Used as `git-cliff --config .github/cliff.toml ...` (see .github/scripts/next-version.sh and
+# .github/workflows/auto-release.yml). The version lives in the `v*` tag, not in Cargo.toml.
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}\
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}\
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}\
+{% if commit.breaking %}**BREAKING** {% endif %}\
+{{ commit.message | upper_first }} \
+([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/izevg/quickie/commit/{{ commit.id }}))
+{% endfor %}
+{% endfor %}\
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+# Non-conventional commits (merge commits, stray messages) never count and never show up.
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+"
+sort_commits = "oldest"
+# A squash merge title ends with "(#123)": link the pull request.
+commit_preprocessors = [
+  { pattern = '\(#([0-9]+)\)', replace = "([#${1}](https://github.com/izevg/quickie/pull/${1}))" },
+]
+# Types that never make a release are skipped, so a docs-only change leaves the version alone.
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^(docs|chore|ci|test|refactor|style|build)", skip = true },
+]
+
+[bump]
+# Before 1.0.0: `feat` bumps the minor and a breaking change bumps the minor too.
+# From 1.0.0 on: a breaking change bumps the major.
+features_always_bump_minor = true
+breaking_always_bump_major = false
+# The first release, when there is no `v*` tag yet.
+initial_tag = "v0.1.0"

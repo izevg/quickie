@@ -1,0 +1,6 @@
+[files]
+extend-exclude = ["target/", "Cargo.lock"]
+
+[default.extend-words]
+# ungoogled-chromium's placeholder domain for substituted Google hosts.
+qjz9zk = "qjz9zk"

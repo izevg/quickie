@@ -1,0 +1,82 @@
+name: auto-release
+
+# Every push to main that passes CI and holds something to release becomes a release.
+#   1. Waits for the `ci` workflow to finish on a push to main, and goes on only when it succeeded.
+#   2. Computes the next version from the Conventional Commits since the last `v*` tag with
+#      git-cliff (.github/scripts/next-version.sh, rules in .github/cliff.toml). Nothing to release
+#      (only docs, chore, ci, test, refactor, style, build commits) ends the run here.
+#   3. Calls release.yml, which creates the `vX.Y.Z` tag on that commit and publishes the GitHub
+#      Release. Tags made with GITHUB_TOKEN start no workflows, which is why it is called from here.
+# The version is never committed back to main: it lives in the tag.
+# Releases run one at a time; a run only releases the commit that is still the tip of main.
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    name: version
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: aqua:orhun/git-cliff
+        env:
+          MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+      - name: Compute the next version
+        id: next
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$tip" != "$SHA" ]; then
+            echo "main moved on to $tip; $SHA is not released on its own (the newer commit will cover it)."
+            exit 0
+          fi
+          version="$(.github/scripts/next-version.sh)"
+          if [ -z "$version" ]; then
+            echo "Nothing to release since the last tag."
+            exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "::error::tag v$version already exists"
+            exit 1
+          fi
+          echo "Next version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: release
+    needs: version
+    if: needs.version.outputs.version != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      ref: ${{ github.event.workflow_run.head_sha }}

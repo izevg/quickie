@@ -1,0 +1,146 @@
+# Development tools, pinned. Install with `mise install`; run through `mise run <task>`.
+# Gates and hooks are described in docs/quality.md.
+
+[tools]
+rust = { version = "stable", components = "rustfmt,clippy", profile = "minimal" }
+# No prebuilt arm64 macOS release exists, so this compiles once into ~/.local.
+"cargo:cargo-mutants" = "27.1.0"
+"aqua:EmbarkStudios/cargo-deny" = "0.21.0"
+"github:bnjbvr/cargo-machete" = "0.10.1"
+"aqua:crate-ci/typos" = "1.52.2"
+"aqua:tamasfe/taplo" = "0.10.0"
+"aqua:lycheeverse/lychee" = "0.24.2"
+"aqua:gitleaks/gitleaks" = "8.30.1"
+"aqua:koalaman/shellcheck" = "0.11.0"
+"aqua:jqlang/jq" = "1.8.2"
+# GitHub Actions workflow lint.
+"aqua:rhysd/actionlint" = "1.7.12"
+# Versions and release notes from Conventional Commits (.github/cliff.toml).
+"aqua:orhun/git-cliff" = "2.14.2"
+
+# ---- one-time setup ----------------------------------------------------------------------------
+
+[tasks.setup]
+description = "Point git at the versioned hooks in .githooks"
+run = "git config core.hooksPath .githooks"
+
+# ---- single gates ------------------------------------------------------------------------------
+
+[tasks.fmt]
+description = "Rust formatting"
+run = "cargo fmt --all --check"
+
+[tasks.toml]
+description = "TOML formatting"
+run = "RUST_LOG=warn taplo fmt --check"
+
+[tasks.typos]
+description = "Spelling in code and docs"
+run = "typos"
+
+[tasks.structure]
+description = "The rule of four"
+run = "cargo xtask structure"
+
+[tasks.layers]
+description = "Crate layers, FSD slices, unsafe policy, workspace lints"
+run = "cargo xtask layers"
+
+[tasks.shell]
+description = "Shell scripts (git hooks, agent hooks, CI scripts)"
+run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh"
+
+[tasks.actions]
+description = "GitHub Actions workflows"
+run = "actionlint"
+
+[tasks.secrets]
+description = "Secrets in staged changes"
+run = "gitleaks git --pre-commit --staged --redact --no-banner --log-level warn"
+
+[tasks.secrets-history]
+description = "Secrets anywhere in the history (CI)"
+run = "gitleaks git --redact --no-banner --log-level warn"
+
+[tasks.changelog]
+description = "Preview the next version and its release notes"
+run = '''
+set -eu
+version=$(.github/scripts/next-version.sh)
+echo "next version: ${version:-nothing to release}"
+git-cliff --config .github/cliff.toml --unreleased --strip all
+'''
+
+[tasks.lint]
+description = "Clippy, warnings are errors"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.test]
+description = "All tests"
+run = "cargo test --workspace --no-fail-fast --quiet"
+
+[tasks.deny]
+description = "Licenses, advisories, bans, sources"
+run = "cargo deny --log-level error --config .cargo/deny.toml check"
+
+[tasks.machete]
+description = "Unused dependencies"
+run = "cargo machete"
+
+[tasks.links]
+description = "Internal links in Markdown"
+run = "lychee --offline --no-progress --include-fragments --exclude-path target './**/*.md'"
+
+[tasks.mutants]
+description = "Mutation testing of domain and application (changed code when an upstream exists)"
+run = '''
+set -eu
+mkdir -p target
+if base=$(git rev-parse --verify --quiet '@{upstream}'); then
+  git diff "$base"...HEAD > target/push.diff
+  if [ -s target/push.diff ]; then
+    cargo mutants --workspace --iterate --in-diff target/push.diff
+  fi
+else
+  cargo mutants --workspace --iterate
+fi
+'''
+
+# ---- hook bundles ------------------------------------------------------------------------------
+
+[tasks.pre-commit]
+description = "Fast gates, run by .githooks/pre-commit"
+depends = [
+  "fmt",
+  "toml",
+  "typos",
+  "structure",
+  "layers",
+  "shell",
+  "actions",
+  "secrets",
+  "lint",
+  "test",
+]
+
+[tasks.pre-push]
+description = "Full gates, run by .githooks/pre-push"
+depends = ["pre-commit", "deny", "machete", "links", "mutants"]
+
+[tasks.ci]
+description = "The CI gates (.github/workflows/ci.yml); mutation runs as its own CI job"
+depends = [
+  "fmt",
+  "toml",
+  "typos",
+  "structure",
+  "layers",
+  "shell",
+  "actions",
+  "secrets-history",
+  "lint",
+  "test",
+  "deny",
+  "machete",
+  "links",
+]

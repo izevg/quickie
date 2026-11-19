@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+# Add a glob here when its directory gets its first crate (crates/adapters/*, crates/ui/*, ...).
+members = ["crates/domain/*", "crates/application", "tools/xtask"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+serde_json = "1"
+
+# Every crate opts in with `[lints] workspace = true`; `cargo xtask layers` checks that it does.
+[workspace.lints.rust]
+# Allowed per crate (`#![expect(unsafe_code, reason = "...")]`) only in adapters, ui and shell.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+# Exceptions are `#[expect(lint, reason = "...")]`: stated, and reported once they are stale.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+# Used by cargo-mutants (.cargo/mutants.toml): no debug info, faster mutant builds.
+[profile.mutants]
+inherits = "dev"
+debug = 0

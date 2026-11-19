@@ -1,0 +1,8 @@
+/target/
+# Chromium checkout, fetched patch series and vendored crates (engine/scripts) live here.
+/.build/
+.DS_Store
+.claude/settings.local.json
+.claude/worktrees/
+*.hookah.bak
+.hookah.local.toml

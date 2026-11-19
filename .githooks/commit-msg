@@ -1,0 +1,9 @@
+#!/bin/sh
+# Conventional Commits, short header, no agent attribution (docs/quality.md).
+set -eu
+mise="${MISE:-$HOME/.local/bin/mise}"
+if [ ! -x "$mise" ]; then
+  echo "commit-msg: mise not found at $mise; install it or set MISE (docs/quality.md)" >&2
+  exit 1
+fi
+exec "$mise" exec -- cargo xtask commit-msg "$1"

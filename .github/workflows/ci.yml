@@ -1,0 +1,82 @@
+name: ci
+
+# The gates of docs/quality.md on every push to main and every pull request. The tasks come from
+# .mise.toml, which stays the single source of truth; the hooks run the same tasks locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+  # Install only what each job lists; never compile cargo-mutants on the gates runner.
+  MISE_TASK_RUN_AUTO_INSTALL: "false"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gates:
+    name: gates
+    # The product is macOS-only; the AppKit crates build only there.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      # The whole history: the secret scan reads every commit.
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: >-
+            rust aqua:tamasfe/taplo aqua:crate-ci/typos aqua:koalaman/shellcheck
+            aqua:rhysd/actionlint aqua:gitleaks/gitleaks aqua:EmbarkStudios/cargo-deny
+            github:bnjbvr/cargo-machete aqua:lycheeverse/lychee aqua:jqlang/jq
+      # Swatinem/rust-cache v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Gates
+        run: mise run ci
+
+  # Only on pull requests: mutate what the branch changed in domain and application. Any missed
+  # mutant fails the job. The core is pure Rust, so a Linux runner is enough (and cheaper).
+  mutation:
+    name: mutation (changed code)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: rust cargo:cargo-mutants
+      # Swatinem/rust-cache v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Mutate the changed code
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          mkdir -p target
+          git diff "origin/$BASE...HEAD" > target/pr.diff
+          if [ -s target/pr.diff ]; then
+            cargo mutants --workspace -j 3 --in-diff target/pr.diff
+          fi

@@ -1,0 +1,104 @@
+name: release
+
+# Creates the `vX.Y.Z` tag and publishes the GitHub Release with notes from git-cliff.
+# Three ways in:
+#   - `workflow_call` from auto-release.yml: the normal path (version computed from Conventional
+#     Commits, .github/cliff.toml). This workflow creates the tag.
+#   - a `v*` tag pushed by a human: the manual and emergency path. The tag already exists.
+#   - `workflow_dispatch`: a dry run that prints the notes and publishes nothing.
+# The version lives in the tag, never in Cargo.toml (the repository keeps 0.0.0).
+# No build artifacts yet: the signed browser bundle joins with the Chromium build (phase P1).
+# A version with a `-` (`1.0.0-rc.1`) is a prerelease.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to release (X.Y.Z, no leading v)"
+        type: string
+        required: true
+      ref:
+        description: "Commit SHA to tag"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# Not the caller's group: a called workflow sharing its caller's group would deadlock on it.
+concurrency:
+  group: release-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: aqua:orhun/git-cliff
+        env:
+          MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+      - name: Resolve the version and the mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT" = push ] && [ "$REF_TYPE" = tag ]; then
+            echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "mode=tagged" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INPUT_VERSION" ]; then
+            echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "mode=called" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=dry-run" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Release notes
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          VERSION: ${{ steps.mode.outputs.version }}
+        run: |
+          if [ "$MODE" = tagged ]; then
+            git-cliff --config .github/cliff.toml --latest --strip all > notes.md
+          elif [ "$MODE" = called ]; then
+            git-cliff --config .github/cliff.toml --unreleased --tag "v$VERSION" --strip all > notes.md
+          else
+            git-cliff --config .github/cliff.toml --unreleased --strip all > notes.md
+          fi
+          cat notes.md
+      - name: Tag and publish
+        if: steps.mode.outputs.mode != 'dry-run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ steps.mode.outputs.mode }}
+          VERSION: ${{ steps.mode.outputs.version }}
+          SHA: ${{ inputs.ref || github.sha }}
+        run: |
+          tag="v$VERSION"
+          if [ "$MODE" = called ]; then
+            git tag "$tag" "$SHA"
+            git push origin "$tag"
+          fi
+          prerelease=()
+          case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$tag" --verify-tag --title "$tag" --notes-file notes.md "${prerelease[@]}"
