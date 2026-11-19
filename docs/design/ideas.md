@@ -25,14 +25,18 @@ phase given; the rest stay here as a record.
 | **Keymap editor details** | keymap editor | Recording state, conflict row in red, `Open keybindings.json`, user vs default source | P3 |
 | **Downloads on `⌘J`**, reveal in Finder | downloads popover | Standard binding | P3 |
 | **Voice** | everywhere | Discreet and cheeky: "Protection is on", "Wrapped and protected by default", "No data leaves your Mac" ([system.md](system.md#voice)) | P0 |
+| **Throwaway jars** instead of container tabs | user decision | `Open in Throwaway Jar` and `Reopen in Throwaway Jar`: the tab gets its own ephemeral cookie and storage partition that dies with the tab. No groups, no profiles, nothing to manage; the origin chip marks the tab. `⌘⇧N` opens a new tab in a fresh jar, so it also replaces the private window | P3 |
+| **DevTools in the palette** | user decision | A `quickie.devtools.*` command per panel (Elements, Console, Network, Sources, Performance, Application, Memory), plus inspect element, dock or undock, device mode, disable cache, clear site data. Chrome's `⌥⌘I`, `⌥⌘J`, `⌥⌘C` stay; the rest are palette commands, rebindable | P1 |
+| **Agent skills** | user decision | A skill is a named recipe: prompt, allowed tools, output form (`Synthesize Page Citations`, `Summarize`, `Extract Table`, `Compare Tabs`, `Explain Code`). A built-in set ships; user skills are files. Each one is a palette command under `?`. The shape follows A2A's `AgentSkill` (id, name, description, tags, examples) so it can be published later | P4 |
+| **Bookmarks without a bar** | user decision | `⌘D` saves the page and opens a toast where `⇥` adds tags; a second `⌘D` edits or removes. Saved pages rank first in `⌘P` with a mark; `#tag` filters by tag; "read later" is a tag. Pinned slots `⌘1` … `⌘9` are the favorites. The library sheet searches, retags, imports and exports HTML. No bar, no folder tree | P3 |
+| **Search shortcuts** | user decision | `!` in the palette runs a keyword search (`!gh quickie`); bookmarklets become commands | P3 |
+| **Sync between Macs** | user decision | None at first: a one-time import from Chrome (bookmarks, history, passwords as CSV). Passwords and passkeys stay with the macOS Passwords app or a password manager. Later, only if needed: an end-to-end encrypted log of the library in a folder you choose, key in the Keychain, no server. Chrome Sync is out: it needs Google keys and hands Google the data | P5 |
 
-## Ask first
+## Later
 
-| Idea | Why it needs a decision |
+| Idea | Note |
 |---|---|
-| **Container tabs** (isolated cookie jars per tab group) | Real privacy value, but it is a grouping concept, and Spaces and profiles were rejected as clutter. A lighter form: "open in a throwaway jar" as a command, no visible groups. |
-| **Inspect Network Requests** as a palette command | Opens DevTools on the Network panel. Cheap with Chromium; only useful if DevTools stays docked-off as a window. |
-| **Synthesize Page Citations** as an agent command | A canned Ask prompt; fine as a command, but every canned prompt is a feature to maintain. |
+| **MCP connectors for the built-in agent** | The built-in agent as an MCP client of servers you configure, so a skill can reach beyond the page. The reverse of `quickie-mcp`, which lets external agents drive the browser. Same containment: acting only in the agent profile, approvals for irreversible calls, the server list is explicit |
 
 ## Reject
 
@@ -43,6 +47,6 @@ phase given; the rest stay here as a record.
 | Geist and JetBrains Mono | A native app uses SF Pro and SF Mono ([system.md](system.md#typography)) |
 | "100 % Safe", "undetectable jitter", "stops calls before the TCP handshake" | Claims we cannot prove; the UI shows measured facts only |
 | An agent that indexes pages in the background ("Agent indexed 18 symbols") | Agents act only on an explicit request; nothing runs on its own |
-| A Metal compositor, `LiquidGlassWindow`, `.windowChromePresentation`, "Metal 4.1" | Invented APIs in the sample pages; the shell uses AppKit and Core Animation |
+| A Metal compositor, `LiquidGlassWindow`, `.windowChromePresentation`, "Metal 4.1" | Invented APIs. And a compositor of our own would be slower: Chromium already renders with Metal and hands frames to WindowServer as layers, so a second full-window pass adds latency and power, loses hardware video overlays, and loses the system glass, text, input methods, and accessibility. See the native composition invariant in [AGENTS.md](../../AGENTS.md#product-invariants) |
 | "Claude API" as a direct backend | The built-in agent speaks the OpenAI-compatible API; anything else goes through such an endpoint or through MCP |
 | Container-tab settings, version label `v1.4.2`, the "N=420 study" | Placeholder content |

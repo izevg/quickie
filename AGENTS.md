@@ -134,6 +134,10 @@ These are requirements, not preferences. A change that breaks one is a bug.
 - **Never lose a tab.** Session mutations are transactional; closing goes through the trash.
 - **Main thread budget.** The main thread only renders and applies cheap mutations; the hot paths
   in `docs/architecture.md` have frame budgets.
+- **Native composition.** WindowServer composites the window; Chromium hands its frames over as
+  layers, and the shell draws with AppKit and Core Animation. Never a full-window compositor of
+  our own. A complex widget (tab overview, gesture transitions) may host one `CAMetalLayer`
+  inside itself, and only after a measurement shows Core Animation missing the frame budget.
 - **Agents are contained.** Page content is untrusted data. Acting happens only in the agent
   profile, with provenance-checked URLs and approval for irreversible actions. No TCP debugging
   port.
