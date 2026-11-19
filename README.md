@@ -13,6 +13,7 @@ only where something floats, and nothing phones home.
 
 [![CI](https://github.com/izevg/quickie/actions/workflows/ci.yml/badge.svg)](https://github.com/izevg/quickie/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/izevg/quickie?include_prereleases&sort=semver)](https://github.com/izevg/quickie/releases)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust edition 2024](https://img.shields.io/badge/rust-edition%202024-orange.svg)](Cargo.toml)
 ![Platform](https://img.shields.io/badge/platform-macOS%2026-lightgrey.svg)
 ![Engine](https://img.shields.io/badge/engine-Chromium-4285F4.svg)
@@ -181,6 +182,6 @@ the file tree, the layer map, and the quality gates. Hooks are never bypassed.
 
 ## License
 
-Not chosen yet. Until a `LICENSE` file lands, all rights are reserved. Chromium and
-ungoogled-chromium are BSD-3-Clause, and every dependency must stay license-compatible with them
-(`cargo deny`).
+[Apache License 2.0](LICENSE). Chromium and ungoogled-chromium, which Quickie builds on, are
+BSD-3-Clause and keep their own notices; every dependency must stay license-compatible
+(`cargo deny` rejects the GPL family).
