@@ -3,6 +3,7 @@ name = "quickie-application"
 description = "Use cases of Quickie and the ports (traits) that adapters implement"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]
