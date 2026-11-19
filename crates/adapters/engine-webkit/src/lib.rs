@@ -13,13 +13,19 @@
 //! Every page shares one user content controller, so the [`WebKitContentBlocker`] the engine
 //! hands out ([`WebKitEngine::content_blocker`]) blocks on all of them. [`UrlSessionHttp`] is the
 //! network for the browser's own requests, such as fetching filter lists.
+//!
+//! Navigations that become downloads go to one download center, which saves them into the
+//! folder [`WebKitEngine::set_download_directory`] names and reports through
+//! [`WebKitEngine::take_download_reports`].
 
 #![expect(
     unsafe_code,
     reason = "WebKit through objc2: its bindings mark most methods unsafe; KVO, the navigation \
-              delegate and the scheme handler need classes; content rule lists cross threads"
+              and download delegates and the scheme handler need classes; content rule lists \
+              cross threads"
 )]
 
+mod downloads;
 mod network;
 mod page;
 mod reports;
@@ -28,7 +34,7 @@ mod shields;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
 use block2::RcBlock;
@@ -41,6 +47,8 @@ use quickie_application::{EngineError, EnginePort, Navigation};
 use quickie_domain_browsing::{FindMatches, Jar, JarId, TabId, WindowId};
 use url::Url;
 
+use downloads::DownloadCenter;
+pub use downloads::{DownloadKey, DownloadReport};
 pub use network::UrlSessionHttp;
 pub use page::FindStep;
 pub use page::scripts::hints::{Followed, LinkTarget};
@@ -66,6 +74,9 @@ pub struct WebKitEngine {
     internal: Retained<InternalPages>,
     /// Shared by every page: the content blocker installs its rule lists here.
     content: Retained<WKUserContentController>,
+    downloads: Rc<DownloadCenter>,
+    /// The jar of each page, for the downloads it starts.
+    tab_jars: HashMap<TabId, Jar>,
     inbox: Rc<Inbox>,
     /// The last picture of each page, taken when it was hidden or asked for.
     thumbnails: Thumbnails,
@@ -86,6 +97,17 @@ impl WebKitEngine {
     /// custom scheme such as `quickie:`; they load from memory.
     #[must_use]
     pub fn new(internal: &[(Url, String)], mtm: MainThreadMarker) -> Self {
+        let inbox: Rc<Inbox> = Rc::default();
+        let waiting = Rc::downgrade(&inbox);
+        let downloads = DownloadCenter::new(
+            move || {
+                if let Some(inbox) = waiting.upgrade() {
+                    inbox.downloaded.set(true);
+                    Inbox::schedule(&inbox);
+                }
+            },
+            mtm,
+        );
         Self {
             mtm,
             pages: HashMap::new(),
@@ -95,7 +117,9 @@ impl WebKitEngine {
             internal: InternalPages::new(internal, mtm),
             // SAFETY: a fresh controller has no preconditions.
             content: unsafe { WKUserContentController::new(mtm) },
-            inbox: Rc::default(),
+            downloads,
+            tab_jars: HashMap::new(),
+            inbox,
             thumbnails: Rc::default(),
         }
     }
@@ -152,6 +176,37 @@ impl WebKitEngine {
         }
     }
 
+    /// Saves downloads into `directory` from now on; it is created when the first one comes.
+    /// Until this is called, every download is refused.
+    pub fn set_download_directory(&self, directory: PathBuf) {
+        self.downloads.set_directory(directory);
+    }
+
+    /// What downloads did since the last call, oldest first.
+    pub fn take_download_reports(&mut self) -> Vec<DownloadReport> {
+        self.inbox.downloaded.set(false);
+        self.downloads.take_reports()
+    }
+
+    /// Stops a running download and deletes the part of its file already written; nothing
+    /// more is reported for it.
+    pub fn cancel_download(&self, key: DownloadKey) {
+        self.downloads.cancel(key);
+    }
+
+    /// Downloads `url` from a tab's page, in its jar, as a retry does; it is reported like any
+    /// other download.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page.
+    pub fn download(&self, tab: TabId, url: &Url) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        let jar = self.tab_jars.get(&tab).copied().unwrap_or(Jar::Main);
+        DownloadCenter::start(&self.downloads, page.web_view(), url, tab, jar);
+        Ok(())
+    }
+
     /// The content blocker of every page, existing and future. It keeps compiled rule lists in
     /// `directory`, which it creates.
     ///
@@ -198,8 +253,9 @@ impl WebKitEngine {
     }
 
     /// Sets what runs, later on the main run loop and never inside an engine call, when pages
-    /// have reported navigations, loading progress, or the matches of a find. It should drain
-    /// [`Self::take_navigations`], [`Self::take_progressed`], and [`Self::take_found`].
+    /// have reported navigations, loading progress, the matches of a find, or downloads. It
+    /// should drain [`Self::take_navigations`], [`Self::take_progressed`],
+    /// [`Self::take_found`], and [`Self::take_download_reports`].
     pub fn on_navigated(&mut self, wake: impl Fn() + 'static) {
         *self.inbox.wake.borrow_mut() = Some(Rc::new(wake));
         Inbox::schedule(&self.inbox);
@@ -285,11 +341,19 @@ impl EnginePort for WebKitEngine {
         }
         let store = self.store(jar);
         let inbox = Rc::downgrade(&self.inbox);
+        let downloads = Rc::downgrade(&self.downloads);
         let page = WebPage::new(
             &store,
             &self.content,
             &self.internal,
-            move |event| Inbox::record(&inbox, tab, event),
+            move |event| match event {
+                PageEvent::Download(download) => {
+                    if let Some(downloads) = downloads.upgrade() {
+                        downloads.adopt(tab, jar, &download);
+                    }
+                }
+                event => Inbox::record(&inbox, tab, event),
+            },
             self.mtm,
         );
         // Laid out at a window's size from the start, so a background page draws and has a
@@ -299,6 +363,7 @@ impl EnginePort for WebKitEngine {
         }
         let loaded = page.load(url);
         self.pages.insert(tab, page);
+        self.tab_jars.insert(tab, jar);
         loaded
     }
 
@@ -336,6 +401,7 @@ impl EnginePort for WebKitEngine {
         self.shown.retain(|_, shown| *shown != tab);
         self.inbox.reports.borrow_mut().forget(tab);
         self.thumbnails.borrow_mut().remove(&tab);
+        self.tab_jars.remove(&tab);
         match self.pages.remove(&tab) {
             Some(_page) => Ok(()),
             None => Err(EngineError(format!("no page for {tab}"))),
@@ -378,6 +444,8 @@ pub struct Found {
 struct Inbox {
     reports: RefCell<Reports>,
     progressed: Cell<bool>,
+    /// The download center has reports.
+    downloaded: Cell<bool>,
     found: RefCell<Vec<Found>>,
     wake: RefCell<Option<Rc<dyn Fn()>>>,
     scheduled: Cell<bool>,
@@ -396,6 +464,8 @@ impl Inbox {
                 }
                 PageEvent::TitleChanged(title) => reports.titled(tab, title),
                 PageEvent::Progress => inbox.progressed.set(true),
+                // The page's handler gives downloads to the download center instead.
+                PageEvent::Download(_) => {}
             }
         }
         Self::schedule(&inbox);
@@ -403,7 +473,10 @@ impl Inbox {
 
     /// True when nothing waits for the shell.
     fn is_quiet(&self) -> bool {
-        self.reports.borrow().is_empty() && !self.progressed.get() && self.found.borrow().is_empty()
+        self.reports.borrow().is_empty()
+            && !self.progressed.get()
+            && !self.downloaded.get()
+            && self.found.borrow().is_empty()
     }
 
     /// Wakes the shell on a later turn of the main run loop, once per batch of reports. A shell

@@ -1,8 +1,8 @@
 //! FSD `widgets` layer of Quickie's UI: the composed blocks that float above the page.
 //!
 //! Slices are grouped by meaning (`docs/design/inventory.md`, widgets): `palette`, `tabs`,
-//! `feedback`, `page`, `hints`. A slice never uses another, not even one in its own group; what
-//! two share moves down to `quickie-ui-shared`.
+//! `feedback`, `page`, `hints`, `popovers`. A slice never uses another, not even one in its own
+//! group; what two share moves down to `quickie-ui-shared`.
 
 #![expect(
     unsafe_code,
@@ -16,6 +16,7 @@ pub mod feedback;
 pub mod hints;
 pub mod page;
 pub mod palette;
+pub mod popovers;
 pub mod tabs;
 
 pub use feedback::toast_stack::ToastStack;
@@ -25,6 +26,8 @@ pub use page::load_progress_line::LoadProgressLine;
 pub use page::origin_chip::OriginChip;
 pub use palette::address_overlay::AddressOverlay;
 pub use palette::command_palette::CommandPalette;
+pub use popovers::downloads_popover::{DownloadsPopover, DownloadsRequest};
+pub use popovers::shields_popover::{ShieldsPopover, ShieldsRequest, ShieldsSummary, SiteToggle};
 pub use tabs::tab_overview::grid::Move;
 pub use tabs::tab_overview::pinch::Step as PinchStep;
 pub use tabs::tab_overview::{OverviewTab, TabOverview};

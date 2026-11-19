@@ -161,6 +161,38 @@ mod clearing {
     }
 
     #[test]
+    fn an_ended_download_can_be_removed_alone() {
+        let (mut downloads, [running, finished, failed, cancelled]) = one_of_each();
+        let expected = downloads.get(failed).cloned();
+
+        let removed = downloads.remove(failed);
+
+        assert_eq!(removed.ok(), expected);
+        assert_eq!(ids(downloads.all()), vec![running, finished, cancelled]);
+        assert_eq!(downloads.remove(finished).map(|d| d.id), Ok(finished));
+        assert_eq!(downloads.remove(cancelled).map(|d| d.id), Ok(cancelled));
+        assert_eq!(ids(downloads.all()), vec![running]);
+    }
+
+    #[test]
+    fn a_running_or_unknown_download_cannot_be_removed() {
+        let (mut downloads, [running, ..]) = one_of_each();
+        let before = downloads.clone();
+        let ghost = DownloadId::new(9);
+
+        assert_eq!(
+            downloads.remove(running),
+            Err(DownloadError::Running(running))
+        );
+        assert_eq!(downloads.remove(ghost), Err(DownloadError::Unknown(ghost)));
+        assert_eq!(downloads, before);
+        assert_eq!(
+            DownloadError::Running(running).to_string(),
+            "download#0 is still in progress"
+        );
+    }
+
+    #[test]
     fn clearing_keeps_ids_unique() {
         let (mut downloads, ids_before) = one_of_each();
         downloads.clear_finished();

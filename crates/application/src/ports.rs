@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
-use quickie_domain_library::{BookmarksSnapshot, HistorySnapshot, SearchShortcutsSnapshot};
+use quickie_domain_library::{
+    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+};
 use quickie_domain_shields::{
     ContentHash, FilterListId, FilterListSetSnapshot, Site, SitePoliciesSnapshot,
 };
@@ -44,10 +46,12 @@ pub struct LibrarySnapshot {
     pub bookmarks: Option<BookmarksSnapshot>,
     /// The `!` keyword searches.
     pub shortcuts: Option<SearchShortcutsSnapshot>,
+    /// The downloads of the main jar.
+    pub downloads: Option<DownloadsSnapshot>,
 }
 
 /// Where the library persists (`shell.sqlite` in the product). Each aggregate saves on its own,
-/// so a visit never rewrites the bookmarks. Downloads are not persisted yet.
+/// so a visit never rewrites the bookmarks.
 pub trait LibraryRepo {
     /// Every part of the library that was ever saved.
     ///
@@ -76,6 +80,13 @@ pub trait LibraryRepo {
     ///
     /// The store could not be written.
     fn save_shortcuts(&mut self, shortcuts: &SearchShortcutsSnapshot) -> Result<(), StoreError>;
+
+    /// Replaces the saved downloads, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_downloads(&mut self, downloads: &DownloadsSnapshot) -> Result<(), StoreError>;
 }
 
 /// One entry of the user's `keybindings.json`, as text: the store does not judge it, the

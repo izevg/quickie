@@ -100,6 +100,8 @@ All of them are commands in the palette and can be rebound in the keymap editor.
 | `⌘⌥C` | Copy as Markdown link |
 | `⌘⇧T` | Reopen the closed tab |
 | `⌘W` | Close the tab (it goes to the trash, not away) |
+| `⌘J` | Downloads |
+| `⌘⌥S` | Shields for the site |
 
 ## Privacy
 
