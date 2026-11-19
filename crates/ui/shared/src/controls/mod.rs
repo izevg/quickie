@@ -5,14 +5,44 @@ pub mod hint_bar;
 pub mod keycap;
 pub mod pill;
 
-use objc2::AllocAnyThread;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSColor, NSFont, NSFontAttributeName, NSForegroundColorAttributeName};
+use objc2::{AllocAnyThread, MainThreadMarker};
+use objc2_app_kit::{
+    NSColor, NSFont, NSFontAttributeName, NSFontWeightMedium, NSForegroundColorAttributeName,
+    NSImage, NSImageSymbolConfiguration, NSImageView,
+};
 use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSRange, NSString};
 
 pub use hint_bar::hint_bar;
 pub use keycap::keycap_group;
 pub use pill::Pill;
+
+use crate::tokens::TextRole;
+
+/// An SF Symbol (`lock.fill`) at the size of `role`, tinted `tint`, sized to fit; `None` when
+/// the system has no such symbol. `description` is what `VoiceOver` reads.
+#[must_use]
+pub fn symbol(
+    name: &str,
+    description: &str,
+    role: TextRole,
+    tint: &NSColor,
+    mtm: MainThreadMarker,
+) -> Option<Retained<NSImageView>> {
+    let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+        &NSString::from_str(name),
+        Some(&NSString::from_str(description)),
+    )?;
+    // SAFETY: `NSFontWeightMedium` is an immutable `CGFloat` exported by AppKit.
+    let medium = unsafe { NSFontWeightMedium };
+    let configuration =
+        NSImageSymbolConfiguration::configurationWithPointSize_weight(role.point_size(), medium);
+    let image = image.imageWithSymbolConfiguration(&configuration)?;
+    let view = NSImageView::imageViewWithImage(&image, mtm);
+    view.setContentTintColor(Some(tint));
+    view.setFrameSize(image.size());
+    Some(view)
+}
 
 /// Text in one font and color, with ranges set in another: fuzzy-match highlights, the keys of
 /// a hint bar.

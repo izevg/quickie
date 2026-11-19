@@ -22,6 +22,8 @@ objc2-app-kit = { workspace = true, features = [
   "NSFont",
   "NSFontDescriptor",
   "NSGlassEffectView",
+  "NSImage",
+  "NSImageView",
   "NSParagraphStyle",
   "NSResponder",
   "NSScroller",
