@@ -1,6 +1,6 @@
 [package]
 name = "quickie-ui-widgets"
-description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher, the toast stack, the find bar, the origin chip, and the load progress line"
+description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher and overview, the toast stack, the find bar, the origin chip, the load progress line, and link hints"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,13 +14,16 @@ objc2-app-kit = { workspace = true, features = [
   "objc2-quartz-core",
   "NSButton",
   "NSCell",
+  "NSClickGestureRecognizer",
   "NSColor",
   "NSControl",
+  "NSGestureRecognizer",
   "NSGraphics",
   "NSImage",
   "NSImageView",
   "NSParagraphStyle",
   "NSResponder",
+  "NSStringDrawing",
   "NSText",
   "NSTextField",
   "NSTextInputClient",
@@ -29,14 +32,6 @@ objc2-app-kit = { workspace = true, features = [
   "NSWindow",
 ] }
 objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }
-objc2-quartz-core = { workspace = true, features = [
-  "objc2-core-foundation",
-  "objc2-core-graphics",
-  "CALayer",
-  "CAMediaTimingFunction",
-  "CATransaction",
-  "CATransform3D",
-] }
 objc2-foundation = { workspace = true, features = [
   "block2",
   "NSDate",
@@ -47,6 +42,15 @@ objc2-foundation = { workspace = true, features = [
   "NSRange",
   "NSString",
   "NSTimer",
+] }
+objc2-quartz-core = { workspace = true, features = [
+  "objc2-core-foundation",
+  "objc2-core-graphics",
+  "CALayer",
+  "CAMediaTimingFunction",
+  "CATextLayer",
+  "CATransaction",
+  "CATransform3D",
 ] }
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true

@@ -34,7 +34,7 @@ use std::rc::{Rc, Weak};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindowOrderingMode};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSRunLoop, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{EngineError, EnginePort, Navigation};
@@ -43,11 +43,18 @@ use url::Url;
 
 pub use network::UrlSessionHttp;
 pub use page::FindStep;
+pub use page::scripts::hints::{Followed, LinkTarget};
 use page::{PageEvent, WebPage};
 pub use reports::Navigated;
 use reports::Reports;
 use scheme::InternalPages;
 pub use shields::{BlockerStatus, WebKitContentBlocker};
+
+/// How wide, in points, the tab overview's thumbnails are drawn.
+pub const THUMBNAIL_WIDTH: f64 = 480.0;
+
+/// Thumbnails by tab, filled by snapshot callbacks.
+type Thumbnails = Rc<RefCell<HashMap<TabId, Retained<NSImage>>>>;
 
 /// The `WebKit` engine. Lives on the main thread, like every view it owns.
 pub struct WebKitEngine {
@@ -60,6 +67,8 @@ pub struct WebKitEngine {
     /// Shared by every page: the content blocker installs its rule lists here.
     content: Retained<WKUserContentController>,
     inbox: Rc<Inbox>,
+    /// The last picture of each page, taken when it was hidden or asked for.
+    thumbnails: Thumbnails,
 }
 
 impl std::fmt::Debug for WebKitEngine {
@@ -87,6 +96,59 @@ impl WebKitEngine {
             // SAFETY: a fresh controller has no preconditions.
             content: unsafe { WKUserContentController::new(mtm) },
             inbox: Rc::default(),
+            thumbnails: Rc::default(),
+        }
+    }
+
+    /// True when the tab's page says its focused element takes text: a key typed now is the
+    /// page's, not a browser shortcut.
+    #[must_use]
+    pub fn input_focused(&self, tab: TabId) -> bool {
+        self.pages.get(&tab).is_some_and(WebPage::input_focused)
+    }
+
+    /// The tab's last picture, `None` before its page was first drawn or for a tab not loaded.
+    #[must_use]
+    pub fn thumbnail(&self, tab: TabId) -> Option<Retained<NSImage>> {
+        self.thumbnails.borrow().get(&tab).cloned()
+    }
+
+    /// Takes a new picture of the tab's page; `done` runs on the main thread once it is in
+    /// [`Self::thumbnail`]. The page is drawn off the main thread.
+    pub fn capture(&self, tab: TabId, done: impl FnOnce() + 'static) {
+        let Some(page) = self.pages.get(&tab) else {
+            return;
+        };
+        let thumbnails = Rc::downgrade(&self.thumbnails);
+        page.snapshot(THUMBNAIL_WIDTH, move |image| {
+            let (Some(image), Some(thumbnails)) = (image, thumbnails.upgrade()) else {
+                return;
+            };
+            thumbnails.borrow_mut().insert(tab, image);
+            done();
+        });
+    }
+
+    /// Finds the links and controls on screen in the tab's page, for link hints. `done` gets
+    /// them in document order, placed in the page view, which fills its window's host.
+    pub fn link_targets(&self, tab: TabId, done: impl FnOnce(Vec<LinkTarget>) + 'static) {
+        if let Some(page) = self.pages.get(&tab) {
+            page.link_targets(done);
+        }
+    }
+
+    /// Follows target `index` of the tab's last [`Self::link_targets`]: the page clicks or
+    /// focuses it, or `done` hears of a link to open in another tab (in the background when
+    /// `background`).
+    pub fn follow_link(
+        &self,
+        tab: TabId,
+        index: usize,
+        background: bool,
+        done: impl FnOnce(Followed) + 'static,
+    ) {
+        if let Some(page) = self.pages.get(&tab) {
+            page.follow(index, background, done);
         }
     }
 
@@ -222,6 +284,11 @@ impl EnginePort for WebKitEngine {
             move |event| Inbox::record(&inbox, tab, event),
             self.mtm,
         );
+        // Laid out at a window's size from the start, so a background page draws and has a
+        // picture for the overview before it is ever shown.
+        if let Some(host) = self.hosts.values().next() {
+            page.view().setFrame(host.bounds());
+        }
         let loaded = page.load(url);
         self.pages.insert(tab, page);
         loaded
@@ -235,6 +302,8 @@ impl EnginePort for WebKitEngine {
         if let Some(previous) = previous.filter(|&previous| previous != tab)
             && let Some(page) = self.pages.get(&previous)
         {
+            // The page as the user left it, for the tab overview; drawn while still laid out.
+            self.capture(previous, || {});
             page.view().removeFromSuperview();
         }
         if let Some(host) = self.hosts.get(&window) {
@@ -258,6 +327,7 @@ impl EnginePort for WebKitEngine {
     fn close(&mut self, tab: TabId) -> Result<(), EngineError> {
         self.shown.retain(|_, shown| *shown != tab);
         self.inbox.reports.borrow_mut().forget(tab);
+        self.thumbnails.borrow_mut().remove(&tab);
         match self.pages.remove(&tab) {
             Some(_page) => Ok(()),
             None => Err(EngineError(format!("no page for {tab}"))),

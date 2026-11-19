@@ -92,7 +92,8 @@ the slices inside a group still never use each other.
 |---|---|
 | `palette` | `command_palette` (modes: commands, go-to, ask), `address_overlay` |
 | `tabs` | `tab_switcher`, `tab_overview` |
-| `page` | `find_bar`, `link_hints_layer`, `load_progress_line`, `origin_chip` |
+| `page` | `find_bar`, `load_progress_line`, `origin_chip` |
+| `hints` | `link_hints_layer` (labels drawn natively above the page, never in its DOM) |
 | `feedback` | `toast_stack`, `fullscreen_notice` |
 | `sheets` | `permission_sheet`, `agent_approval_sheet` |
 | `popovers` | `shields_popover`, `downloads_popover` |

@@ -6,9 +6,11 @@
 //! - [`commands`]: the dispatcher, from a command id to the use case that does it.
 //! - [`palette`]: the command palette's query and what choosing a row does.
 //! - [`page`]: find in page, the origin chip, and the load progress line.
+//! - [`navigation`]: the tab overview and its pinch, and link hints.
 
 mod commands;
 mod keys;
+mod navigation;
 mod page;
 mod palette;
 
@@ -31,6 +33,7 @@ pub use keys::install_shortcuts;
 use crate::input::cycle::CycleHold;
 use crate::window::{browser_window, set_title};
 use crate::{App, Guard, Lib, Palette};
+use navigation::NavigationOverlays;
 
 /// What the browser runs on, composed by `main`.
 pub struct Services {
@@ -58,6 +61,7 @@ pub struct Browser {
     address: AddressOverlay,
     command_palette: CommandPalette,
     switcher: TabSwitcher,
+    navigation: NavigationOverlays,
     toasts: Rc<ToastStack>,
     page: page::PageWidgets,
     /// The palette's answer on screen, in its order.
@@ -111,6 +115,7 @@ impl Browser {
             address: AddressOverlay::new(mtm),
             command_palette: CommandPalette::new(mtm),
             switcher: TabSwitcher::new(mtm),
+            navigation: NavigationOverlays::new(mtm),
             toasts: ToastStack::new(mtm),
             page: page::PageWidgets::new(mtm),
             results: RefCell::new(Vec::new()),
@@ -125,6 +130,7 @@ impl Browser {
         browser.open_windows();
         browser.wire_palette();
         browser.wire_find();
+        browser.wire_navigation();
         // Only lists the user enabled and that never arrived, or stale ones when the user keeps
         // lists fresh: nothing on a fresh profile.
         let due = browser.shields.borrow().due_fetches();
@@ -229,7 +235,9 @@ impl Browser {
             let active = browsing.session().active(window);
             active.and_then(|tab| browsing.engine_mut().view(tab).map(Message::retain))
         };
-        let overlay = self.address.is_open() || self.command_palette.is_open();
+        let overlay = self.address.is_open()
+            || self.command_palette.is_open()
+            || self.navigation.overview_open();
         if let (Some(ns_window), Some(view)) = (self.window(window), view)
             && !overlay
         {

@@ -44,6 +44,9 @@ impl Browser {
             self.cancel_cycle();
             return true;
         }
+        if self.navigation_key(stroke) {
+            return true;
+        }
         if let Some(key) = overlay_key(stroke)
             && self.overlay_key(key)
         {
@@ -75,25 +78,44 @@ impl Browser {
 
     /// What is true right now, for `when` clauses.
     ///
-    /// `inputFocused` is always set: the page's own text fields are invisible to the shell until
-    /// the engine reports focus, so a key bound with `!inputFocused` (link hints on `F`) must
-    /// stay with the page rather than eat a letter typed into a form.
+    /// `inputFocused` is the page's word: its focus script reports whether the focused element
+    /// takes text, so `F` types into a form and opens link hints everywhere else. An overlay's
+    /// own field, the find bar's included, is focused input too.
     pub(super) fn when(&self) -> WhenContext {
-        let mut context = WhenContext::new().with_flag("inputFocused");
+        let mut context = WhenContext::new();
         let view = if self.command_palette.is_open() {
-            context = context.with_flag("paletteOpen");
+            context = context.with_flag("paletteOpen").with_flag("inputFocused");
             "palette"
         } else if self.address.is_open() {
-            context = context.with_flag("addressOpen");
+            context = context.with_flag("addressOpen").with_flag("inputFocused");
             "address"
+        } else if self.navigation.overview_open() {
+            context = context.with_flag("overviewOpen").with_flag("inputFocused");
+            "overview"
         } else {
             context = context.with_flag("pageFocused");
+            if self.find_focused() || self.page_input_focused() {
+                context = context.with_flag("inputFocused");
+            }
             "page"
         };
+        if self.navigation.hints_open() {
+            context = context.with_flag("hintsOpen");
+        }
         if self.cycle.borrow().is_some() {
             context = context.with_flag("switcherOpen");
         }
         context.with_value("focusedView", view)
+    }
+
+    /// True when the current window's page says a text field of its own has focus.
+    fn page_input_focused(&self) -> bool {
+        let Some(tab) = self.current().and_then(|(window, _)| self.active(window)) else {
+            return false;
+        };
+        self.browsing
+            .try_borrow_mut()
+            .is_ok_and(|mut browsing| browsing.engine_mut().input_focused(tab))
     }
 
     /// An overlay's fixed key. While an input method composes, every key is the field's.
@@ -251,8 +273,8 @@ impl Browser {
 }
 
 /// Routes key presses and modifier changes to the browser before the window dispatches them to
-/// the page or a field. The returned monitor must stay alive for as long as shortcuts should
-/// work.
+/// the page or a field, and pinches to the tab overview; a click or a scroll takes link hints
+/// away. The returned monitor must stay alive for as long as shortcuts should work.
 pub fn install_shortcuts(browser: &Rc<Browser>) -> Option<Retained<AnyObject>> {
     let browser = Rc::clone(browser);
     let handler = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
@@ -260,21 +282,26 @@ pub fn install_shortcuts(browser: &Rc<Browser>) -> Option<Retained<AnyObject>> {
         let key = unsafe { event.as_ref() };
         match key.r#type() {
             NSEventType::KeyDown if browser.key_down(key) => std::ptr::null_mut(),
+            NSEventType::Magnify if browser.magnify(key) => std::ptr::null_mut(),
             NSEventType::FlagsChanged => {
                 browser.flags_changed(key);
+                event.as_ptr()
+            }
+            NSEventType::LeftMouseDown | NSEventType::ScrollWheel => {
+                browser.pointer();
                 event.as_ptr()
             }
             _ => event.as_ptr(),
         }
     });
+    let mask = NSEventMask::KeyDown
+        | NSEventMask::FlagsChanged
+        | NSEventMask::Magnify
+        | NSEventMask::LeftMouseDown
+        | NSEventMask::ScrollWheel;
     // SAFETY: the handler returns either the event it was given or null, as the API requires,
     // and AppKit calls it on the main thread, where the captured browser lives.
-    unsafe {
-        NSEvent::addLocalMonitorForEventsMatchingMask_handler(
-            NSEventMask::KeyDown | NSEventMask::FlagsChanged,
-            &handler,
-        )
-    }
+    unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &handler) }
 }
 
 /// The modifiers the keymap reads; Caps Lock and Fn do not count.

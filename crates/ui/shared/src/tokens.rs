@@ -45,6 +45,14 @@ pub mod overlay {
     pub const SWITCHER_CELL_WIDTH: CGFloat = 200.0;
     /// Palettes sit this fraction of the window height below its top edge.
     pub const PALETTE_TOP: CGFloat = 0.15;
+    /// The tab overview at its widest, and the narrowest it gets for its header and hints.
+    pub const OVERVIEW_MAX_WIDTH: CGFloat = 1360.0;
+    pub const OVERVIEW_MIN_WIDTH: CGFloat = 480.0;
+    /// The share of the window's height the overview may take.
+    pub const OVERVIEW_MAX_HEIGHT: CGFloat = 0.85;
+    /// The narrowest and widest a tab thumbnail is drawn in the overview.
+    pub const THUMBNAIL_MIN_WIDTH: CGFloat = 200.0;
+    pub const THUMBNAIL_MAX_WIDTH: CGFloat = 320.0;
 }
 
 /// Semantic colors. They follow the accent color, appearance, and contrast settings by themselves.

@@ -40,6 +40,7 @@ quickie-domain-commands.workspace = true
 quickie-domain-shields.workspace = true
 quickie-engine-webkit.workspace = true
 quickie-store.workspace = true
+quickie-ui-shared.workspace = true
 quickie-ui-widgets.workspace = true
 url.workspace = true
 
