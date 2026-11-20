@@ -91,30 +91,11 @@ impl Pill {
         } else {
             space::LG
         };
-        let natural: CGFloat = views
+        let natural: Vec<(CGFloat, bool)> = views
             .iter()
-            .map(|(view, _)| view.frame().size.width)
-            .sum::<CGFloat>()
-            + space::SM * gaps(views.len());
-        let width = (leading + natural + space::LG).min(MAX_WIDTH).ceil();
-        // What is left for the stretchable parts (the text) once the others have their width.
-        let fixed: CGFloat = views
-            .iter()
-            .filter(|(_, stretches)| !stretches)
-            .map(|(view, _)| view.frame().size.width)
-            .sum();
-        let stretchable =
-            (width - leading - space::LG - space::SM * gaps(views.len()) - fixed).max(0.0);
-        let wanted: CGFloat = views
-            .iter()
-            .filter(|(_, stretches)| *stretches)
-            .map(|(view, _)| view.frame().size.width)
-            .sum();
-        let squeeze = if wanted > 0.0 {
-            (stretchable / wanted).min(1.0)
-        } else {
-            1.0
-        };
+            .map(|(view, stretches)| (view.frame().size.width, *stretches))
+            .collect();
+        let (width, widths) = layout(&natural, leading);
         let content = surface.content_view();
         if tone == PillTone::Success {
             let tint = Plate::new(
@@ -130,11 +111,8 @@ impl Pill {
             content.addSubview(&tint);
         }
         let mut x = leading;
-        for (view, stretches) in views {
-            let mut size = view.frame().size;
-            if stretches {
-                size.width = (size.width * squeeze).floor();
-            }
+        for ((view, _), part_width) in views.into_iter().zip(widths) {
+            let size = NSSize::new(part_width, view.frame().size.height);
             view.setFrame(NSRect::new(
                 NSPoint::new(x, ((height - size.height) / 2.0).round()),
                 size,
@@ -163,6 +141,38 @@ impl Pill {
     pub fn place(&self, origin: NSPoint) {
         self.surface.set_frame(NSRect::new(origin, self.size));
     }
+}
+
+/// The pill's width and each part's, from the parts' natural widths and whether each gives
+/// way, after `leading` room. A part keeps its natural width while the pill is under
+/// [`MAX_WIDTH`]: `AppKit` sizes a label to the backing pixel, half a point on a Retina
+/// display, and a label even that much narrower than its text loses its last glyph (#66).
+/// Past the limit, the parts that give way share what is left, in whole points.
+fn layout(parts: &[(CGFloat, bool)], leading: CGFloat) -> (CGFloat, Vec<CGFloat>) {
+    let between = space::SM * gaps(parts.len());
+    let natural: CGFloat = parts.iter().map(|(width, _)| width).sum::<CGFloat>() + between;
+    let width = (leading + natural + space::LG).min(MAX_WIDTH).ceil();
+    let sum = |stretches: bool| -> CGFloat {
+        parts
+            .iter()
+            .filter(|(_, part)| *part == stretches)
+            .map(|(width, _)| width)
+            .sum()
+    };
+    // What is left for the parts that give way (the text) once the others have their width.
+    let room = (width - leading - space::LG - between - sum(false)).max(0.0);
+    let wanted = sum(true);
+    let widths = parts
+        .iter()
+        .map(|&(natural, stretches)| {
+            if stretches && wanted > room {
+                (natural * room / wanted).floor()
+            } else {
+                natural
+            }
+        })
+        .collect();
+    (width, widths)
 }
 
 fn gaps(count: usize) -> CGFloat {
@@ -196,6 +206,9 @@ fn view(part: &PillPart, mtm: MainThreadMarker) -> (Retained<NSView>, bool) {
             true,
         ),
         PillPart::Styled(styled) => {
+            // An attributed label breaks as its string's paragraph style says, which wraps by
+            // default: a host squeezed by a point would lose its end without an ellipsis.
+            styled.set_line_break(NSLineBreakMode::ByTruncatingMiddle);
             let field = NSTextField::labelWithAttributedString(styled.string(), mtm);
             field.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
             field.sizeToFit();
@@ -270,4 +283,40 @@ fn note(text: &str, tint: Paint, mtm: MainThreadMarker) -> Retained<NSView> {
     field.setFrameOrigin(NSPoint::new(1.0 + space::SM, 0.0));
     holder.addSubview(&field);
     holder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_WIDTH, layout};
+    use crate::tokens::space;
+
+    /// The origin chip on a Retina display: a dot, the host and the path sized to the half
+    /// point, a lock (#66).
+    const CHIP: [(f64, bool); 4] = [(6.0, false), (99.5, true), (60.5, true), (9.0, false)];
+
+    #[test]
+    fn text_that_fits_keeps_its_half_points() {
+        let (width, widths) = layout(&CHIP, space::MD);
+
+        assert_eq!(widths, vec![6.0, 99.5, 60.5, 9.0]);
+        assert_eq!(
+            width,
+            (space::MD + 175.0 + space::SM * 3.0 + space::LG).ceil()
+        );
+    }
+
+    #[test]
+    fn text_past_the_limit_gives_way_in_whole_points() {
+        let parts = [(6.0, false), (400.5, true), (200.5, true), (9.0, false)];
+        let (width, widths) = layout(&parts, space::MD);
+
+        assert!((width - MAX_WIDTH).abs() < f64::EPSILON);
+        assert!((widths[0] - 6.0).abs() < f64::EPSILON);
+        assert!((widths[3] - 9.0).abs() < f64::EPSILON);
+        let room = MAX_WIDTH - space::MD - space::LG - space::SM * 3.0 - 15.0;
+        assert!(widths[1] + widths[2] <= room);
+        assert!(widths[1] + widths[2] > room - 2.0);
+        assert!(widths[1] < 400.5 && widths[1].fract() == 0.0);
+        assert!(widths[2] < 200.5 && widths[2].fract() == 0.0);
+    }
 }
