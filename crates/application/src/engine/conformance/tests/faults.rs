@@ -1,0 +1,455 @@
+//! The suite against broken engines: each fault is a way an engine can go wrong, and the suite
+//! must fail the checks it breaks, and only those. Some variations are not faults at all, and
+//! the suite must pass them.
+
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use url::Url;
+
+use super::{Memory, failed};
+use crate::conformance::{
+    Driven, Event, Group, Harness, MemoryEngine, MemoryPage, NotDriven, Outcome, PageSource, run,
+};
+use crate::{
+    Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, EngineError,
+    EngineEvent, EnginePort, FindStep, LinkTarget, Navigation, PageRect, ReplyToken, Ticket,
+};
+
+/// How the engine under test differs from the reference.
+#[derive(Clone, Copy)]
+enum Fault {
+    /// Every event drained goes through this first.
+    Events(fn(EngineEvent<MemoryPage>) -> EngineEvent<MemoryPage>),
+    /// The waker never runs.
+    NoWake,
+    /// Only the first waker set ever runs.
+    FirstWakerOnly,
+    /// The first waker set never runs; later ones do.
+    FirstWakerIgnored,
+    /// Creating a page wakes the shell inside the call.
+    WakesInsideCalls,
+    /// A closed tab's page goes on reporting: a rename, or an ask.
+    Lingers { asks: bool },
+    /// A download ends a turn after the one that reported its start: not a fault.
+    LateEnd,
+    /// A cancelled download still reports progress.
+    ReportsCancelled,
+    /// The harness cannot answer asks.
+    CannotAnswer,
+}
+
+/// The reference engine with a fault.
+struct Broken {
+    engine: MemoryEngine,
+    fault: Fault,
+    wake: Option<Rc<dyn Fn()>>,
+    /// How many wakers were set.
+    wakers: usize,
+    /// Tabs closed so far.
+    closed: Vec<TabId>,
+    /// Events held back for the next drain.
+    later: Vec<EngineEvent<MemoryPage>>,
+    /// Events held back until the engine turns again.
+    next_turn: Vec<EngineEvent<MemoryPage>>,
+}
+
+impl EnginePort for Broken {
+    type Page = MemoryPage;
+
+    fn adopt(&mut self, page: MemoryPage, tab: TabId) -> Result<(), EngineError> {
+        self.engine.adopt(page, tab)
+    }
+
+    fn create(&mut self, tab: TabId, url: &Url, jar: Jar) -> Result<(), EngineError> {
+        let created = self.engine.create(tab, url, jar);
+        if let (Fault::WakesInsideCalls, Some(wake)) = (self.fault, &self.wake) {
+            wake();
+        }
+        created
+    }
+
+    fn show(&mut self, window: WindowId, tab: TabId) -> Result<(), EngineError> {
+        self.engine.show(window, tab)
+    }
+
+    fn navigate(&mut self, tab: TabId, navigation: &Navigation) -> Result<(), EngineError> {
+        self.engine.navigate(tab, navigation)
+    }
+
+    fn close(&mut self, tab: TabId) -> Result<(), EngineError> {
+        self.closed.push(tab);
+        self.engine.close(tab)
+    }
+
+    fn destroy_jar(&mut self, jar: JarId) -> Result<(), EngineError> {
+        self.engine.destroy_jar(jar)
+    }
+}
+
+/// The reference harness over a broken engine.
+struct Faulty(Fault);
+
+impl PageSource for Faulty {
+    fn base(&self) -> Url {
+        Memory.base()
+    }
+}
+
+impl Harness for Faulty {
+    type Engine = Broken;
+
+    fn unsupported(&self, _group: Group) -> Option<&'static str> {
+        None
+    }
+
+    fn engine(&mut self) -> Broken {
+        Broken {
+            engine: Memory.engine(),
+            fault: self.0,
+            wake: None,
+            wakers: 0,
+            closed: Vec::new(),
+            later: Vec::new(),
+            next_turn: Vec::new(),
+        }
+    }
+
+    fn pump(&mut self, engine: &mut Broken, done: &mut dyn FnMut(&mut Broken) -> bool) -> bool {
+        (0..50).any(|_| {
+            engine.later.append(&mut engine.next_turn);
+            engine.engine.turn();
+            done(engine)
+        })
+    }
+
+    fn idle(&mut self, engine: &mut Broken) {
+        Memory.idle(&mut engine.engine);
+    }
+
+    fn set_waker(engine: &mut Broken, wake: Box<dyn Fn()>) {
+        let ignored = match engine.fault {
+            Fault::NoWake => true,
+            Fault::FirstWakerOnly => engine.wakers > 0,
+            Fault::FirstWakerIgnored => engine.wakers == 0,
+            _ => false,
+        };
+        engine.wakers += 1;
+        if !ignored {
+            let wake: Rc<dyn Fn()> = Rc::from(wake);
+            let shared = Rc::clone(&wake);
+            engine.engine.set_waker(Box::new(move || shared()));
+            engine.wake = Some(wake);
+        }
+    }
+
+    fn drain(engine: &mut Broken, into: &mut Vec<Event<Self>>) {
+        into.append(&mut engine.later);
+        let mut fresh = Vec::new();
+        engine.engine.drain(&mut fresh);
+        for event in fresh {
+            match (engine.fault, event) {
+                (Fault::Events(fault), event) => into.push(fault(event)),
+                (Fault::LateEnd, event @ EngineEvent::Download(DownloadEvent::Finished { .. })) => {
+                    engine.next_turn.push(event);
+                }
+                (_, event) => into.push(event),
+            }
+        }
+        if let Fault::Lingers { asks } = engine.fault {
+            into.extend(engine.closed.iter().map(|&tab| lingering(tab, asks)));
+        }
+    }
+
+    fn answer(&mut self, engine: &mut Broken, token: ReplyToken, answer: &Answer) -> Driven<bool> {
+        match self.0 {
+            Fault::CannotAnswer => Err(NotDriven("answer")),
+            _ => Memory.answer(&mut engine.engine, token, answer),
+        }
+    }
+
+    fn find(&mut self, engine: &mut Broken, tab: TabId, query: &str, step: FindStep) -> Driven<()> {
+        Memory.find(&mut engine.engine, tab, query, step)
+    }
+
+    fn link_targets(&mut self, engine: &mut Broken, tab: TabId) -> Driven<Option<Ticket>> {
+        Memory.link_targets(&mut engine.engine, tab)
+    }
+
+    fn follow_link(
+        &mut self,
+        engine: &mut Broken,
+        tab: TabId,
+        index: usize,
+        background: bool,
+    ) -> Driven<Option<Ticket>> {
+        Memory.follow_link(&mut engine.engine, tab, index, background)
+    }
+
+    fn click(
+        &mut self,
+        engine: &mut Broken,
+        tab: TabId,
+        at: PageRect,
+        command: bool,
+    ) -> Driven<Result<(), String>> {
+        Memory.click(&mut engine.engine, tab, at, command)
+    }
+
+    fn page_text(&mut self, engine: &mut Broken, tab: TabId) -> Driven<Option<Ticket>> {
+        Memory.page_text(&mut engine.engine, tab)
+    }
+
+    fn downloads_into(&mut self, engine: &mut Broken) -> Driven<Result<PathBuf, String>> {
+        Memory.downloads_into(&mut engine.engine)
+    }
+
+    fn download(
+        &mut self,
+        engine: &mut Broken,
+        tab: TabId,
+        url: &Url,
+    ) -> Driven<Result<(), EngineError>> {
+        Memory.download(&mut engine.engine, tab, url)
+    }
+
+    fn cancel_download(&mut self, engine: &mut Broken, token: DownloadToken) -> Driven<()> {
+        if let Fault::ReportsCancelled = self.0 {
+            engine
+                .later
+                .push(EngineEvent::Download(DownloadEvent::Progress {
+                    token,
+                    received: 1,
+                    total: None,
+                }));
+        }
+        Memory.cancel_download(&mut engine.engine, token)
+    }
+
+    fn downloaded(&self, engine: &Broken, file: &Path) -> Driven<Option<Vec<u8>>> {
+        Memory.downloaded(&engine.engine, file)
+    }
+
+    fn block(&mut self, engine: &mut Broken, rules: &BlockerRules) -> Driven<Result<(), String>> {
+        Memory.block(&mut engine.engine, rules)
+    }
+
+    fn crash(&mut self, engine: &mut Broken, tab: TabId) -> Driven<Result<(), String>> {
+        Memory.crash(&mut engine.engine, tab)
+    }
+}
+
+/// What a closed tab's page reports when it should not: a rename, or an ask.
+fn lingering(tab: TabId, asks: bool) -> EngineEvent<MemoryPage> {
+    if asks {
+        EngineEvent::Asked(Ask {
+            token: ReplyToken::new(0),
+            tab,
+            origin: Memory.base(),
+            kind: AskKind::Dialog(Dialog::Alert {
+                message: String::new(),
+            }),
+        })
+    } else {
+        EngineEvent::Titled {
+            tab,
+            url: Memory.base(),
+            title: "late".to_owned(),
+        }
+    }
+}
+
+/// Rewrites every link target's frame with `reshape`.
+fn reshape_targets(
+    event: EngineEvent<MemoryPage>,
+    reshape: fn(&mut PageRect),
+) -> EngineEvent<MemoryPage> {
+    match event {
+        EngineEvent::Targets {
+            tab,
+            ticket,
+            mut targets,
+        } => {
+            for LinkTarget { frame, .. } in &mut targets {
+                reshape(frame);
+            }
+            EngineEvent::Targets {
+                tab,
+                ticket,
+                targets,
+            }
+        }
+        other => other,
+    }
+}
+
+#[test]
+fn a_waker_that_never_runs_fails_the_events_checks() {
+    let report = run(&mut Faulty(Fault::NoWake));
+
+    assert!(!report.passed());
+    assert_eq!(
+        failed(&report),
+        [
+            "the_waker_runs_when_events_wait",
+            "nothing_is_delivered_inside_an_engine_call"
+        ]
+    );
+}
+
+#[test]
+fn a_waker_set_twice_must_run_the_second() {
+    let report = run(&mut Faulty(Fault::FirstWakerOnly));
+
+    assert_eq!(
+        failed(&report),
+        ["nothing_is_delivered_inside_an_engine_call"]
+    );
+}
+
+#[test]
+fn a_first_waker_that_never_runs_fails_even_when_a_second_does() {
+    let report = run(&mut Faulty(Fault::FirstWakerIgnored));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "the_waker_runs_when_events_wait",
+            "nothing_is_delivered_inside_an_engine_call"
+        ]
+    );
+}
+
+#[test]
+fn waking_inside_a_call_fails() {
+    let report = run(&mut Faulty(Fault::WakesInsideCalls));
+
+    assert_eq!(
+        failed(&report),
+        ["nothing_is_delivered_inside_an_engine_call"]
+    );
+}
+
+#[test]
+fn a_closed_page_that_still_renames_itself_fails() {
+    let report = run(&mut Faulty(Fault::Lingers { asks: false }));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "a_closed_page_reports_nothing_more",
+            "nothing_is_delivered_inside_an_engine_call",
+            "closing_a_tab_declines_what_its_page_asked"
+        ]
+    );
+}
+
+#[test]
+fn a_closed_page_that_still_asks_fails() {
+    let report = run(&mut Faulty(Fault::Lingers { asks: true }));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "a_closed_page_reports_nothing_more",
+            "closing_a_tab_declines_what_its_page_asked"
+        ]
+    );
+}
+
+#[test]
+fn a_download_may_end_in_a_later_drain_than_it_started() {
+    let report = run(&mut Faulty(Fault::LateEnd));
+
+    assert!(report.passed(), "{report}");
+}
+
+#[test]
+fn a_cancelled_download_that_still_reports_fails() {
+    let report = run(&mut Faulty(Fault::ReportsCancelled));
+
+    assert_eq!(failed(&report), ["a_cancelled_download_leaves_no_file"]);
+}
+
+#[test]
+fn a_download_that_fails_instead_of_finishing_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Download(DownloadEvent::Finished { token }) => {
+            EngineEvent::Download(DownloadEvent::Failed {
+                token,
+                reason: "broken".to_owned(),
+            })
+        }
+        other => other,
+    })));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "an_attachment_downloads_into_the_folder",
+            "a_download_asked_for_downloads_the_same_way"
+        ]
+    );
+}
+
+/// What misplaced targets fail: the targets check, and a click where a target claims to be.
+const MISPLACED: [&str; 2] = [
+    "a_command_click_opens_in_the_background",
+    "the_targets_are_the_links_and_controls_in_order",
+];
+
+#[test]
+fn targets_without_a_width_fail() {
+    let report = run(&mut Faulty(Fault::Events(|event| {
+        reshape_targets(event, |frame| frame.width = 0.0)
+    })));
+
+    assert_eq!(failed(&report), MISPLACED);
+}
+
+#[test]
+fn targets_without_a_height_fail() {
+    let report = run(&mut Faulty(Fault::Events(|event| {
+        reshape_targets(event, |frame| frame.height = 0.0)
+    })));
+
+    assert_eq!(failed(&report), MISPLACED);
+}
+
+#[test]
+fn targets_on_one_line_fail() {
+    let report = run(&mut Faulty(Fault::Events(|event| {
+        reshape_targets(event, |frame| frame.y = 0.0)
+    })));
+
+    assert_eq!(failed(&report), MISPLACED);
+}
+
+#[test]
+fn a_feature_the_harness_cannot_drive_fails_its_group_and_says_so() {
+    let report = run(&mut Faulty(Fault::CannotAnswer));
+
+    let alert = report
+        .verdicts()
+        .iter()
+        .find(|verdict| verdict.case == "an_alert_waits_for_its_answer")
+        .map(|verdict| verdict.outcome.clone());
+    assert_eq!(
+        alert,
+        Some(Outcome::Failed(
+            "the harness cannot drive `answer`: drive it or declare the group unsupported"
+                .to_owned()
+        ))
+    );
+    assert_eq!(
+        failed(&report),
+        [
+            "an_alert_waits_for_its_answer",
+            "a_confirm_hears_ok_or_cancel",
+            "a_prompt_hears_the_text",
+            "closing_a_tab_declines_what_its_page_asked",
+            "a_camera_request_waits_for_its_answer"
+        ]
+    );
+}

@@ -52,8 +52,32 @@ jobs:
       - name: Gates
         run: mise run ci
 
+  # The engine conformance suite (crates/application/src/engine/conformance) on real WKWebViews,
+  # as its own status: an engine that stops behaving as the application expects fails here by
+  # name. WebKit needs macOS and the runner's GUI session.
+  conformance:
+    name: engine conformance (WebKit)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: rust
+      # Swatinem/rust-cache v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Conformance suite on WebKit
+        run: mise run conformance
+
   # Only on pull requests: mutate what the branch changed in domain and application. Any missed
   # mutant fails the job. The core is pure Rust, so a Linux runner is enough (and cheaper).
+  # cargo-mutants builds and tests only the packages whose files it mutates (examine_globs in
+  # .cargo/mutants.toml), so the conformance suite's logic is mutated against the in-memory
+  # engine in quickie-application, and no engine adapter or its harness is built here.
   mutation:
     name: mutation (changed code)
     if: github.event_name == 'pull_request'

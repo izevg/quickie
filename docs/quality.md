@@ -41,7 +41,7 @@ source of truth for both hooks and CI.
 
 | Workflow | When | What |
 |---|---|---|
-| `ci.yml` | push to `main`, every PR | `mise run ci` on macOS (all gates, secret scan over the whole history); on PRs also `cargo mutants --in-diff` on Linux |
+| `ci.yml` | push to `main`, every PR | `mise run ci` on macOS (all gates, secret scan over the whole history); `mise run conformance` on macOS (the engine conformance suite on `WKWebView`); on PRs also `cargo mutants --in-diff` on Linux |
 | `pr-title.yml` | every PR | The title is a Conventional Commit (it becomes the squash commit) |
 | `auto-release.yml` | `ci` succeeded on a push to `main` | git-cliff computes the next version; nothing releasable ends the run |
 | `release.yml` | called by auto-release, a pushed `v*` tag, or by hand (dry run) | Tag + GitHub Release with notes from git-cliff |
@@ -84,6 +84,10 @@ The table lives in `tools/xtask/src/layers/policy.rs`; change it together with A
   the reason, and only for a mutant that cannot be tested.
 - With an upstream branch, only the changed code is mutated (`--in-diff`); without one, the whole
   scope runs. `--iterate` reuses earlier results.
+- The engine conformance suite (`application/src/engine/conformance`) is application code, so its
+  checks are mutated too: they run against the in-memory reference engine, and against broken
+  variants of it that each check must fail. The WebKit adapter runs the same suite in
+  `mise run conformance`, outside mutation.
 
 ## Agent harness
 
