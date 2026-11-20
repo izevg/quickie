@@ -4,7 +4,7 @@
 //! When the engine fills the page's own view ([`Fullscreen::InWindow`]), the browser takes the
 //! tab's window full screen, on its own Space, as Chrome does, and back when the page leaves;
 //! a window that was full screen already stays so. Meanwhile nothing of the browser's shows
-//! over the page: toasts, the origin chip, the find bar, and the progress line are gone, and a
+//! over the page: toasts, the origin chip, the find bar, and the load glow are gone, and a
 //! browser command first takes the page out of full screen, then runs. `⎋` takes it out; so do
 //! the window leaving full screen, another tab coming forward, and the tab closing. Leaving
 //! puts the window back where it was (`AppKit` keeps its frame) and the page where it was (the
@@ -127,8 +127,8 @@ impl Browser {
         };
         self.toasts.clear();
         self.page.chip.hide();
-        if let Some(line) = self.page.lines.borrow().get(&window) {
-            line.reset();
+        if let Some(frame) = self.frames.borrow().get(&window) {
+            frame.reset_loading();
         }
         if self.page.find_tab.get() == Some(tab) {
             self.hide_find();

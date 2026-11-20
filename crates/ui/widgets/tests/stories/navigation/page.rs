@@ -3,11 +3,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use objc2::Message;
 use objc2_app_kit::{NSTextField, NSView};
 use quickie_domain_browsing::{FindMatches, Origin};
 use quickie_ui_shared::stories::{Key, LIGHT, LIGHT_DARK, Modifiers, Scene, Story, Theme, WINDOW};
-use quickie_ui_widgets::{FindBar, FindRequest, LoadProgressLine, OriginChip};
+use quickie_ui_widgets::{FindBar, FindRequest, OriginChip};
 
 use crate::fixtures;
 
@@ -84,26 +83,7 @@ pub const STORIES: &[Story] = &[
         window: WINDOW,
         scene: chip_addresses,
     },
-    Story {
-        group: "page",
-        widget: "load-progress-line",
-        state: "loading",
-        themes: LIGHT_DARK,
-        window: PROGRESS_WINDOW,
-        scene: progress_loading,
-    },
-    Story {
-        group: "page",
-        widget: "load-progress-line",
-        state: "started",
-        themes: LIGHT,
-        window: PROGRESS_WINDOW,
-        scene: progress_started,
-    },
 ];
-
-/// A short window: the line is two points on its top edge, and the render is the whole edge.
-const PROGRESS_WINDOW: (f64, f64) = (640.0, 120.0);
 
 /// A find bar over a page of fixture text that answers its requests as the browser would:
 /// a new query finds from the top, a step moves and wraps.
@@ -318,35 +298,4 @@ fn clipped_text(view: &NSView) -> Vec<String> {
         clipped.extend(clipped_text(&child));
     }
     clipped
-}
-
-/// The line follows the page's progress, as a scale of its layer.
-fn progress(scene: &mut Scene, steps: &[f64]) -> LoadProgressLine {
-    let line = LoadProgressLine::new(scene.mtm());
-    for &fraction in steps {
-        line.set(scene.host(), Some(fraction));
-    }
-    scene.check(line.is_loading(), "a load in progress shows");
-    let page = scene.host().retain();
-    scene.crop_to(&page);
-    line
-}
-
-fn progress_loading(scene: &mut Scene) {
-    let line = progress(scene, &[0.2, 0.6]);
-    scene.check(
-        (line.fraction() - 0.6).abs() < 0.01,
-        format!("the line shows the progress, 0.6: {}", line.fraction()),
-    );
-    scene.keep(line);
-}
-
-/// A slow first byte still shows: never less than 5 %.
-fn progress_started(scene: &mut Scene) {
-    let line = progress(scene, &[0.01]);
-    scene.check(
-        (line.fraction() - 0.05).abs() < 0.001,
-        format!("the line shows at least 5 %: {}", line.fraction()),
-    );
-    scene.keep(line);
 }
