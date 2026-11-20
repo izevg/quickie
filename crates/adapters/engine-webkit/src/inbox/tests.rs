@@ -3,12 +3,13 @@ use std::rc::Rc;
 
 use block2::RcBlock;
 use objc2::runtime::Bool;
+use quickie_application::{Answer, AskKind, Dialog};
 use quickie_domain_browsing::{Focus, TabId};
 use url::Url;
 
 use super::{Inbox, Owner};
 use crate::page::PageEvent;
-use crate::page::asks::{Answer, AskKind, Dialog, Reply};
+use crate::page::asks::Reply;
 
 fn owner(tab: Option<u64>) -> Owner {
     Rc::new(Cell::new(tab.map(TabId::new)))
@@ -80,10 +81,10 @@ fn an_answer_reaches_its_page_once() {
         alert("one"),
         confirm(&heard),
     );
-    let id = inbox.take_asks()[0].id;
+    let token = inbox.take_asks()[0].token;
 
-    assert!(inbox.answer(id, &Answer::Accept(None)));
-    assert!(!inbox.answer(id, &Answer::Decline));
+    assert!(inbox.answer(token, &Answer::Accept(None)));
+    assert!(!inbox.answer(token, &Answer::Decline));
     assert_eq!(*heard.borrow(), [true]);
 }
 
@@ -108,13 +109,13 @@ fn a_closed_tab_declines_its_asks_and_keeps_the_others() {
         alert("staying"),
         confirm(&other),
     );
-    let kept = inbox.take_asks().pop().map(|ask| ask.id);
+    let kept = inbox.take_asks().pop().map(|ask| ask.token);
 
     inbox.forget(TabId::new(1));
 
     assert_eq!(*heard.borrow(), [false, false]);
     assert!(other.borrow().is_empty());
-    assert!(kept.is_some_and(|id| inbox.answer(id, &Answer::Accept(None))));
+    assert!(kept.is_some_and(|token| inbox.answer(token, &Answer::Accept(None))));
     assert_eq!(*other.borrow(), [true]);
 }
 

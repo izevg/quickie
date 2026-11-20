@@ -21,4 +21,4 @@ mod engine;
 mod ffi;
 
 pub use bridge::KeyEquivalent;
-pub use engine::{ChromiumEngine, Navigated, OpenedPage, PageHandle};
+pub use engine::{ChromiumEngine, OpenedPage, PageHandle};

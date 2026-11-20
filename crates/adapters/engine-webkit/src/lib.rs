@@ -54,20 +54,18 @@ use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
-use quickie_application::{EngineError, EnginePort, Navigation};
+use quickie_application::{
+    Answer, Ask, DownloadEvent, DownloadToken, EngineError, EnginePort, FindStep, Followed, Found,
+    LinkTarget, Navigated, Navigation, ReplyToken,
+};
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
 
 use downloads::DownloadCenter;
-pub use downloads::{DownloadKey, DownloadReport};
-pub use inbox::{Ask, AskId, Found, Opened, OpenedPage};
 use inbox::{Inbox, Owner};
+pub use inbox::{Opened, OpenedPage};
 pub use network::UrlSessionHttp;
-pub use page::FindStep;
 use page::WebPage;
-pub use page::asks::{Answer, AskKind, Dialog};
-pub use page::scripts::hints::{Followed, LinkTarget};
-pub use reports::Navigated;
 use scheme::InternalPages;
 pub use shields::{BlockerStatus, WebKitContentBlocker};
 
@@ -206,15 +204,15 @@ impl WebKitEngine {
     }
 
     /// What downloads did since the last call, oldest first.
-    pub fn take_download_reports(&mut self) -> Vec<DownloadReport> {
+    pub fn take_download_reports(&mut self) -> Vec<DownloadEvent> {
         self.inbox.downloaded.set(false);
         self.downloads.take_reports()
     }
 
     /// Stops a running download and deletes the part of its file already written; nothing
     /// more is reported for it.
-    pub fn cancel_download(&self, key: DownloadKey) {
-        self.downloads.cancel(key);
+    pub fn cancel_download(&self, token: DownloadToken) {
+        self.downloads.cancel(token);
     }
 
     /// Downloads `url` from a tab's page, in its jar, as a retry does; it is reported like any
@@ -359,8 +357,8 @@ impl WebKitEngine {
     }
 
     /// Saves a tab's page as a PDF in the downloads folder, under its title and a free name;
-    /// it is reported through [`Self::take_download_reports`] as [`DownloadReport::Saved`], or
-    /// [`DownloadReport::Refused`] when it could not be made or written.
+    /// it is reported through [`Self::take_download_reports`] as [`DownloadEvent::Saved`], or
+    /// [`DownloadEvent::Refused`] when it could not be made or written.
     ///
     /// # Errors
     ///
@@ -432,8 +430,8 @@ impl WebKitEngine {
     }
 
     /// Answers an ask; false when its page no longer waits.
-    pub fn answer(&mut self, ask: AskId, answer: &Answer) -> bool {
-        self.inbox.answer(ask, answer)
+    pub fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
+        self.inbox.answer(token, answer)
     }
 
     fn store(&mut self, jar: Jar) -> Retained<WKWebsiteDataStore> {
