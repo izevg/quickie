@@ -32,5 +32,5 @@ pub use list::{ListRow, ListView};
 pub use motion::{Motion, Trigger};
 pub use sheet::{
     Emphasis, Sheet, SheetAnswer, SheetCard, SheetContent, SheetIcon, SheetLine, header,
-    named_header,
+    keyed_button, named_header,
 };

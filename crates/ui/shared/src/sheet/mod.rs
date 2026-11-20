@@ -23,6 +23,7 @@ use objc2_app_kit::{
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
+pub use answers::{BUTTON_HEIGHT, keyed_button};
 pub use card::{SheetCard, SheetIcon};
 
 use crate::controls::StyledText;
@@ -39,6 +40,9 @@ pub enum Emphasis {
     Plain,
     /// The safe default (`⎋` blocks, refuses): filled red, across the sheet, named as such.
     Default,
+    /// What the agent asks of the user next (set up an endpoint, try again): filled with the
+    /// agent color. Outside sheets only.
+    Agent,
 }
 
 /// One answer: its label, the keys that give it, and how it looks.

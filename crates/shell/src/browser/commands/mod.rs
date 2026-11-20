@@ -201,6 +201,16 @@ impl Action {
     }
 }
 
+/// Puts `text` on the general pasteboard; `false` when it could not.
+pub(in crate::browser) fn copy_text(text: &str) -> bool {
+    // SAFETY: an immutable `NSString` constant exported by AppKit.
+    let kind = unsafe { NSPasteboardTypeString };
+    general_pasteboard().is_some_and(|pasteboard| {
+        pasteboard.clearContents();
+        pasteboard.setString_forType(&NSString::from_str(text), kind)
+    })
+}
+
 /// The general pasteboard, `None` when the pasteboard server cannot be reached (a sandboxed or
 /// headless session). The binding declares it never nil and would panic.
 fn general_pasteboard() -> Option<Retained<NSPasteboard>> {
@@ -424,13 +434,7 @@ impl Browser {
         let Some(text) = text(tab) else {
             return self.toast("Nothing to copy");
         };
-        // SAFETY: an immutable `NSString` constant exported by AppKit.
-        let kind = unsafe { NSPasteboardTypeString };
-        let copied = general_pasteboard().is_some_and(|pasteboard| {
-            pasteboard.clearContents();
-            pasteboard.setString_forType(&NSString::from_str(&text), kind)
-        });
-        self.notify(if copied {
+        self.notify(if copy_text(&text) {
             quickie_ui_widgets::Toast::done("Copied").with_detail("to clipboard")
         } else {
             quickie_ui_widgets::Toast::problem("Couldn't copy")

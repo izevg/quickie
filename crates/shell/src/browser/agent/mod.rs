@@ -21,10 +21,13 @@ use std::time::Instant;
 use dispatch2::{DispatchQueue, MainThreadBound};
 use objc2::MainThreadMarker;
 use quickie_application::StopSignal;
+use quickie_domain_agents::Request;
 use quickie_domain_browsing::TabId;
 use quickie_system::KeychainSecrets;
 use quickie_ui_shared::Trigger;
-use quickie_ui_widgets::{Activity, AgentAnswerPanel, AgentBadge, AgentSettings, agent_wording};
+use quickie_ui_widgets::{
+    Activity, AgentAnswerPanel, AgentBadge, AgentFrame, AgentSettings, agent_wording,
+};
 
 use super::Browser;
 use crate::input::keystroke::OverlayKey;
@@ -33,6 +36,8 @@ use crate::input::keystroke::OverlayKey;
 pub struct AgentUi {
     panel: AgentAnswerPanel,
     badge: AgentBadge,
+    /// The border around the window while the agent acts.
+    frame: AgentFrame,
     /// The settings form, shown in the Settings window.
     pub(super) settings: AgentSettings,
     /// The Keychain as the worker threads read it.
@@ -41,6 +46,8 @@ pub struct AgentUi {
     generation: Cell<u64>,
     /// The answer streaming now.
     running: RefCell<Option<Running>>,
+    /// What was asked last, to ask it again when the answer failed.
+    last: RefCell<Option<Request>>,
     /// The pages being read for the latest ask, until every text arrived.
     reading: RefCell<Option<answer::Reading>>,
     /// The tab the answer is about: its citations are found there.
@@ -66,10 +73,12 @@ impl AgentUi {
         Self {
             panel: AgentAnswerPanel::new(mtm),
             badge: AgentBadge::new(mtm),
+            frame: AgentFrame::new(mtm),
             settings: AgentSettings::new(mtm),
             secrets,
             generation: Cell::new(0),
             running: RefCell::new(None),
+            last: RefCell::new(None),
             reading: RefCell::new(None),
             asked: Cell::new(None),
             cited: Cell::new(None),
@@ -108,14 +117,26 @@ impl Browser {
         self.place_badge();
     }
 
-    /// The panel's fixed key: `⎋` closes it. `false` when it does not show or the key is not
-    /// its.
+    /// The panel's fixed keys: `⎋` closes it, `⏎` follows up on an answer or retries a failed
+    /// one. `false` when it does not show or the key is not its.
     pub(super) fn agent_key(&self, key: OverlayKey) -> bool {
-        if self.agent_ui.panel.is_open() && key == OverlayKey::Dismiss {
-            self.close_agent();
-            return true;
+        if !self.agent_ui.panel.is_open() {
+            return false;
         }
-        false
+        match key {
+            OverlayKey::Dismiss => {
+                self.close_agent();
+                true
+            }
+            OverlayKey::Accept { new_tab: false } => {
+                match self.agent_ui.panel.return_request() {
+                    Some(request) => self.panel_request(request),
+                    None => return false,
+                }
+                true
+            }
+            _ => false,
+        }
     }
 
     /// `⎋`: the panel goes, and the page takes the keyboard back.
@@ -157,21 +178,23 @@ impl Browser {
         self.place_badge();
     }
 
-    /// The badge while the agent works, over the page beside the panel; gone otherwise.
+    /// The badge and the frame while the agent works, the badge over the page beside the
+    /// panel; gone otherwise.
     fn place_badge(&self) {
         let ui = &self.agent_ui;
         let text = ui.running.borrow().as_ref().map(Running::badge);
         let host = self.current().and_then(|(_, window)| window.contentView());
-        match (text, host) {
-            (Some(text), Some(host)) => {
-                let width = if ui.panel.is_open() {
-                    ui.panel.view().frame().origin.x
-                } else {
-                    host.bounds().size.width
-                };
-                ui.badge.show(&host, &text, width);
-            }
-            _ => ui.badge.hide(),
+        if let (Some(text), Some(host)) = (text, host) {
+            let width = if ui.panel.is_open() {
+                ui.panel.view().frame().origin.x
+            } else {
+                host.bounds().size.width
+            };
+            ui.frame.show(&host);
+            ui.badge.show(&host, &text, width);
+        } else {
+            ui.badge.hide();
+            ui.frame.hide();
         }
     }
 

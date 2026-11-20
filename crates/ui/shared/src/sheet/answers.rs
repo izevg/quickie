@@ -3,7 +3,7 @@
 //! whole sheet. Every button names its keys on itself, so the sheet needs no hint bar.
 
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
+use objc2::runtime::{AnyObject, Sel};
 use objc2::{MainThreadMarker, sel};
 use objc2_app_kit::{NSAccessibility, NSButton, NSColor, NSTextAlignment, NSTextField, NSView};
 use objc2_core_foundation::CGFloat;
@@ -64,24 +64,30 @@ fn look(emphasis: Emphasis) -> Look {
             text: NSColor::whiteColor,
             filled: true,
         },
+        Emphasis::Agent => Look {
+            fill: color::agent,
+            text: NSColor::whiteColor,
+            filled: true,
+        },
     }
 }
 
-/// One answer as a button `width` wide; a click sends `answer:` to `target` with the answer's
-/// index as the sender's tag. `VoiceOver` reads the answer's label.
-pub fn button(
+/// A button that names its keys: `answer`'s label, symbol, and keys painted by its emphasis,
+/// `width` wide or as wide as it needs. A click sends `action` to `target` with `tag` as the
+/// sender's tag; `VoiceOver` reads the label, and the keys as its help.
+///
+/// # Safety
+///
+/// `target` must implement `action`, taking the sender, and outlive the button.
+pub unsafe fn keyed_button(
     answer: &SheetAnswer,
-    index: usize,
-    width: CGFloat,
+    width: Option<CGFloat>,
     target: &AnyObject,
+    action: Sel,
+    tag: isize,
     mtm: MainThreadMarker,
 ) -> Retained<NSView> {
     let look = look(answer.emphasis);
-    let plate = Plate::new(Some(look.fill), None, radius::KEYCAP + 2.0, mtm);
-    plate.setFrame(NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(width, BUTTON_HEIGHT),
-    ));
     let text = (look.text)();
     let title = NSTextField::labelWithString(&NSString::from_str(&answer.label), mtm);
     let font = if look.filled {
@@ -97,16 +103,43 @@ pub fn button(
     } else {
         keycap_group_styled(&answer.keys, KeycapStyle::Plain, mtm)
     };
+    let glyph = answer
+        .symbol
+        .filter(|_| look.filled)
+        .and_then(|name| symbol(name, "", TextRole::RowTitle, &text, mtm));
+    let note = (answer.emphasis == Emphasis::Default).then(|| {
+        let note = NSTextField::labelWithString(&NSString::from_str("Default"), mtm);
+        note.setFont(Some(&TextRole::Caption.mono_font()));
+        note.setTextColor(Some(&text.colorWithAlphaComponent(0.8)));
+        note.sizeToFit();
+        note
+    });
     let title_size = title.frame().size;
     let keys_size = keys.frame().size;
+    let keys_room = if keys_size.width > 0.0 {
+        keys_size.width + space::SM
+    } else {
+        0.0
+    };
+    let width = width.unwrap_or_else(|| {
+        let glyph = glyph
+            .as_ref()
+            .map_or(0.0, |glyph| glyph.frame().size.width + space::SM);
+        let note = note
+            .as_ref()
+            .map_or(0.0, |note| note.frame().size.width + space::SM);
+        (space::MD * 2.0 + glyph + title_size.width + note + keys_room).ceil()
+    });
+    let plate = Plate::new(Some(look.fill), None, radius::KEYCAP + 2.0, mtm);
+    plate.setFrame(NSRect::new(
+        NSPoint::new(0.0, 0.0),
+        NSSize::new(width, BUTTON_HEIGHT),
+    ));
     // The plate is flipped: y runs down from its top edge.
     let middle = |height: CGFloat| ((BUTTON_HEIGHT - height) / 2.0).round();
     if look.filled {
         let mut left = space::MD;
-        if let Some(glyph) = answer
-            .symbol
-            .and_then(|name| symbol(name, "", TextRole::RowTitle, &text, mtm))
-        {
+        if let Some(glyph) = glyph {
             let size = glyph.frame().size;
             glyph.setFrameOrigin(NSPoint::new(left, middle(size.height)));
             plate.addSubview(&glyph);
@@ -114,11 +147,7 @@ pub fn button(
         }
         let mut right = width - space::MD - keys_size.width;
         keys.setFrameOrigin(NSPoint::new(right, middle(keys_size.height)));
-        if answer.emphasis == Emphasis::Default {
-            let note = NSTextField::labelWithString(&NSString::from_str("Default"), mtm);
-            note.setFont(Some(&TextRole::Caption.mono_font()));
-            note.setTextColor(Some(&text.colorWithAlphaComponent(0.8)));
-            note.sizeToFit();
+        if let Some(note) = note {
             let size = note.frame().size;
             right -= size.width + space::SM;
             note.setFrameOrigin(NSPoint::new(right, middle(size.height)));
@@ -130,10 +159,9 @@ pub fn button(
         ));
     } else {
         // Label and keys centered together, the label cut when the button is narrow.
-        let room = (width - space::MD * 2.0 - keys_size.width - space::SM).max(0.0);
+        let room = (width - space::MD * 2.0 - keys_room).max(0.0);
         let title_width = title_size.width.min(room);
-        let whole = title_width + space::SM + keys_size.width;
-        let left = ((width - whole) / 2.0).round();
+        let left = ((width - title_width - keys_room) / 2.0).round();
         title.setFrame(NSRect::new(
             NSPoint::new(left, middle(title_size.height)),
             NSSize::new(title_width, title_size.height),
@@ -145,30 +173,51 @@ pub fn button(
     }
     plate.addSubview(&title);
     plate.addSubview(&keys);
-    plate.addSubview(&click_target(answer, index, plate.bounds(), target, mtm));
+    // SAFETY: the caller promises `target` implements `action` and outlives the button.
+    let click = unsafe { click_target(answer, plate.bounds(), target, action, mtm) };
+    click.setTag(tag);
+    plate.addSubview(&click);
     plate.into_super()
 }
 
-/// A transparent button over the whole answer: the click, and what `VoiceOver` reads.
-fn click_target(
+/// One answer of a sheet as a button `width` wide; a click sends `answer:` to `target` with
+/// the answer's index as the sender's tag.
+pub fn button(
     answer: &SheetAnswer,
     index: usize,
+    width: CGFloat,
+    target: &AnyObject,
+    mtm: MainThreadMarker,
+) -> Retained<NSView> {
+    let tag = isize::try_from(index).unwrap_or(isize::MAX);
+    // SAFETY: the sheet's target implements `answer:`, which takes a sender, and the sheet
+    // keeps it alive for as long as its buttons.
+    unsafe { keyed_button(answer, Some(width), target, sel!(answer:), tag, mtm) }
+}
+
+/// A transparent button over the whole answer: the click, and what `VoiceOver` reads.
+///
+/// # Safety
+///
+/// `target` must implement `action`, taking the sender, and outlive the button.
+unsafe fn click_target(
+    answer: &SheetAnswer,
     frame: NSRect,
     target: &AnyObject,
+    action: Sel,
     mtm: MainThreadMarker,
 ) -> Retained<NSButton> {
     let label = NSString::from_str(&answer.label);
-    // SAFETY: the target implements `answer:`, which takes a sender, and the sheet keeps the
-    // target alive for as long as its buttons.
-    let button = unsafe {
-        NSButton::buttonWithTitle_target_action(&label, Some(target), Some(sel!(answer:)), mtm)
-    };
+    // SAFETY: the caller promises `target` implements `action` and outlives the button.
+    let button =
+        unsafe { NSButton::buttonWithTitle_target_action(&label, Some(target), Some(action), mtm) };
     button.setBordered(false);
     button.setTransparent(true);
     button.setRefusesFirstResponder(true);
     button.setAccessibilityLabel(Some(&label));
-    button.setAccessibilityHelp(Some(&NSString::from_str(&format!("Keys: {}", answer.keys))));
-    button.setTag(isize::try_from(index).unwrap_or(isize::MAX));
+    if !answer.keys.is_empty() {
+        button.setAccessibilityHelp(Some(&NSString::from_str(&format!("Keys: {}", answer.keys))));
+    }
     button.setFrame(frame);
     button
 }

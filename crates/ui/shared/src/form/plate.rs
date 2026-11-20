@@ -71,6 +71,12 @@ impl Plate {
         plate
     }
 
+    /// Changes the corner radius, as when a pill it rings changes height; drawn again.
+    pub fn set_radius(&self, radius: CGFloat) {
+        self.ivars().radius.set(radius);
+        self.setNeedsDisplay(true);
+    }
+
     /// Changes the colors; the plate is drawn again.
     pub fn set_paint(&self, fill: Option<Paint>, border: Option<Paint>) {
         self.ivars().fill.set(fill);
