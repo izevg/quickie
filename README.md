@@ -7,7 +7,8 @@
 **Fast. Discreet. Leaves no trace.**
 
 The web, edge to edge; everything else is one keystroke away.
-A personal, macOS-only web browser: Chromium underneath, a native Rust and AppKit shell on top.
+A personal web browser for macOS (Linux later): our own WebKit underneath, a native Rust and AppKit
+shell on top.
 The page fills the window, the interface answers the keyboard like VS Code, Liquid Glass appears
 only where something floats, and nothing phones home.
 
@@ -16,14 +17,14 @@ only where something floats, and nothing phones home.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust edition 2024](https://img.shields.io/badge/rust-edition%202024-orange.svg)](Cargo.toml)
 ![Platform](https://img.shields.io/badge/platform-macOS%2026-lightgrey.svg)
-![Engine](https://img.shields.io/badge/engine-Chromium-4285F4.svg)
+![Engine](https://img.shields.io/badge/engine-WebKit-1D8CF0.svg)
 ![Telemetry: none](https://img.shields.io/badge/telemetry-none-brightgreen.svg)
 
 </div>
 
-> **Status: pre-alpha.** The design and the quality harness are in place; there is no browser
-> code yet. Next is phase P0: the shell on a WebKit stand-in, so the interface can be lived in
-> before the first Chromium build. See the [roadmap](#roadmap).
+> **Status: pre-alpha.** P0 runs on the system WebKit: tabs, palette, keymap, glass overlays,
+> gestures, shields, downloads, and the agent's Ask mode. Next: engine ports and our own WebKit
+> fork. See the [roadmap](#roadmap).
 
 ## Why
 
@@ -69,8 +70,8 @@ glass above the page, and is gone when you are done:
 | Keymap | VS Code-style bindings with `when` contexts and chords, all rebindable; works on non-Latin layouts | P0 |
 | Gestures | Native two-finger back and forward with a live preview, pinch for a tab overview | P0 |
 | Liquid Glass with elevation | Four levels (page, indicators, overlays, sheets); glass only where something floats, never glass on glass | P0 |
-| Chromium engine | Web compatibility, DevTools, MV3 extensions | P1 |
-| Trackerless | ungoogled-chromium base, built-in ad and tracker blocking, an egress test that proves zero phone-home | P2 |
+| Our own WebKit | A WebKit fork built on CI for macOS and Linux (WebKitGTK): automation and request approval for the agent, programmatic Web Inspector, per-request blocking; system codecs | P1 |
+| Trackerless | No Google services to strip, built-in ad and tracker blocking, an egress test that proves zero phone-home | P2 |
 | Built-in agent | `?` in the palette asks any OpenAI-compatible endpoint (Ollama, LM Studio, hosted APIs) about the page | P4 |
 | External agents | MCP over a Unix socket; actions only in an isolated agent profile, with approvals | P4 |
 | Anti-fingerprinting | Per-site, per-session noise for canvas, audio, and WebGL | P5 |
@@ -129,15 +130,16 @@ Details, the full checklist, and what breaks: [docs/privacy.md](docs/privacy.md)
 ```
 ui (Feature-Sliced Design) ──▶ application (use cases, port traits) ──▶ domain (pure)
                                      ▲
-shell (composition root) ──▶ adapters: Chromium (cxx) · WebKit stand-in · SQLite · LLM · MCP · Keychain
+shell (composition root) ──▶ adapters: WebKit (system, then our fork) · SQLite · LLM · MCP · Keychain
 ```
 
-- **C++ where it is Chromium; Rust everywhere else.** AppKit and Core Animation through `objc2`,
-  the Chromium boundary through `cxx`. No Swift, no SwiftUI, no HTML chrome.
+- **C++ where it is the engine; Rust everywhere else.** AppKit and Core Animation through `objc2`.
+  No Swift, no SwiftUI, no HTML chrome.
 - **DDD, hexagonal, clean.** Each bounded context is a crate; the build rejects a wrong-way import.
-- **Small diff against Chromium.** ungoogled-chromium patches plus our own, on the Extended Stable
-  channel, rebased with agent help.
-- **One network stack.** Every request, LLM calls included, goes through Chromium, so the egress
+- **A small WebKit fork.** Our patches as commits on a pinned WebKit revision, rebased for every
+  security release, built on CI for macOS and Linux. Chromium is parked
+  ([why](docs/architecture.md#decision-our-own-webkit-2026-11-20)).
+- **One network stack.** Every request, LLM calls included, goes through the engine, so the egress
   test sees everything.
 
 The whole picture (C1 to C4, crates, hot-path budgets, security): [docs/architecture.md](docs/architecture.md).
@@ -147,9 +149,9 @@ The whole picture (C1 to C4, crates, hot-path budgets, security): [docs/architec
 | Phase | Result | Done when |
 |---|---|---|
 | P0 | The shell on a WebKit stand-in: palette, switcher, glass, gestures, keymap | It works as a daily browser for a week, without extensions |
-| P1 | Chromium with ungoogled patches, the native window, the `cxx` bridge | The same UI on Chromium, with DevTools and extensions |
+| P1 | Engine ports; our WebKit fork on CI for macOS and Linux; agent Act mode | The conformance suite passes on the fork; the agent acts with real request approval |
 | P2 | Shields, privacy patches, egress test in CI | A fresh profile reaches no unsolicited host in 10 minutes |
-| P3 | Native sheets instead of Chromium bubbles, link hints, tab overview, keymap editor | — |
+| P3 | Settings, keymap editor, environment chips, reader mode | — |
 | P4 | Built-in and external agents, approvals, audit log | `?` answers through Ollama; an external agent drives a tab in the agent profile |
 | P5 | Anti-fingerprinting, self-hosted services | privacytests.org results on par with Brave |
 
@@ -165,7 +167,7 @@ mise run pre-commit                            # the fast gates
 mise run pre-push                              # everything, mutation testing included
 ```
 
-Running the development app (on the `WebKit` engine until the Chromium build exists):
+Running the development app (on the system WebKit until our fork ships):
 
 ```sh
 mise exec -- cargo run -p quickie                  # the bare binary; URLs or files may follow `--`
@@ -181,7 +183,7 @@ made from `docs/assets/logo.png` at bundle time, and signs it ad hoc so WebKit's
 launch. As a bundle, Quickie opens the links and files other apps hand it, and the palette's
 **Set as Default Browser** asks macOS to make it the default browser (macOS confirms with you).
 The ad-hoc signature is for development only: the Developer ID signed and notarized build comes
-with the Chromium product build in P1.
+with the engine fork's release pipeline in P1.
 
 | Gate | Runs |
 |---|---|
@@ -200,8 +202,8 @@ merged into `main`, where git-cliff computes the version and the release notes f
 | [AGENTS.md](AGENTS.md) | Binding rules for humans and agents: language, commits, branches, the rule of four, layers, invariants, gates |
 | [Architecture](docs/architecture.md) | Stack, C1 to C4, crates and ports, Liquid Glass elevation, engine sync, repository layout, infrastructure, roadmap |
 | [Quality](docs/quality.md) | Gates, hooks, lints, the layer map, mutation testing, CI and releases |
-| [Privacy](docs/privacy.md) | The trackerless model, the Chromium services checklist, the egress test |
-| [Engine](engine/README.md) | Fetching, patching and building Chromium with `//quickie`; what is verified, what is `TODO(verify)` |
+| [Privacy](docs/privacy.md) | The trackerless model, the services checklist, the egress test |
+| [Engine](engine/README.md) | The parked Chromium scaffold (reference); the WebKit fork's build replaces it |
 | [Lessons](docs/lessons.md) | What went wrong in Arc, Dia, Vivaldi, Orion, Zen, Helium, and agentic browsers, and the rule each lesson became |
 | [Design system](docs/design/system.md) | Color, type, spacing, elevation, motion, and voice, mapped onto native macOS |
 | [Component inventory](docs/design/inventory.md) | Every mocked screen and component, cut into FSD layers |
@@ -217,6 +219,6 @@ the file tree, the layer map, and the quality gates. Hooks are never bypassed.
 
 ## License
 
-[Apache License 2.0](LICENSE). Chromium and ungoogled-chromium, which Quickie builds on, are
-BSD-3-Clause and keep their own notices; every dependency must stay license-compatible
-(`cargo deny` rejects the GPL family).
+[Apache License 2.0](LICENSE). WebKit, which Quickie builds on, keeps its own licenses (WebKit2
+BSD; WebCore and JavaScriptCore LGPL-2.1, so our changes to them are published). Every crate must
+stay license-compatible (`cargo deny` rejects the GPL family).
