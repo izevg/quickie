@@ -296,7 +296,10 @@ How it is built:
   cherry-picked from each Apple security note; the base moves to the next stable series about
   every six months. Decided 2026-11-20 over two bases (a Safari branch for macOS, the stable
   series for Linux), which would double every patch and rebase.
-- **Patches grouped by meaning** under `engine/` (rule of four), each with its reason; the macOS
+- **Patches as commits in the fork**, one branch per patch (`quickie/patch/<area>-<name>`) merged
+  into `quickie/2.54`, whose commit `engine/webkit/webkit.pin` names; no patch files here. What
+  each patch is for, its size, its tests and its order:
+  [engine/webkit/PATCHES.md](../engine/webkit/PATCHES.md). The macOS
   port links the result into the app bundle (frameworks and their XPC services, as Playwright and
   Safari Technology Preview do), the Linux port into the GTK build.
 - **Built on CI, never on the developer's laptop**, for macOS (arm64) and Linux (x86_64, arm64);
