@@ -54,8 +54,6 @@ pub mod overlay {
     pub const ANSWER_PANEL_SHARE: CGFloat = 0.4;
     /// The answer panel at its tallest.
     pub const ANSWER_PANEL_MAX_HEIGHT: CGFloat = 640.0;
-    /// One tab in the `⌃⇥` switcher strip (titles only, until thumbnails).
-    pub const SWITCHER_CELL_WIDTH: CGFloat = 200.0;
     /// Palettes sit this fraction of the window height below its top edge.
     pub const PALETTE_TOP: CGFloat = 0.15;
     /// The tab overview at its widest, and the narrowest it gets for its header and hints.

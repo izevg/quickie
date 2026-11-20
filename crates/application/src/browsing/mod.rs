@@ -298,13 +298,14 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         TabCycle::begin(self.session.mru(window)?, direction)
     }
 
-    /// `⌃` was released: activates the selection.
+    /// `⌃` was released: activates the selection. `None` when the switcher's filter kept
+    /// nothing, so there is nothing to switch to.
     ///
     /// # Errors
     ///
     /// The selected tab closed during the cycle, or the store or the engine failed.
-    pub fn commit_cycle(&mut self, cycle: &TabCycle) -> Result<WindowId, AppError> {
-        self.activate(cycle.selected())
+    pub fn commit_cycle(&mut self, cycle: &TabCycle) -> Result<Option<WindowId>, AppError> {
+        cycle.selected().map(|tab| self.activate(tab)).transpose()
     }
 
     /// Drops trash entries past the 30-day retention; returns how many went.
