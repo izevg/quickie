@@ -9,6 +9,9 @@
 //!   a fetched `/player` response) has its ad fields pruned before its own scripts read them,
 //!   its ad elements hidden (host rules, generic rules, generic class rules, a procedural rule),
 //!   and nothing of Quickie's is reachable from the page's world.
+//! - Shorts: a page that mimics the Shorts feed of a video site loses the ad reel from its
+//!   `reel_watch_sequence` answers (fetched, through `XMLHttpRequest`, and parsed) by the lists'
+//!   own `[-]` rules, keeps the other reels, and hides a reel with an ad slot inserted later.
 //!
 //! `WebKit` wants the main thread and its run loop, so this test has its own `main` instead of
 //! the test harness, whose tests run on worker threads.
@@ -85,6 +88,70 @@ fetch("/player").then((r) => r.json()).then((fetched) => {
 /// What the watch page must report.
 const WATCHED: &str = r#"{"initial":"pruned","parsed":"keep","fetched":"videoDetails","a":"none","b":"none","c":"none","d":"none","e":"block","library":"undefined","handler":"undefined"}"#;
 
+/// The Shorts feed's ad rules, as uBlock filters and `EasyList` write them for youtube.com, on
+/// localhost; the XHR and `{-}` rules are not in the lists but use the same syntax.
+const SHORTS_LIST: &str = "! Title: local shorts list\n\
+    localhost##+js(json-prune-fetch-response, \
+    reelWatchSequenceResponse.entries.[-].command.reelWatchEndpoint.adClientParams.isAd \
+    entries.[-].command.reelWatchEndpoint.adClientParams.isAd, , propsToMatch, \
+    url:/reel_watch_sequence?)\n\
+    localhost##+js(json-prune-xhr-response, \
+    entries.[-].command.reelWatchEndpoint.adClientParams.isAd, , propsToMatch, \
+    url:/reel_watch_sequence?)\n\
+    localhost##+js(json-prune, entries.[-].command.reelWatchEndpoint.adClientParams.isAd)\n\
+    localhost##+js(json-prune, slots.{-}.adSlotRenderer)\n\
+    localhost###shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer)\n";
+
+/// A `reel_watch_sequence` answer in the shape the video site sends it: three reels, the second an ad.
+/// Hand-written, not recorded.
+const REELS: &str = r#"{"entries":[{"command":{"reelWatchEndpoint":{"videoId":"v1"}}},{"command":{"reelWatchEndpoint":{"videoId":"v2","adClientParams":{"isAd":true}}}},{"command":{"reelWatchEndpoint":{"videoId":"v3"}}}],"continuationEndpoint":{"token":"t"}}"#;
+
+/// The same answer as some clients get it, wrapped in `reelWatchSequenceResponse`.
+const WRAPPED_REELS: &str = r#"{"reelWatchSequenceResponse":{"entries":[{"command":{"reelWatchEndpoint":{"videoId":"v1"}}},{"command":{"reelWatchEndpoint":{"videoId":"v2","adClientParams":{"isAd":true}}}},{"command":{"reelWatchEndpoint":{"videoId":"v3"}}}]}}"#;
+
+/// A page that mimics the Shorts feed: it fetches the next reels with `fetch` and
+/// `XMLHttpRequest` and reads them as text, parses them with `JSON.parse`, and inserts reels,
+/// one with an ad slot, after it loaded. It reports the reels it got and which it shows.
+const SHORTS: &str = r#"<!doctype html><title>shorts</title>
+<div id="shorts-inner-container"></div>
+<script>
+const sequence = "/youtubei/v1/reel/reel_watch_sequence?prettyPrint=false";
+const ids = (text) => [...text.matchAll(/"videoId":"(\w+)"/g)].map((m) => m[1]).join(",");
+const fetched = fetch(new Request(sequence)).then((r) => r.text());
+const wrapped = fetch(sequence + "&wrapped=1").then((r) => r.text());
+const xhr = new Promise((resolve) => {
+  const request = new XMLHttpRequest();
+  request.open("GET", sequence);
+  request.onload = () => resolve(request.responseText);
+  request.send();
+});
+const parsed = JSON.parse('{"entries":[{"command":{"reelWatchEndpoint":{"videoId":"v1"}}},' +
+  '{"command":{"reelWatchEndpoint":{"videoId":"v2","adClientParams":{"isAd":true}}}}],' +
+  '"slots":{"a":{"adSlotRenderer":{}},"b":{"reel":{}}}}');
+setTimeout(() => {
+  document.getElementById("shorts-inner-container").innerHTML =
+    '<div class="ytd-shorts" id="r1"><div class="ytd-reel-video-renderer">video</div></div>' +
+    '<div class="ytd-shorts" id="r2"><div class="ytd-reel-video-renderer">' +
+    '<ytd-ad-slot-renderer>ad</ytd-ad-slot-renderer></div></div>';
+}, 100);
+Promise.all([fetched, wrapped, xhr]).then(([fetched, wrapped, xhr]) => {
+  setTimeout(() => {
+    const shown = (id) => getComputedStyle(document.getElementById(id)).display;
+    const report = {
+      fetched: ids(fetched), wrapped: ids(wrapped), xhr: ids(xhr),
+      parsed: parsed.entries.map((e) => e.command.reelWatchEndpoint.videoId).join(","),
+      length: parsed.entries.length, slots: Object.keys(parsed.slots).join(","),
+      r1: shown("r1"), r2: shown("r2"),
+    };
+    fetch("/report?" + encodeURIComponent(JSON.stringify(report)));
+  }, 800);
+});
+</script>"#;
+
+/// What the Shorts page must report: the ad reel is gone from every answer, the others stay,
+/// and the inserted reel with an ad slot is hidden.
+const SHORTS_SEEN: &str = r#"{"fetched":"v1,v3","wrapped":"v1,v3","xhr":"v1,v3","parsed":"v1","length":1,"slots":"b","r1":"block","r2":"none"}"#;
+
 /// Requests the local server saw, by path and query.
 type Seen = Arc<Mutex<Vec<String>>>;
 
@@ -92,7 +159,7 @@ fn main() -> ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
         return report("not on the main thread", Err("WebKit needs it".to_owned()));
     };
-    let cases: [(&str, Case); 5] = [
+    let cases: [(&str, Case); 6] = [
         (
             "a_list_compiled_while_a_page_is_open_blocks_on_new_and_reloaded_pages",
             blocks_on_new_and_reloaded_pages,
@@ -108,6 +175,10 @@ fn main() -> ExitCode {
         (
             "a_video_page_s_ads_are_pruned_and_hidden_before_its_scripts_see_them",
             video_page_ads_are_pruned_and_hidden,
+        ),
+        (
+            "a_shorts_feed_s_ad_reels_are_removed_from_its_answers_and_hidden",
+            shorts_feed_ads_are_removed,
         ),
         (
             "a_request_on_the_main_thread_is_refused",
@@ -225,6 +296,26 @@ fn rules_are_reused(mtm: MainThreadMarker) -> Outcome {
 }
 
 fn video_page_ads_are_pruned_and_hidden(mtm: MainThreadMarker) -> Outcome {
+    let report = page_report(mtm, VIDEO_LIST, "watch.html")?;
+
+    check(
+        report == WATCHED,
+        &format!("the page saw {report}, not {WATCHED}"),
+    )
+}
+
+fn shorts_feed_ads_are_removed(mtm: MainThreadMarker) -> Outcome {
+    let report = page_report(mtm, SHORTS_LIST, "shorts.html")?;
+
+    check(
+        report == SHORTS_SEEN,
+        &format!("the page saw {report}, not {SHORTS_SEEN}"),
+    )
+}
+
+/// Opens `page` on localhost with the cosmetic `list`, as uBlock filters (a trusted list), and
+/// returns what the page reported.
+fn page_report(mtm: MainThreadMarker, list: &str, page: &str) -> Result<String, String> {
     let (base, seen) = serve("localhost")?;
     let dir = tempfile::tempdir().map_err(|error| error.to_string())?;
     let mut engine = WebKitEngine::new(&[], mtm);
@@ -233,21 +324,18 @@ fn video_page_ads_are_pruned_and_hidden(mtm: MainThreadMarker) -> Outcome {
         .map_err(|error| error.to_string())?;
     let tab = TabId::new(Profile::Main, 1);
 
-    let mut video = rules(VIDEO_LIST, &[]);
-    video.lists[0].list = FilterListId::UblockFilters;
-    blocker.install(&video).map_err(|error| error.to_string())?;
+    let mut cosmetic = rules(list, &[]);
+    cosmetic.lists[0].list = FilterListId::UblockFilters;
+    blocker
+        .install(&cosmetic)
+        .map_err(|error| error.to_string())?;
     spin_until(|| blocker.cosmetics_ready())?;
-    let watch = base.join("watch.html").map_err(|error| error.to_string())?;
+    let url = base.join(page).map_err(|error| error.to_string())?;
     engine
-        .create(tab, &watch, Jar::Main)
+        .create(tab, &url, Jar::Main)
         .map_err(|error| error.to_string())?;
     spin_until(|| reported(&seen).is_some())?;
-    let report = reported(&seen).unwrap_or_default();
-
-    check(
-        report == WATCHED,
-        &format!("the page saw {report}, not {WATCHED}"),
-    )
+    Ok(reported(&seen).unwrap_or_default())
 }
 
 fn main_thread_refused(_mtm: MainThreadMarker) -> Outcome {
@@ -389,6 +477,11 @@ fn answer(stream: TcpStream, log: &Seen) {
     let (kind, body) = match path.as_str() {
         "/page.html" => ("text/html", PAGE),
         "/watch.html" => ("text/html", WATCH),
+        "/shorts.html" => ("text/html", SHORTS),
+        "/youtubei/v1/reel/reel_watch_sequence" if target.contains("wrapped") => {
+            ("application/json", WRAPPED_REELS)
+        }
+        "/youtubei/v1/reel/reel_watch_sequence" => ("application/json", REELS),
         "/tracker.js" => ("text/javascript", "window.tracked = true;"),
         "/player" => (
             "application/json",
