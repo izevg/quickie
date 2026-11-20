@@ -1,15 +1,14 @@
-//! Downloads: the engine's reports become library transitions (`Library::download_*`), and the
-//! popover's requests become library commands and engine calls. A toast says when one starts,
-//! ends, or fails. A file Quickie writes itself, a page saved as a PDF, is listed started and
-//! finished at once.
+//! Downloads: the engine's reports go to the `Library` use case, which lists them and knows
+//! which listed download each of the engine's is; the popover's requests become library
+//! commands, which drive the engine's downloads. A toast says when one starts, ends, or fails.
+//! A file Quickie writes itself, a page saved as a PDF, is listed started and finished at once.
 
 use std::path::PathBuf;
 
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSArray, NSString, NSURL};
-use quickie_application::{AppError, DownloadEvent, DownloadToken};
-use quickie_domain_browsing::{Jar, TabId};
-use quickie_domain_library::{DownloadError, DownloadId};
+use quickie_application::{DownloadEvent, DownloadMoved};
+use quickie_domain_library::DownloadId;
 use quickie_ui_shared::Trigger;
 use quickie_ui_widgets::{DownloadsRequest, Toast, ToastKind};
 
@@ -33,92 +32,39 @@ impl Browser {
         self.popovers.downloads.show(&host, &downloads, trigger);
     }
 
-    /// A download the engine reported on, into the library. The popover catches up once per
-    /// drain ([`Self::refresh_downloads`]).
+    /// A download the engine reported on, into the library, and a toast for what the user
+    /// should hear of it. The popover catches up once per drain ([`Self::refresh_downloads`]).
     pub(in crate::browser) fn download_report(&self, report: DownloadEvent) {
-        let key = report.token();
-        let id = self.popovers.links.borrow().ids.get(&key).copied();
-        let mut library = self.library.borrow_mut();
-        let outcome = match (report, id) {
-            (
-                DownloadEvent::Started {
-                    tab,
-                    jar,
-                    url,
-                    file,
-                    ..
-                },
-                _,
-            ) => {
-                let name = file_name(&file);
-                drop(library);
-                return self.download_started(key, tab, jar, url, name);
-            }
-            (DownloadEvent::Refused { reason, .. }, _) => {
-                drop(library);
-                return self.notify(Toast::problem(format!("Couldn't download: {reason}")));
-            }
-            (DownloadEvent::Saved { jar, url, file, .. }, _) => {
-                let name = file_name(&file);
-                let toast = Toast::new(ToastKind::Success, "Saved to Downloads").with_detail(&name);
-                let listed = library
-                    .download_started(url, name, jar)
-                    .and_then(|id| library.download_finished(id));
-                drop(library);
-                return match listed {
-                    Ok(()) => self.notify(toast),
-                    Err(error) => self.report(&error),
-                };
-            }
-            (_, None) => return,
-            (
-                DownloadEvent::Progress {
-                    received, total, ..
-                },
-                Some(id),
-            ) => library.download_progressed(id, received, total),
-            (DownloadEvent::Finished { .. }, Some(id)) => library
-                .download_finished(id)
-                .map(|()| self.ended(&library, id, ToastKind::Success, "Downloaded")),
-            (DownloadEvent::Failed { reason, .. }, Some(id)) => library
-                .download_failed(id, reason)
-                .map(|()| self.ended(&library, id, ToastKind::Problem, "Download failed")),
+        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+            return;
         };
-        drop(library);
-        match outcome {
-            // The user cancelled it first; the engine's last word comes after.
-            Ok(()) | Err(AppError::Download(DownloadError::Ended(_))) => {}
+        let moved = self
+            .library
+            .borrow_mut()
+            .download_moved(report, browsing.engine_mut());
+        drop(browsing);
+        match moved {
+            Ok(DownloadMoved::Started { file_name, .. }) => {
+                self.notify(Toast::info("Downloading").with_detail(&file_name));
+            }
+            Ok(DownloadMoved::Refused { reason }) => {
+                self.notify(Toast::problem(format!("Couldn't download: {reason}")));
+            }
+            Ok(DownloadMoved::Saved { file_name, .. }) => {
+                self.notify(
+                    Toast::new(ToastKind::Success, "Saved to Downloads").with_detail(&file_name),
+                );
+            }
+            Ok(DownloadMoved::Finished(id)) => self.ended(id, ToastKind::Success, "Downloaded"),
+            Ok(DownloadMoved::Failed(id)) => self.ended(id, ToastKind::Problem, "Download failed"),
+            Ok(DownloadMoved::Progressed(_) | DownloadMoved::Unlisted) => {}
             Err(error) => self.report(&error),
         }
     }
 
-    fn download_started(
-        &self,
-        key: DownloadToken,
-        tab: TabId,
-        jar: Jar,
-        url: url::Url,
-        name: String,
-    ) {
-        let toast = Toast::info("Downloading").with_detail(&name);
-        let started = self.library.borrow_mut().download_started(url, name, jar);
-        match started {
-            Ok(id) => {
-                let mut links = self.popovers.links.borrow_mut();
-                links.ids.insert(key, id);
-                links.keys.insert(id, (key, tab));
-                drop(links);
-                self.notify(toast);
-            }
-            Err(error) => {
-                self.browsing.borrow_mut().engine_mut().cancel_download(key);
-                self.report(&error);
-            }
-        }
-    }
-
     /// Tells that a download ended, by its name.
-    fn ended(&self, library: &crate::Lib, id: DownloadId, kind: ToastKind, what: &str) {
+    fn ended(&self, id: DownloadId, kind: ToastKind, what: &str) {
+        let library = self.library.borrow();
         if let Some(download) = library.downloads().get(id) {
             self.notify(Toast::new(kind, what).with_detail(&download.file_name));
         }
@@ -133,16 +79,8 @@ impl Browser {
             DownloadsRequest::Retry(id) => self.retry_download(id),
             DownloadsRequest::ClearFinished => {
                 let cleared = self.library.borrow_mut().clear_finished_downloads();
-                match cleared {
-                    Ok(cleared) => {
-                        let mut links = self.popovers.links.borrow_mut();
-                        for download in cleared {
-                            if let Some((key, _)) = links.keys.remove(&download.id) {
-                                links.ids.remove(&key);
-                            }
-                        }
-                    }
-                    Err(error) => self.report(&error),
+                if let Err(error) = cleared {
+                    self.report(&error);
                 }
             }
         }
@@ -167,54 +105,40 @@ impl Browser {
     }
 
     fn cancel_download(&self, id: DownloadId) {
-        let cancelled = self.library.borrow_mut().cancel_download(id);
+        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+            return;
+        };
+        let cancelled = self
+            .library
+            .borrow_mut()
+            .cancel_download(id, browsing.engine_mut());
+        drop(browsing);
         if let Err(error) = cancelled {
-            return self.report(&error);
-        }
-        let key = self
-            .popovers
-            .links
-            .borrow()
-            .keys
-            .get(&id)
-            .map(|&(key, _)| key);
-        if let Some(key) = key {
-            self.browsing.borrow_mut().engine_mut().cancel_download(key);
+            self.report(&error);
         }
     }
 
-    /// Fetches an ended download again from the page that started it, or, when that tab is
-    /// gone, from the current page; a throwaway jar's download only from its own tab.
+    /// Fetches an ended download again: the library picks the page that started it, or, when
+    /// that tab is gone, the current page; a throwaway jar's download only its own tab.
     fn retry_download(&self, id: DownloadId) {
-        let origin = self
-            .popovers
-            .links
-            .borrow()
-            .keys
-            .get(&id)
-            .map(|&(_, tab)| tab);
-        let session_only = self.library.borrow().is_session_only(id);
-        let open = |tab: TabId| self.browsing.borrow().session().tab(tab).is_some();
-        let tab = match origin.filter(|&tab| open(tab)) {
-            Some(tab) => Some(tab),
-            None if session_only => None,
-            None => self.current().and_then(|(window, _)| self.active(window)),
+        let current = self.current().and_then(|(window, _)| self.active(window));
+        self.palette_sources_changed();
+        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+            return;
         };
-        let Some(tab) = tab else {
-            return self.toast("Its throwaway tab is closed, so it can't be fetched again");
-        };
-        let retried = self.library.borrow_mut().retry_download(id);
-        let download = match retried {
-            Ok(download) => download,
-            Err(error) => return self.report(&error),
-        };
-        {
-            let mut links = self.popovers.links.borrow_mut();
-            if let Some((key, _)) = links.keys.remove(&id) {
-                links.ids.remove(&key);
-            }
+        let (session, engine) = browsing.session_and_engine();
+        let retried = self.library.borrow_mut().retry_download(
+            id,
+            engine,
+            |tab| session.tab(tab).is_some(),
+            current,
+        );
+        drop(browsing);
+        match retried {
+            Ok(true) => {}
+            Ok(false) => self.toast("Its throwaway tab is closed, so it can't be fetched again"),
+            Err(error) => self.report(&error),
         }
-        self.run(|browsing| Ok(browsing.engine_mut().download(tab, &download.url)?));
     }
 
     /// The file of a listed download: in the Downloads folder under its name.
@@ -246,9 +170,4 @@ impl Browser {
         }
         true
     }
-}
-
-fn file_name(file: &std::path::Path) -> String {
-    file.file_name()
-        .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
 }

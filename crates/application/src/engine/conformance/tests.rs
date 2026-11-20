@@ -8,8 +8,8 @@ use url::Url;
 
 use super::{Driven, Event, Group, Harness, MemoryEngine, Outcome, PageSource, Report, run};
 use crate::{
-    Answer, AskKind, BlockerRules, ContentBlockerPort, DownloadToken, EngineError, EngineEvent,
-    EnginePort, PageRect, Permission, ReplyToken,
+    Answer, AskKind, BlockerRules, ContentBlockerPort, EngineEvent, EnginePort, PageAsks, PageRect,
+    Permission,
 };
 
 /// The reference engine, driven as an adapter would drive its own.
@@ -58,15 +58,6 @@ impl Harness for Memory {
         engine.drain(into);
     }
 
-    fn answer(
-        &mut self,
-        engine: &mut MemoryEngine,
-        token: ReplyToken,
-        answer: &Answer,
-    ) -> Driven<bool> {
-        Ok(engine.answer(token, answer))
-    }
-
     fn click(
         &mut self,
         engine: &mut MemoryEngine,
@@ -78,24 +69,8 @@ impl Harness for Memory {
         Ok(Ok(()))
     }
 
-    fn downloads_into(&mut self, engine: &mut MemoryEngine) -> Driven<Result<PathBuf, String>> {
-        let folder = PathBuf::from("/downloads");
-        engine.set_download_directory(folder.clone());
-        Ok(Ok(folder))
-    }
-
-    fn download(
-        &mut self,
-        engine: &mut MemoryEngine,
-        tab: TabId,
-        url: &Url,
-    ) -> Driven<Result<(), EngineError>> {
-        Ok(engine.download(tab, url))
-    }
-
-    fn cancel_download(&mut self, engine: &mut MemoryEngine, token: DownloadToken) -> Driven<()> {
-        engine.cancel_download(token);
-        Ok(())
+    fn new_folder(&mut self) -> Driven<Result<PathBuf, String>> {
+        Ok(Ok(PathBuf::from("/downloads")))
     }
 
     fn downloaded(&self, engine: &MemoryEngine, file: &Path) -> Driven<Option<Vec<u8>>> {

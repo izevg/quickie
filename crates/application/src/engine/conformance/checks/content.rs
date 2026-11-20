@@ -1,17 +1,18 @@
 //! What is on a page (find, hints, text), what it fetches (downloads, blocker), and its
 //! renderer dying (crash).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use quickie_domain_browsing::{FindMatches, Jar};
+use quickie_domain_settings::ZoomLevel;
 use quickie_domain_shields::{ContentHash, FilterListId, Site};
 
 use super::{Case, Checked, Run, ensure, same, tab};
 use crate::conformance::{Group, Harness, site};
 use crate::{
-    BlockerRules, DownloadEvent, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep,
-    Followed, Found, ListRules, Navigation, PageContent, Ticket,
+    BlockerRules, DownloadEvent, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort,
+    FindStep, Followed, Found, ListRules, Navigation, PageContent, PageZoom, Ticket,
 };
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
@@ -69,6 +70,11 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             "without_a_folder_a_download_is_refused",
             refused_download,
         ),
+        case(
+            Group::Downloads,
+            "a_page_saved_as_a_pdf_is_a_file_in_the_folder",
+            saved_pdf,
+        ),
         case(Group::Blocker, "a_blocked_script_never_runs", blocked),
         case(
             Group::Blocker,
@@ -79,6 +85,16 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             Group::Crash,
             "a_crashed_page_is_reported_and_reloads",
             crashed,
+        ),
+        case(
+            Group::Zoom,
+            "a_zoomed_page_lays_out_larger_across_navigations",
+            zoomed,
+        ),
+        case(
+            Group::Zoom,
+            "zooming_a_tab_without_a_page_changes_nothing",
+            zoomed_without_a_page,
         ),
     ]
 }
@@ -369,8 +385,15 @@ fn finished<H: Harness>(
     same("the downloaded file", &file, &want)
 }
 
+/// Makes a new folder the engine's downloads folder.
+fn downloads_into<H: Harness>(run: &mut Run<'_, H>) -> Result<PathBuf, String> {
+    let folder = run.harness.new_folder()??;
+    run.engine.set_directory(folder.clone());
+    Ok(folder)
+}
+
 fn attachment_downloads<H: Harness>(run: &mut Run<'_, H>) -> Checked {
-    let folder = run.harness.downloads_into(&mut run.engine)??;
+    let folder = downloads_into(run)?;
     run.create(1, "plain", Jar::Main)?;
     run.wait_visit(1, "plain", "Plain")?;
 
@@ -385,34 +408,34 @@ fn attachment_downloads<H: Harness>(run: &mut Run<'_, H>) -> Checked {
 }
 
 fn asked_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
-    let folder = run.harness.downloads_into(&mut run.engine)??;
+    let folder = downloads_into(run)?;
     run.create(1, "plain", Jar::Main)?;
     run.wait_visit(1, "plain", "Plain")?;
 
     let attachment = run.url("report.bin");
-    run.harness
-        .download(&mut run.engine, tab(1), &attachment)?
+    run.engine
+        .download(tab(1), &attachment)
         .map_err(|error| format!("downloading failed: {error}"))?;
 
     let token = started(run, "report.bin", &folder)?;
     finished(run, token, "report.bin", &folder)?;
-    let without = run.harness.download(&mut run.engine, tab(9), &attachment)?;
+    let without = run.engine.download(tab(9), &attachment);
     ensure(without.is_err(), || {
         "a tab without a page downloaded".to_owned()
     })
 }
 
 fn cancelled_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
-    let folder = run.harness.downloads_into(&mut run.engine)??;
+    let folder = downloads_into(run)?;
     run.create(1, "plain", Jar::Main)?;
     run.wait_visit(1, "plain", "Plain")?;
     let stalled = run.url("stalled.bin");
-    run.harness
-        .download(&mut run.engine, tab(1), &stalled)?
+    run.engine
+        .download(tab(1), &stalled)
         .map_err(|error| format!("downloading failed: {error}"))?;
     let token = started(run, "stalled.bin", &folder)?;
 
-    run.harness.cancel_download(&mut run.engine, token)?;
+    run.engine.cancel(token);
     let mark = run.events.len();
     run.idle();
 
@@ -436,8 +459,8 @@ fn refused_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     run.engine
         .navigate(tab(1), &Navigation::Load(attachment.clone()))
         .map_err(|error| format!("loading the attachment failed: {error}"))?;
-    run.harness
-        .download(&mut run.engine, tab(1), &attachment)?
+    run.engine
+        .download(tab(1), &attachment)
         .map_err(|error| format!("downloading failed: {error}"))?;
 
     run.wait("both downloads to be refused", |events| {
@@ -448,6 +471,77 @@ fn refused_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
         matches!(tokens.as_slice(), [first, second] if first != second),
         || format!("two refused downloads have the tokens {tokens:?}"),
     )
+}
+
+fn saved_pdf<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let folder = downloads_into(run)?;
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    run.engine
+        .save_pdf(tab(1))
+        .map_err(|error| format!("saving a PDF failed: {error}"))?;
+
+    run.wait("the PDF to be saved or refused", |events| {
+        downloads(events).any(|event| {
+            matches!(
+                event,
+                DownloadEvent::Saved { .. } | DownloadEvent::Refused { .. }
+            )
+        })
+    })?;
+    let saved = downloads(&run.events).find_map(|event| match event {
+        DownloadEvent::Saved {
+            tab,
+            jar,
+            url,
+            file,
+            ..
+        } => Some(((*tab, *jar, url.clone()), file.clone())),
+        _ => None,
+    });
+    let (page, file) = saved.ok_or_else(|| {
+        format!(
+            "the PDF was refused: {:?}",
+            downloads(&run.events).collect::<Vec<_>>()
+        )
+    })?;
+    same(
+        "the saved page",
+        &page,
+        &(tab(1), Jar::Main, run.url("plain")),
+    )?;
+    ensure(file.parent() == Some(folder.as_path()), || {
+        format!("{} is not in {}", file.display(), folder.display())
+    })?;
+    let written = run.harness.downloaded(&run.engine, &file)?;
+    ensure(
+        written.is_some_and(|bytes| bytes.starts_with(b"%PDF")),
+        || format!("{} holds no PDF", file.display()),
+    )?;
+
+    run.engine
+        .save_pdf(tab(1))
+        .map_err(|error| format!("saving a second PDF failed: {error}"))?;
+    run.wait("the second PDF to be saved", |events| {
+        saved_files(events).len() == 2
+    })?;
+    let tokens = saved_files(&run.events);
+    ensure(
+        matches!(tokens.as_slice(), [first, second] if first != second),
+        || format!("two saved PDFs have the tokens {tokens:?}"),
+    )?;
+    ensure(run.engine.save_pdf(tab(9)).is_err(), || {
+        "a tab without a page was saved".to_owned()
+    })
+}
+
+/// The files made from pages so far.
+fn saved_files<P>(events: &[EngineEvent<P>]) -> Vec<DownloadToken> {
+    downloads(events)
+        .filter(|event| matches!(event, DownloadEvent::Saved { .. }))
+        .map(DownloadEvent::token)
+        .collect()
 }
 
 /// The downloads refused so far.
@@ -501,6 +595,94 @@ fn unshielded<H: Harness>(run: &mut Run<'_, H>) -> Checked {
         .map_err(|error| format!("reloading failed: {error}"))?;
 
     run.wait_title(1, EVERY_SCRIPT)
+}
+
+/// Waits for tab `serial`'s page, from `mark` on, to say how wide its viewport is.
+fn width<H: Harness>(run: &mut Run<'_, H>, mark: usize, serial: u64) -> Result<f64, String> {
+    let event = run.take(mark, &format!("{}'s width", tab(serial)), |event| {
+        measured(event, serial).is_some()
+    })?;
+    let width = measured(&event, serial).unwrap_or_default();
+    width
+        .parse()
+        .map_err(|_| format!("{width:?} is not a width"))
+}
+
+/// The width tab `serial`'s page says it is, when `event` is it saying so.
+fn measured<P>(event: &EngineEvent<P>, serial: u64) -> Option<&str> {
+    match event {
+        EngineEvent::Committed {
+            tab: about, title, ..
+        }
+        | EngineEvent::Titled {
+            tab: about, title, ..
+        } if *about == tab(serial) => title.strip_prefix("width:"),
+        _ => None,
+    }
+}
+
+/// Navigates tab 1 as `navigation` says and waits for the measured page's width.
+fn remeasure<H: Harness>(run: &mut Run<'_, H>, navigation: &Navigation) -> Result<f64, String> {
+    let mark = run.events.len();
+    run.engine
+        .navigate(tab(1), navigation)
+        .map_err(|error| format!("navigating failed: {error}"))?;
+    width(run, mark, 1)
+}
+
+/// Fails unless `got` is `want`, to a pixel's rounding.
+fn about_as_wide(what: &str, got: f64, want: f64) -> Checked {
+    ensure((got - want).abs() <= 1.0, || {
+        format!("{what}: expected {want} CSS pixels wide, the page was {got}")
+    })
+}
+
+fn zoomed<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let twice = ZoomLevel::from_percent(200).ok_or("200 % is no zoom level")?;
+    run.create(1, "measured", Jar::Main)?;
+    run.create(2, "measured", Jar::Main)?;
+    let actual = width(run, 0, 1)?;
+    width(run, 0, 2)?;
+
+    run.engine.set_zoom(tab(1), twice);
+    let mark = run.events.len();
+    for serial in [1, 2] {
+        run.engine
+            .navigate(tab(serial), &Navigation::Reload)
+            .map_err(|error| format!("reloading failed: {error}"))?;
+    }
+    // The other tab first: its page keeps its own zoom, whatever the zoomed one reports.
+    let other = width(run, mark, 2)?;
+    about_as_wide("another tab", other, actual)?;
+    let zoomed = width(run, mark, 1)?;
+    about_as_wide("at 200 %", zoomed, actual / 2.0)?;
+
+    remeasure_elsewhere(run)?;
+    let back = remeasure(run, &Navigation::Load(run.url("measured")))?;
+    about_as_wide("at 200 % after going elsewhere", back, actual / 2.0)?;
+
+    run.engine.set_zoom(tab(1), ZoomLevel::DEFAULT);
+    let reset = remeasure(run, &Navigation::Reload)?;
+    about_as_wide("back at 100 %", reset, actual)
+}
+
+/// Takes tab 1 to another page and waits until it shows.
+fn remeasure_elsewhere<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.engine
+        .navigate(tab(1), &Navigation::Load(run.url("other")))
+        .map_err(|error| format!("loading another page failed: {error}"))?;
+    run.wait_visit(1, "other", "Other")
+}
+
+fn zoomed_without_a_page<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let twice = ZoomLevel::from_percent(200).ok_or("200 % is no zoom level")?;
+    run.engine.set_zoom(tab(1), twice);
+    run.create(1, "measured", Jar::Main)?;
+    run.create(2, "measured", Jar::Main)?;
+
+    let first = width(run, 0, 1)?;
+    let second = width(run, 0, 2)?;
+    about_as_wide("a page zoomed before it existed", first, second)
 }
 
 fn crashed<H: Harness>(run: &mut Run<'_, H>) -> Checked {

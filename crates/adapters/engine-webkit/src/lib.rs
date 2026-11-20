@@ -29,14 +29,12 @@
 //! network for the browser's own requests, such as fetching filter lists.
 //!
 //! Navigations that become downloads go to one download center, which saves them into the
-//! folder [`WebKitEngine::set_download_directory`] names and reports
-//! [`EngineEvent::Download`]s; a page saved as a PDF ([`WebKitEngine::save_pdf`]) is written
-//! there too, under a free name.
+//! folder [`Downloads::set_directory`] names and reports [`EngineEvent::Download`]s; a page
+//! saved as a PDF ([`Downloads::save_pdf`]) is written there too, under a free name.
 //!
 //! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from the
 //! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it.
-//! Page zoom ([`WebKitEngine::set_zoom`]) and printing ([`WebKitEngine::print`]) are the
-//! view's own.
+//! Page zoom ([`PageZoom`]) and printing ([`WebKitEngine::print`]) are the view's own.
 //!
 //! Web extensions ([`WebKitExtensions`], from [`WebKitEngine::web_extensions`]) run in the
 //! main jar's pages through one `WKWebExtensionController`, on macOS 15.4 and later; never in
@@ -70,10 +68,11 @@ use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrdering
 use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
-    Answer, Capabilities, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found,
-    Navigation, PageContent, ReplyToken, Ticket,
+    Answer, Capabilities, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, FindStep,
+    Found, Navigation, PageAsks, PageContent, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use downloads::DownloadCenter;
@@ -257,31 +256,6 @@ impl WebKitEngine {
         });
     }
 
-    /// Saves downloads into `directory` from now on; it is created when the first one comes.
-    /// Until this is called, every download is refused.
-    pub fn set_download_directory(&self, directory: PathBuf) {
-        self.downloads.set_directory(directory);
-    }
-
-    /// Stops a running download and deletes the part of its file already written; nothing
-    /// more is reported for it.
-    pub fn cancel_download(&self, token: DownloadToken) {
-        self.downloads.cancel(token);
-    }
-
-    /// Downloads `url` from a tab's page, in its jar, as a retry does; it is reported like any
-    /// other download.
-    ///
-    /// # Errors
-    ///
-    /// The tab has no page.
-    pub fn download(&self, tab: TabId, url: &Url) -> Result<(), EngineError> {
-        let page = self.page(tab)?;
-        let jar = self.inbox.jar_of(tab);
-        DownloadCenter::start(&self.downloads, page.web_view(), url, tab, jar);
-        Ok(())
-    }
-
     /// The content blocker of every page, existing and future. It keeps compiled rule lists in
     /// `directory`, which it creates.
     ///
@@ -381,14 +355,6 @@ impl WebKitEngine {
         self.pages.get(&tab).map(WebPage::zoom)
     }
 
-    /// Zooms a tab's page by `factor` (`WKWebView.pageZoom`): text and layout scale, as
-    /// Safari's zoom does. The page keeps it across navigations until it is set again.
-    pub fn set_zoom(&self, tab: TabId, factor: f64) {
-        if let Some(page) = self.pages.get(&tab) {
-            page.set_zoom(factor);
-        }
-    }
-
     /// Whether Web Inspector may attach to a tab's page: every page, popups included, is
     /// inspectable on macOS 13.3 and later.
     #[must_use]
@@ -403,38 +369,6 @@ impl WebKitEngine {
     /// The tab has no page, or its page is not in a window.
     pub fn print(&self, tab: TabId) -> Result<(), EngineError> {
         self.page(tab)?.print()
-    }
-
-    /// Saves a tab's page as a PDF in the downloads folder, under its title and a free name;
-    /// it is reported as [`EngineEvent::Download`] of [`DownloadEvent::Saved`], or of
-    /// [`DownloadEvent::Refused`] when it could not be made or written.
-    ///
-    /// [`DownloadEvent::Saved`]: quickie_application::DownloadEvent::Saved
-    /// [`DownloadEvent::Refused`]: quickie_application::DownloadEvent::Refused
-    ///
-    /// # Errors
-    ///
-    /// The tab has no page, or its page has not committed a URL yet.
-    pub fn save_pdf(&self, tab: TabId) -> Result<(), EngineError> {
-        let page = self.page(tab)?;
-        let (url, title) = page
-            .committed()
-            .ok_or_else(|| EngineError(format!("{tab} has no page to save yet")))?;
-        let url = Url::parse(&url).map_err(|error| EngineError(format!("{url}: {error}")))?;
-        let name = downloads::pdf_name(title.as_deref(), &url);
-        let jar = self.inbox.jar_of(tab);
-        let center = Rc::downgrade(&self.downloads);
-        page.pdf(move |made| {
-            if let Some(center) = center.upgrade() {
-                DownloadCenter::save(&center, tab, jar, url, &name, made);
-            }
-        });
-        Ok(())
-    }
-
-    /// Answers an ask ([`EngineEvent::Asked`]); false when its page no longer waits.
-    pub fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
-        self.inbox.answer(token, answer)
     }
 
     fn store(&mut self, jar: Jar) -> Retained<WKWebsiteDataStore> {
@@ -648,6 +582,63 @@ impl PageContent for WebKitEngine {
             );
         });
         Ok(ticket)
+    }
+}
+
+/// Navigations that become downloads, and downloads asked for, go to one download center,
+/// which saves them into the folder set here; a page saved as a PDF is written there too,
+/// under a free name. A download is fetched in its page's jar.
+impl Downloads for WebKitEngine {
+    fn set_directory(&mut self, directory: PathBuf) {
+        self.downloads.set_directory(directory);
+    }
+
+    fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        let jar = self.inbox.jar_of(tab);
+        DownloadCenter::start(&self.downloads, page.web_view(), url, tab, jar);
+        Ok(())
+    }
+
+    /// Stops a running download and deletes the part of its file already written.
+    fn cancel(&mut self, token: DownloadToken) {
+        self.downloads.cancel(token);
+    }
+
+    /// The page as `WKWebView` renders it into a PDF, named after its title.
+    fn save_pdf(&mut self, tab: TabId) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        let (url, title) = page
+            .committed()
+            .ok_or_else(|| EngineError(format!("{tab} has no page to save yet")))?;
+        let url = Url::parse(&url).map_err(|error| EngineError(format!("{url}: {error}")))?;
+        let name = downloads::pdf_name(title.as_deref(), &url);
+        let jar = self.inbox.jar_of(tab);
+        let center = Rc::downgrade(&self.downloads);
+        page.pdf(move |made| {
+            if let Some(center) = center.upgrade() {
+                DownloadCenter::save(&center, tab, jar, url, &name, made);
+            }
+        });
+        Ok(())
+    }
+}
+
+/// The inbox holds what each waiting page's UI delegate handed `WebKit` to call back with; an
+/// answer calls it, and the page goes on.
+impl PageAsks for WebKitEngine {
+    fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
+        self.inbox.answer(token, answer)
+    }
+}
+
+/// A level is `WKWebView.pageZoom` at its factor: text and layout scale, as Safari's zoom does,
+/// and the view keeps it across navigations.
+impl PageZoom for WebKitEngine {
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel) {
+        if let Some(page) = self.pages.get(&tab) {
+            page.set_zoom(level.factor());
+        }
     }
 }
 

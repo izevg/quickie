@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use super::{Memory, failed};
@@ -13,9 +14,9 @@ use crate::conformance::{
     Driven, Event, Group, Harness, MemoryEngine, MemoryPage, NotDriven, Outcome, PageSource, run,
 };
 use crate::{
-    Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, EngineError,
-    EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageContent, PageRect,
-    ReplyToken, Ticket,
+    Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, Downloads,
+    EngineError, EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageAsks,
+    PageContent, PageRect, PageZoom, ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -37,12 +38,20 @@ enum Fault {
     LateEnd,
     /// A cancelled download still reports progress.
     ReportsCancelled,
-    /// The harness cannot answer asks.
-    CannotAnswer,
+    /// Saving a page as a PDF does nothing.
+    SavesNoPdf,
+    /// The harness cannot click pages.
+    CannotClick,
+    /// Every answer is taken, whether a page waits for it or not.
+    TakesEveryAnswer,
     /// Clearing a find does nothing.
     KeepsFind,
     /// Reading a page's text ignores the most asked for.
     UncutText,
+    /// Zooming does nothing.
+    IgnoresZoom,
+    /// A zoom set before its tab has a page waits for the page.
+    ZoomsAhead,
 }
 
 /// The reference engine with a fault.
@@ -58,6 +67,57 @@ struct Broken {
     later: Vec<EngineEvent<MemoryPage>>,
     /// Events held back until the engine turns again.
     next_turn: Vec<EngineEvent<MemoryPage>>,
+    /// Zooms set for tabs without a page yet.
+    ahead: Vec<(TabId, ZoomLevel)>,
+}
+
+impl Downloads for Broken {
+    fn set_directory(&mut self, directory: PathBuf) {
+        self.engine.set_directory(directory);
+    }
+
+    fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError> {
+        self.engine.download(tab, url)
+    }
+
+    fn cancel(&mut self, token: DownloadToken) {
+        if let Fault::ReportsCancelled = self.fault {
+            self.later
+                .push(EngineEvent::Download(DownloadEvent::Progress {
+                    token,
+                    received: 1,
+                    total: None,
+                }));
+        }
+        self.engine.cancel(token);
+    }
+
+    fn save_pdf(&mut self, tab: TabId) -> Result<(), EngineError> {
+        match self.fault {
+            Fault::SavesNoPdf => Ok(()),
+            _ => self.engine.save_pdf(tab),
+        }
+    }
+}
+
+impl PageAsks for Broken {
+    fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
+        let waited = self.engine.answer(token, answer);
+        waited || matches!(self.fault, Fault::TakesEveryAnswer)
+    }
+}
+
+impl PageZoom for Broken {
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel) {
+        match self.fault {
+            Fault::IgnoresZoom => {}
+            Fault::ZoomsAhead => {
+                self.ahead.push((tab, level));
+                self.engine.set_zoom(tab, level);
+            }
+            _ => self.engine.set_zoom(tab, level),
+        }
+    }
 }
 
 impl EnginePort for Broken {
@@ -71,6 +131,9 @@ impl EnginePort for Broken {
         let created = self.engine.create(tab, url, jar);
         if let (Fault::WakesInsideCalls, Some(wake)) = (self.fault, &self.wake) {
             wake();
+        }
+        for (_, level) in self.ahead.iter().filter(|(ahead, _)| *ahead == tab) {
+            self.engine.set_zoom(tab, *level);
         }
         created
     }
@@ -151,6 +214,7 @@ impl Harness for Faulty {
             closed: Vec::new(),
             later: Vec::new(),
             next_turn: Vec::new(),
+            ahead: Vec::new(),
         }
     }
 
@@ -200,13 +264,6 @@ impl Harness for Faulty {
         }
     }
 
-    fn answer(&mut self, engine: &mut Broken, token: ReplyToken, answer: &Answer) -> Driven<bool> {
-        match self.0 {
-            Fault::CannotAnswer => Err(NotDriven("answer")),
-            _ => Memory.answer(&mut engine.engine, token, answer),
-        }
-    }
-
     fn click(
         &mut self,
         engine: &mut Broken,
@@ -214,33 +271,14 @@ impl Harness for Faulty {
         at: PageRect,
         command: bool,
     ) -> Driven<Result<(), String>> {
-        Memory.click(&mut engine.engine, tab, at, command)
-    }
-
-    fn downloads_into(&mut self, engine: &mut Broken) -> Driven<Result<PathBuf, String>> {
-        Memory.downloads_into(&mut engine.engine)
-    }
-
-    fn download(
-        &mut self,
-        engine: &mut Broken,
-        tab: TabId,
-        url: &Url,
-    ) -> Driven<Result<(), EngineError>> {
-        Memory.download(&mut engine.engine, tab, url)
-    }
-
-    fn cancel_download(&mut self, engine: &mut Broken, token: DownloadToken) -> Driven<()> {
-        if let Fault::ReportsCancelled = self.0 {
-            engine
-                .later
-                .push(EngineEvent::Download(DownloadEvent::Progress {
-                    token,
-                    received: 1,
-                    total: None,
-                }));
+        match self.0 {
+            Fault::CannotClick => Err(NotDriven("click")),
+            _ => Memory.click(&mut engine.engine, tab, at, command),
         }
-        Memory.cancel_download(&mut engine.engine, token)
+    }
+
+    fn new_folder(&mut self) -> Driven<Result<PathBuf, String>> {
+        Memory.new_folder()
     }
 
     fn downloaded(&self, engine: &Broken, file: &Path) -> Driven<Option<Vec<u8>>> {
@@ -389,6 +427,16 @@ fn a_cancelled_download_that_still_reports_fails() {
 }
 
 #[test]
+fn a_pdf_that_is_never_saved_fails() {
+    let report = run(&mut Faulty(Fault::SavesNoPdf));
+
+    assert_eq!(
+        failed(&report),
+        ["a_page_saved_as_a_pdf_is_a_file_in_the_folder"]
+    );
+}
+
+#[test]
 fn a_download_that_fails_instead_of_finishing_fails() {
     let report = run(&mut Faulty(Fault::Events(|event| match event {
         EngineEvent::Download(DownloadEvent::Finished { token }) => {
@@ -503,29 +551,53 @@ fn a_followed_button_that_names_a_link_fails() {
 }
 
 #[test]
-fn a_feature_the_harness_cannot_drive_fails_its_group_and_says_so() {
-    let report = run(&mut Faulty(Fault::CannotAnswer));
+fn a_zoom_that_does_nothing_fails() {
+    let report = run(&mut Faulty(Fault::IgnoresZoom));
 
-    let alert = report
+    assert_eq!(
+        failed(&report),
+        ["a_zoomed_page_lays_out_larger_across_navigations"]
+    );
+}
+
+#[test]
+fn a_zoom_that_waits_for_its_page_fails() {
+    let report = run(&mut Faulty(Fault::ZoomsAhead));
+
+    assert_eq!(
+        failed(&report),
+        ["zooming_a_tab_without_a_page_changes_nothing"]
+    );
+}
+
+#[test]
+fn a_feature_the_harness_cannot_drive_fails_its_group_and_says_so() {
+    let report = run(&mut Faulty(Fault::CannotClick));
+
+    let clicked = report
         .verdicts()
         .iter()
-        .find(|verdict| verdict.case == "an_alert_waits_for_its_answer")
+        .find(|verdict| verdict.case == "a_command_click_opens_in_the_background")
         .map(|verdict| verdict.outcome.clone());
     assert_eq!(
-        alert,
+        clicked,
         Some(Outcome::Failed(
-            "the harness cannot drive `answer`: drive it or declare the group unsupported"
+            "the harness cannot drive `click`: drive it or declare the group unsupported"
                 .to_owned()
         ))
     );
+    assert_eq!(failed(&report), ["a_command_click_opens_in_the_background"]);
+}
+
+#[test]
+fn an_answer_nobody_waits_for_that_is_taken_fails() {
+    let report = run(&mut Faulty(Fault::TakesEveryAnswer));
+
     assert_eq!(
         failed(&report),
         [
             "an_alert_waits_for_its_answer",
-            "a_confirm_hears_ok_or_cancel",
-            "a_prompt_hears_the_text",
-            "closing_a_tab_declines_what_its_page_asked",
-            "a_camera_request_waits_for_its_answer"
+            "closing_a_tab_declines_what_its_page_asked"
         ]
     );
 }

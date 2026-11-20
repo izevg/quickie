@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use quickie_domain_browsing::{Focus, Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use quickie_domain_shields::Site;
 use url::Url;
 
@@ -18,8 +19,9 @@ use super::site::resource;
 use super::{Act, Control, Resource};
 use crate::{
     Answer, Ask, AskKind, BlockerError, BlockerRules, ContentBlockerPort, Dialog, DownloadEvent,
-    DownloadToken, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found,
-    LinkTarget, Navigation, PageContent, PageRect, Permission, ReplyToken, Ticket,
+    DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed,
+    Found, LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageZoom, Permission,
+    ReplyToken, Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -82,30 +84,6 @@ impl MemoryEngine {
         self.events.drain_into(into);
     }
 
-    /// Answers an ask; false when its page no longer waits.
-    pub fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
-        let Some((&tab, page)) = self
-            .pages
-            .iter_mut()
-            .find(|(_, page)| page.asked.is_some_and(|(asked, _)| asked == token))
-        else {
-            return false;
-        };
-        let accepted = matches!(answer, Answer::Accept(_));
-        let title = match page.asked.take().map(|(_, act)| act) {
-            Some(Act::Confirm(_)) => format!("confirm:{accepted}"),
-            Some(Act::Prompt(_, default)) => match answer {
-                Answer::Accept(text) => format!("prompt:{}", text.as_deref().unwrap_or(default)),
-                Answer::Decline => "prompt:null".to_owned(),
-            },
-            Some(Act::Camera) if accepted => "camera:allowed".to_owned(),
-            Some(Act::Camera) => "camera:denied".to_owned(),
-            _ => return true,
-        };
-        self.events.titled(tab, title);
-        true
-    }
-
     /// The user clicks the link or button of a tab's page whose frame, as
     /// [`PageContent::link_targets`] gave it, is `at`, holding `⌘` when `command`: a link opens
     /// in a background tab with `⌘`, in a new tab when it asks for a new window, and in its
@@ -117,29 +95,6 @@ impl MemoryEngine {
             .and_then(|page| targets(page).iter().position(|target| target.frame == at));
         if let Some(index) = index {
             self.press(tab, index, command);
-        }
-    }
-
-    /// Saves downloads into `folder` from now on; until then, every download is refused.
-    pub fn set_download_directory(&mut self, folder: PathBuf) {
-        self.folder = Some(folder);
-    }
-
-    /// Downloads `url` from a tab's page, in its jar.
-    ///
-    /// # Errors
-    ///
-    /// The tab has no page.
-    pub fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError> {
-        let jar = self.page(tab)?.jar;
-        self.start(tab, jar, url.clone());
-        Ok(())
-    }
-
-    /// Stops a running download and deletes what it wrote; nothing more is reported for it.
-    pub fn cancel_download(&mut self, token: DownloadToken) {
-        if let Some(file) = self.running.remove(&token) {
-            self.files.remove(&file);
         }
     }
 
@@ -258,6 +213,10 @@ impl MemoryEngine {
                     });
                 self.events.titled(tab, format!("scripts:{ran}"));
             }
+            Act::ShowWidth => {
+                let width = (WIDTH / page.zoom.factor()).round();
+                self.events.titled(tab, format!("width:{width}"));
+            }
         }
     }
 
@@ -340,6 +299,9 @@ impl MemoryEngine {
         }
     }
 }
+
+/// How wide every page view is, in points.
+const WIDTH: f64 = 1000.0;
 
 /// The URL of the suite's resource at `path` under `base`.
 fn at(base: &Url, path: &str) -> Url {
@@ -492,6 +454,96 @@ impl PageContent for MemoryEngine {
             followed,
         });
         Ok(ticket)
+    }
+}
+
+/// Downloads land in a folder that exists only in memory; a page saved as a PDF is a file named
+/// after its title that starts the way every PDF does.
+impl Downloads for MemoryEngine {
+    fn set_directory(&mut self, directory: PathBuf) {
+        self.folder = Some(directory);
+    }
+
+    fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError> {
+        let jar = self.page(tab)?.jar;
+        self.start(tab, jar, url.clone());
+        Ok(())
+    }
+
+    fn cancel(&mut self, token: DownloadToken) {
+        if let Some(file) = self.running.remove(&token) {
+            self.files.remove(&file);
+        }
+    }
+
+    fn save_pdf(&mut self, tab: TabId) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        let jar = page.jar;
+        let (url, shown) = page
+            .shown
+            .clone()
+            .ok_or_else(|| EngineError(format!("{tab} has no page to save yet")))?;
+        self.serial += 1;
+        let token = DownloadToken::new(self.serial);
+        let Some(folder) = self.folder.as_ref() else {
+            self.events
+                .push(EngineEvent::Download(DownloadEvent::Refused {
+                    token,
+                    reason: "no downloads folder".to_owned(),
+                }));
+            return Ok(());
+        };
+        let file = folder.join(format!("{}.pdf", shown.title));
+        self.files.insert(
+            file.clone(),
+            format!("%PDF-1.4 {}", shown.text).into_bytes(),
+        );
+        self.events
+            .push(EngineEvent::Download(DownloadEvent::Saved {
+                token,
+                tab,
+                jar,
+                url,
+                file,
+            }));
+        Ok(())
+    }
+}
+
+/// The page that waits hears the answer and goes on: a confirm, a prompt, or a camera request
+/// puts it in its title.
+impl PageAsks for MemoryEngine {
+    fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
+        let Some((&tab, page)) = self
+            .pages
+            .iter_mut()
+            .find(|(_, page)| page.asked.is_some_and(|(asked, _)| asked == token))
+        else {
+            return false;
+        };
+        let accepted = matches!(answer, Answer::Accept(_));
+        let title = match page.asked.take().map(|(_, act)| act) {
+            Some(Act::Confirm(_)) => format!("confirm:{accepted}"),
+            Some(Act::Prompt(_, default)) => match answer {
+                Answer::Accept(text) => format!("prompt:{}", text.as_deref().unwrap_or(default)),
+                Answer::Decline => "prompt:null".to_owned(),
+            },
+            Some(Act::Camera) if accepted => "camera:allowed".to_owned(),
+            Some(Act::Camera) => "camera:denied".to_owned(),
+            _ => return true,
+        };
+        self.events.titled(tab, title);
+        true
+    }
+}
+
+/// A page keeps its zoom across its navigations; its viewport is as many CSS pixels narrower as
+/// the zoom is larger.
+impl PageZoom for MemoryEngine {
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel) {
+        if let Some(page) = self.pages.get_mut(&tab) {
+            page.zoom = level;
+        }
     }
 }
 

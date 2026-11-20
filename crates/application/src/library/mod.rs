@@ -14,11 +14,11 @@ mod downloads;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use quickie_domain_browsing::{Jar, Timestamp};
+use quickie_domain_browsing::{Jar, TabId, Timestamp};
 use quickie_domain_library::{
     Bookmark, Bookmarks, CorruptBookmarks, CorruptDownloads, CorruptHistory, CorruptShortcuts,
     DownloadId, Downloads, Forgotten, History, Keyword, Recorded, Saved, SearchShortcuts, Tag,
@@ -26,7 +26,9 @@ use quickie_domain_library::{
 };
 use url::Url;
 
-use crate::{AppError, Clock, LibraryRepo, StoreError};
+use crate::{AppError, Clock, DownloadToken, LibraryRepo, StoreError};
+
+pub use downloads::DownloadMoved;
 
 /// A saved part of the library that broke an invariant at start; it was replaced by a fresh
 /// one, which the next change of that part saves over it.
@@ -55,6 +57,10 @@ pub struct Library<R, C> {
     downloads: Downloads,
     /// Downloads of throwaway jars: listed while Quickie runs, never saved.
     session_only: HashSet<DownloadId>,
+    /// The listed download each of the engine's downloads is.
+    listed: HashMap<DownloadToken, DownloadId>,
+    /// The engine's download behind each listed one this session, and the tab it came from.
+    fetched: HashMap<DownloadId, (DownloadToken, TabId)>,
     corrupt_on_start: Vec<CorruptLibrary>,
     repo: R,
     clock: C,
@@ -89,6 +95,8 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
             shortcuts,
             downloads,
             session_only: HashSet::new(),
+            listed: HashMap::new(),
+            fetched: HashMap::new(),
             corrupt_on_start,
             repo,
             clock,

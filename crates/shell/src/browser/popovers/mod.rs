@@ -5,14 +5,11 @@
 mod downloads;
 mod shields;
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 use objc2::MainThreadMarker;
-use quickie_application::DownloadToken;
 use quickie_domain_browsing::TabId;
-use quickie_domain_library::DownloadId;
 use quickie_ui_widgets::{DownloadsPopover, ShieldsPopover};
 
 use super::Browser;
@@ -24,16 +21,8 @@ pub struct Popovers {
     shields: ShieldsPopover,
     /// Where downloads are saved.
     folder: PathBuf,
-    /// The engine's downloads and the library's, both ways, with the tab each came from.
-    links: RefCell<Links>,
     /// The tab whose shields changed since its page loaded: `⏎` reloads it.
     reload_offered: Cell<Option<TabId>>,
-}
-
-#[derive(Default)]
-struct Links {
-    ids: HashMap<DownloadToken, DownloadId>,
-    keys: HashMap<DownloadId, (DownloadToken, TabId)>,
 }
 
 impl Popovers {
@@ -51,7 +40,6 @@ impl Popovers {
             downloads,
             shields: ShieldsPopover::new(mtm),
             folder,
-            links: RefCell::new(Links::default()),
             reload_offered: Cell::new(None),
         }
     }

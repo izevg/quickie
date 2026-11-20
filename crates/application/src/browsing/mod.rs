@@ -114,6 +114,12 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         &mut self.engine
     }
 
+    /// The session to read and the engine to drive at once, for a use case that puts the
+    /// session's pages in some state through an engine port (their zoom, for one).
+    pub fn session_and_engine(&mut self) -> (&Session, &mut E) {
+        (&self.session, &mut self.engine)
+    }
+
     /// Opens an empty window; the caller opens its first tab.
     ///
     /// # Errors

@@ -7,8 +7,9 @@
 //! The checks are grouped by what an engine can do ([`Group`]). An engine that cannot do a group
 //! says so, with why, in [`Harness::unsupported`]; nothing is skipped silently. A group the
 //! harness does not declare runs, and a page feature it needs that the harness does not drive
-//! fails it. A feature that is a port ([`PageContent`]: find, link hints, text) is called on the
-//! engine itself, and an engine that answers it with an error fails the group the same way.
+//! fails it. A feature that is a port ([`PageContent`]: find, link hints, text; [`PageZoom`];
+//! [`PageAsks`]; [`Downloads`]) is called on the engine itself, and an engine that answers it
+//! with an error fails the group the same way.
 //!
 //! [`MemoryEngine`] is the reference: an engine whose pages live in memory and do what the suite's
 //! pages say, in turns of its own loop. It passes every group, which also keeps the suite honest.
@@ -27,8 +28,7 @@ use quickie_domain_browsing::{Profile, TabId, WindowId};
 use url::Url;
 
 use crate::{
-    Answer, BlockerRules, DownloadToken, EngineError, EngineEvent, EnginePort, PageContent,
-    PageRect, ReplyToken,
+    BlockerRules, Downloads, EngineEvent, EnginePort, PageAsks, PageContent, PageRect, PageZoom,
 };
 
 pub use memory::{MemoryEngine, MemoryPage};
@@ -75,11 +75,13 @@ pub enum Group {
     Blocker,
     /// A page whose renderer died is reported and reloads.
     Crash,
+    /// A zoomed page lays out larger, and stays zoomed across its navigations.
+    Zoom,
 }
 
 impl Group {
     /// Every group, in the order the suite runs them.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Core,
         Self::Events,
         Self::Opened,
@@ -92,6 +94,7 @@ impl Group {
         Self::Downloads,
         Self::Blocker,
         Self::Crash,
+        Self::Zoom,
     ];
 }
 
@@ -118,11 +121,12 @@ pub trait PageSource {
 }
 
 /// One engine, as the suite drives it: the ports it implements ([`EnginePort`],
-/// [`PageContent`]), how its loop runs, and the page features that are not ports yet, each
-/// mapped to the engine's own call. A feature the harness cannot drive answers [`NotDriven`].
+/// [`PageContent`], [`PageZoom`], [`PageAsks`], [`Downloads`]), how its loop runs, and the page
+/// features that are not ports yet, each mapped to the engine's own call. A feature the harness
+/// cannot drive answers [`NotDriven`].
 pub trait Harness: PageSource {
     /// The engine under test.
-    type Engine: EnginePort<Page: fmt::Debug> + PageContent;
+    type Engine: EnginePort<Page: fmt::Debug> + PageContent + PageZoom + PageAsks + Downloads;
 
     /// Why the engine does not do `group`, or `None` when it does and the group runs.
     fn unsupported(&self, group: Group) -> Option<&'static str>;
@@ -147,18 +151,6 @@ pub trait Harness: PageSource {
     /// Moves the events that wait to the end of `into`, oldest first.
     fn drain(engine: &mut Self::Engine, into: &mut Vec<Event<Self>>);
 
-    /// Answers an ask; false when its page no longer waits.
-    ///
-    /// # Errors
-    ///
-    /// The harness cannot drive it.
-    fn answer(
-        &mut self,
-        engine: &mut Self::Engine,
-        token: ReplyToken,
-        answer: &Answer,
-    ) -> Driven<bool>;
-
     /// Clicks a tab's page in the middle of `at`, a link target's frame, as the user does,
     /// holding `⌘` when `command`; or says why it could not. The page is shown in [`WINDOW`].
     ///
@@ -173,32 +165,13 @@ pub trait Harness: PageSource {
         command: bool,
     ) -> Driven<Result<(), String>>;
 
-    /// Makes a new, empty folder the engine's downloads folder and names it, or says why it
-    /// could not.
+    /// Makes a new, empty folder where the engine may save downloads, and names it, or says why
+    /// it could not. The check makes it the engine's downloads folder.
     ///
     /// # Errors
     ///
     /// The harness cannot drive it.
-    fn downloads_into(&mut self, engine: &mut Self::Engine) -> Driven<Result<PathBuf, String>>;
-
-    /// Downloads `url` from a tab's page.
-    ///
-    /// # Errors
-    ///
-    /// The harness cannot drive it.
-    fn download(
-        &mut self,
-        engine: &mut Self::Engine,
-        tab: TabId,
-        url: &Url,
-    ) -> Driven<Result<(), EngineError>>;
-
-    /// Cancels a running download.
-    ///
-    /// # Errors
-    ///
-    /// The harness cannot drive it.
-    fn cancel_download(&mut self, engine: &mut Self::Engine, token: DownloadToken) -> Driven<()>;
+    fn new_folder(&mut self) -> Driven<Result<PathBuf, String>>;
 
     /// What a downloaded `file` holds, `None` when there is no such file.
     ///
