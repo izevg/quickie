@@ -5,7 +5,6 @@
 
 use quickie_application::{LlmPort, LocalFound, detect_local, list_models};
 use quickie_domain_agents::{ApiKey, BaseUrl, ModelId};
-use quickie_engine_webkit::UrlSessionHttp;
 use quickie_llm::OpenAiClient;
 use quickie_ui_screens::Pane;
 use quickie_ui_widgets::{SettingsForm, SettingsRequest, SettingsSummary, Tone, agent_wording};
@@ -115,8 +114,9 @@ impl Browser {
             .map(|saved| saved.moved(base.clone(), saved.model().clone()));
         let secrets = self.agent_ui.secrets.clone();
         let host = base.as_url().host_str().unwrap_or_default().to_owned();
+        let http = self.http.clone();
         let work = move || -> Listed {
-            let llm = OpenAiClient::new(UrlSessionHttp::new());
+            let llm = OpenAiClient::new(http);
             let models = match (typed, saved) {
                 (Some(key), _) => llm
                     .models(&base, Some(&key))
@@ -164,7 +164,8 @@ impl Browser {
         let settings = &self.agent_ui.settings;
         settings.set_busy(true);
         settings.set_status("Looking for a local LLM on this Mac…", Tone::Neutral);
-        let work = || detect_local(&OpenAiClient::new(UrlSessionHttp::new()));
+        let http = self.http.clone();
+        let work = move || detect_local(&OpenAiClient::new(http));
         if !self.off_main("quickie-agent-detect", work, Self::local_found) {
             settings.set_busy(false);
             settings.set_status("Couldn't start looking.", Tone::Problem);

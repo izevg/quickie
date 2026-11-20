@@ -26,9 +26,9 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSDate, NSObjectProtocol, NSPoint, NSRect, NSRunLoop, NSSize};
 use quickie_application::conformance::{
-    self, Driven, Event, Group, Harness, PageSource, Resource, SITE, WINDOW,
+    self, Driven, Group, Harness, PageSource, Resource, SITE, WINDOW,
 };
-use quickie_application::{BlockerRules, ContentBlockerPort, PageRect};
+use quickie_application::{BlockerRules, ContentBlockerPort, Engine, PageRect, PageSurface};
 use quickie_domain_browsing::TabId;
 use quickie_engine_webkit::{BlockerStatus, WebKitContentBlocker, WebKitEngine};
 use tempfile::TempDir;
@@ -122,6 +122,7 @@ impl Harness for WebKit {
                  (NSCameraUsageDescription), which the bundled app has and a test binary does not",
             ),
             Group::Core
+            | Group::Surface
             | Group::Events
             | Group::Opened
             | Group::Jars
@@ -152,7 +153,9 @@ impl Harness for WebKit {
         };
         let host = NSView::initWithFrame(NSView::alloc(self.mtm), frame);
         window.setContentView(Some(&host));
-        engine.attach_host(WINDOW, &host);
+        if let Err(error) = engine.attach_host(WINDOW, &host) {
+            print(&format!("the window's host was refused: {error}\n"));
+        }
         self.windows.push(window);
         engine
     }
@@ -179,14 +182,6 @@ impl Harness for WebKit {
         while Instant::now() < until {
             spin();
         }
-    }
-
-    fn set_waker(engine: &mut WebKitEngine, wake: Box<dyn Fn()>) {
-        engine.set_waker(wake);
-    }
-
-    fn drain(engine: &mut WebKitEngine, into: &mut Vec<Event<Self>>) {
-        engine.drain(into);
     }
 
     fn click(

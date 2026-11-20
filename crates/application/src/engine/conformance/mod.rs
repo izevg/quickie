@@ -7,9 +7,9 @@
 //! The checks are grouped by what an engine can do ([`Group`]). An engine that cannot do a group
 //! says so, with why, in [`Harness::unsupported`]; nothing is skipped silently. A group the
 //! harness does not declare runs, and a page feature it needs that the harness does not drive
-//! fails it. A feature that is a port ([`PageContent`]: find, link hints, text; [`PageZoom`];
-//! [`PageAsks`]; [`Downloads`]) is called on the engine itself, and an engine that answers it
-//! with an error fails the group the same way.
+//! fails it. A feature that is a port (the whole [`Engine`]: its events, [`PageSurface`],
+//! [`PageContent`], [`PageZoom`], [`PageAsks`], [`Downloads`]) is called on the engine itself,
+//! and an engine that answers it with an error fails the group the same way.
 //!
 //! [`MemoryEngine`] is the reference: an engine whose pages live in memory and do what the suite's
 //! pages say, in turns of its own loop. It passes every group, which also keeps the suite honest.
@@ -27,11 +27,11 @@ use std::path::{Path, PathBuf};
 use quickie_domain_browsing::{Profile, TabId, WindowId};
 use url::Url;
 
-use crate::{
-    BlockerRules, Downloads, EngineEvent, EnginePort, PageAsks, PageContent, PageRect, PageZoom,
-};
+use crate::{BlockerRules, Engine, EngineEvent, EnginePort, PageRect};
+#[cfg(doc)]
+use crate::{Downloads, PageAsks, PageContent, PageSurface, PageZoom};
 
-pub use memory::{MemoryEngine, MemoryPage};
+pub use memory::{MemoryBlocker, MemoryEngine, MemoryHttp, MemoryPage, MemoryView};
 pub use report::{Outcome, Report, Verdict};
 pub use site::{Act, Control, Resource, SITE, TestPage};
 
@@ -77,12 +77,16 @@ pub enum Group {
     Crash,
     /// A zoomed page lays out larger, and stays zoomed across its navigations.
     Zoom,
+    /// A page has a view while it exists, says how far it loaded, has a picture once captured,
+    /// and says when a text field of its own has focus.
+    Surface,
 }
 
 impl Group {
     /// Every group, in the order the suite runs them.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Core,
+        Self::Surface,
         Self::Events,
         Self::Opened,
         Self::Jars,
@@ -120,13 +124,12 @@ pub trait PageSource {
     fn base(&self) -> Url;
 }
 
-/// One engine, as the suite drives it: the ports it implements ([`EnginePort`],
-/// [`PageContent`], [`PageZoom`], [`PageAsks`], [`Downloads`]), how its loop runs, and the page
-/// features that are not ports yet, each mapped to the engine's own call. A feature the harness
-/// cannot drive answers [`NotDriven`].
+/// One engine, as the suite drives it: an [`Engine`], how its loop runs, and what the user or
+/// the machine does to its pages that no port does, each mapped to the engine's own call. A
+/// feature the harness cannot drive answers [`NotDriven`].
 pub trait Harness: PageSource {
     /// The engine under test.
-    type Engine: EnginePort<Page: fmt::Debug> + PageContent + PageZoom + PageAsks + Downloads;
+    type Engine: Engine<Page: fmt::Debug>;
 
     /// Why the engine does not do `group`, or `None` when it does and the group runs.
     fn unsupported(&self, group: Group) -> Option<&'static str>;
@@ -144,12 +147,6 @@ pub trait Harness: PageSource {
 
     /// Lets the engine work long enough for whatever would come to come.
     fn idle(&mut self, engine: &mut Self::Engine);
-
-    /// Sets what runs, on a later turn of the engine's loop, when events wait.
-    fn set_waker(engine: &mut Self::Engine, wake: Box<dyn Fn()>);
-
-    /// Moves the events that wait to the end of `into`, oldest first.
-    fn drain(engine: &mut Self::Engine, into: &mut Vec<Event<Self>>);
 
     /// Clicks a tab's page in the middle of `at`, a link target's frame, as the user does,
     /// holding `⌘` when `command`; or says why it could not. The page is shown in [`WINDOW`].

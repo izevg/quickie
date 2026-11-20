@@ -31,6 +31,7 @@ use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
     NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSView, NSWindow,
 };
+use quickie_domain_browsing::TabId;
 use quickie_domain_commands::{
     CommandId, ContextFlag, FocusedView, Key, KeyStroke, Modifiers, Resolution, WhenContext,
 };
@@ -38,6 +39,7 @@ use quickie_domain_commands::{
 use super::Browser;
 use super::commands::Action;
 use super::page::SheetRoute;
+use crate::MacEngine;
 use crate::input::keystroke::chord::PendingChord;
 use crate::input::keystroke::log::{Outcome, Press};
 use crate::input::keystroke::{OverlayKey, Read, is_close, is_quit, overlay_key, read};
@@ -297,14 +299,10 @@ impl Browser {
         let Some(tab) = self.active(window) else {
             return false;
         };
-        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+        let Ok(browsing) = self.browsing.try_borrow() else {
             return false;
         };
-        let engine = browsing.engine_mut();
-        let has_keyboard = engine
-            .view(tab)
-            .is_some_and(|page| first_responder_within(&ns_window, page));
-        has_keyboard && engine.input_focused(tab)
+        page_has_keys(browsing.engine(), tab, &ns_window)
     }
 
     /// An overlay's fixed key. While an input method composes, every key is the field's.
@@ -327,6 +325,16 @@ impl Browser {
         }
         self.find_key(key)
     }
+}
+
+/// Whether a key typed now in `window` is the tab's page's: its view has the keyboard and it
+/// says a text field of its own has focus. The page's word alone can be stale (see
+/// [`Browser::page_input_focused`]); both answers are cached, so this costs no round trip.
+fn page_has_keys<E: MacEngine>(engine: &E, tab: TabId, window: &NSWindow) -> bool {
+    let has_keyboard = engine
+        .view(tab)
+        .is_some_and(|page| first_responder_within(window, page));
+    has_keyboard && engine.input_focused(tab)
 }
 
 /// Whether `window`'s first responder is `view` or inside it.

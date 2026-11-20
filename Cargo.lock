@@ -960,6 +960,8 @@ name = "quickie-engine-chromium"
 version = "0.0.0"
 dependencies = [
  "cxx",
+ "objc2",
+ "objc2-app-kit",
  "quickie-application",
  "quickie-domain-browsing",
  "quickie-domain-settings",

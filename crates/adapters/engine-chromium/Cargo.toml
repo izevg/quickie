@@ -13,6 +13,9 @@ chromium = []
 
 [dependencies]
 cxx.workspace = true
+# The shell hands each window's host view over as an NSView, which the engine keeps alive.
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSImage", "NSResponder", "NSView"] }
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
 quickie-domain-settings.workspace = true

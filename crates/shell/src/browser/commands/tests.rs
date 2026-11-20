@@ -1,8 +1,11 @@
+use quickie_application::EngineError;
 use quickie_domain_browsing::{Direction, PinnedSlot};
 use quickie_domain_commands::{Catalog, CommandId, KeyStroke, Modifiers};
 use quickie_domain_settings::ZoomStep;
 
+use super::output::inspector_told;
 use super::{Action, holding};
+use crate::MainEngine;
 
 fn of(id: &str) -> Option<Action> {
     Action::of(&CommandId::try_from(id).unwrap())
@@ -179,4 +182,21 @@ fn a_cycle_is_held_by_its_modifiers_but_shift() {
     assert_eq!(holding(Some(backward)), Modifiers::CONTROL);
     assert_eq!(holding(Some(bare)), Modifiers::NONE);
     assert_eq!(holding(None), Modifiers::NONE);
+}
+
+#[test]
+fn an_inspector_only_the_context_menu_opens_is_pointed_to() {
+    let attaches = inspector_told::<MainEngine>(Ok(()));
+    let cannot = inspector_told::<MainEngine>(Err(EngineError(
+        "Web Inspector needs macOS 13.3 or later".to_owned(),
+    )));
+
+    assert_eq!(
+        attaches.as_deref(),
+        Some("Right-click → Inspect Element opens Web Inspector")
+    );
+    assert_eq!(
+        cannot.as_deref(),
+        Some("Web Inspector needs macOS 13.3 or later")
+    );
 }

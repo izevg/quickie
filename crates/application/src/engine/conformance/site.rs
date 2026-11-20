@@ -96,6 +96,8 @@ pub enum Act {
     /// Its title becomes `width:` and how wide its viewport is in CSS pixels, which a zoom
     /// divides: the page view's width at 100 %, half of it at 200 %.
     ShowWidth,
+    /// Puts a text field on the page and gives it focus, so a key typed now is the page's.
+    FocusField,
 }
 
 impl Act {
@@ -121,6 +123,9 @@ impl Act {
             Self::ShowCookies => "document.title='cookies:'+document.cookie;".to_owned(),
             Self::ShowScripts => "document.title='scripts:'+(window.ran||'');".to_owned(),
             Self::ShowWidth => "document.title='width:'+innerWidth;".to_owned(),
+            Self::FocusField => "const field=document.createElement('input');\
+                                 document.body.appendChild(field);field.focus();"
+                .to_owned(),
         }
     }
 }
@@ -258,6 +263,10 @@ pub const SITE: &[(&str, Resource)] = &[
     (
         "measured",
         Resource::Page(acting("Measured", &[Act::ShowWidth])),
+    ),
+    (
+        "field",
+        Resource::Page(acting("Field", &[Act::FocusField, Act::Retitle("Focused")])),
     ),
     (
         "tracked",

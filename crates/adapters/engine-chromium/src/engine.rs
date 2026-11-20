@@ -3,17 +3,22 @@
 //! before its host view exists, and which throwaway jars ever got a profile.
 
 mod inbox;
+mod requests;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
+use objc2::Message;
+use objc2::rc::Retained;
+use objc2_app_kit::{NSImage, NSView};
 use quickie_application::{
-    Answer, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, FindStep, Navigation,
-    PageAsks, PageContent, PageZoom, ReplyToken, Ticket,
+    Answer, Capabilities, DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort,
+    FindStep, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageZoom, ReplyToken,
+    Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -21,6 +26,7 @@ use url::Url;
 
 use inbox::Inbox;
 pub use inbox::PageHandle;
+pub use requests::{ChromiumContentBlocker, ChromiumHttp};
 
 use crate::bridge::{Bridge, BridgeError, Ffi, KeyEquivalent, NavigationKind, dispatch};
 
@@ -40,6 +46,9 @@ pub struct ChromiumEngine {
     pages: HashSet<TabId>,
     /// Each window's `NSView*`, bound for good by the first page Chromium shows there.
     hosts: HashMap<WindowId, NonNull<c_void>>,
+    /// The host views behind `hosts`, kept alive for as long as Chromium may use them: for the
+    /// engine's life, since Chromium keeps a window's first host for good.
+    views: HashMap<WindowId, Retained<NSView>>,
     /// The tab each window without a host view yet is to show.
     deferred: HashMap<WindowId, TabId>,
     /// Throwaway jars that have an off-the-record profile.
@@ -82,12 +91,14 @@ impl ChromiumEngine {
             inbox,
             pages: HashSet::new(),
             hosts: HashMap::new(),
+            views: HashMap::new(),
             deferred: HashMap::new(),
             jars: HashSet::new(),
         }
     }
 
-    /// Makes `host` the view a window's pages fill. The tab shown there before, if any, moves in.
+    /// Binds `host` as the `NSView*` a window's pages fill. The tab shown there before, if any,
+    /// moves in.
     ///
     /// # Errors
     ///
@@ -98,7 +109,7 @@ impl ChromiumEngine {
     ///
     /// `host` is the `NSView*` of `window` and stays alive while the engine shows pages in it,
     /// that is until the window's tabs are closed or shown in another window.
-    pub unsafe fn attach_host(
+    unsafe fn bind_host(
         &mut self,
         window: WindowId,
         host: NonNull<c_void>,
@@ -113,17 +124,6 @@ impl ChromiumEngine {
             Some(tab) => self.show_in(window, host, tab),
             None => Ok(()),
         }
-    }
-
-    /// Sets what runs, later on the main loop and never inside an engine call, when events
-    /// wait: it should [`Self::drain`] them. Events already waiting wake it at once.
-    pub fn set_waker(&mut self, wake: impl Fn() + 'static) {
-        self.inbox.set_waker(Rc::new(wake));
-    }
-
-    /// Moves what pages did since the last call to the end of `events`, oldest first.
-    pub fn drain(&mut self, events: &mut Vec<EngineEvent<PageHandle>>) {
-        self.inbox.drain(events);
     }
 
     /// Gives a page Chromium opened its tab id; from now on it is that tab's page.
@@ -308,6 +308,93 @@ impl PageAsks for ChromiumEngine {
 /// The bridge cannot zoom pages yet: every page stays at actual size.
 impl PageZoom for ChromiumEngine {
     fn set_zoom(&mut self, _tab: TabId, _level: ZoomLevel) {}
+}
+
+/// Chromium draws each page into its window's host view itself; the bridge hands the shell no
+/// page view, picture, focus report, or load progress yet, so a page has none of them, and
+/// printing and the developer tools fail without calling Chromium.
+impl PageSurface for ChromiumEngine {
+    type View = NSView;
+    type Picture = Retained<NSImage>;
+
+    /// The engine keeps `host` alive from now on, so the pointer Chromium holds stays valid.
+    fn attach_host(&mut self, window: WindowId, host: &NSView) -> Result<(), EngineError> {
+        let pointer = NonNull::from(host).cast::<c_void>();
+        // SAFETY: `host` is the window's NSView; once bound it is retained in `views` for the
+        // rest of the engine's life, which outlasts every page Chromium shows in it.
+        let bound = unsafe { self.bind_host(window, pointer) };
+        if self.hosts.get(&window) == Some(&pointer) {
+            self.views.entry(window).or_insert_with(|| host.retain());
+        }
+        bound
+    }
+
+    /// A show still waiting for the window is forgotten. Chromium keeps the window's host for
+    /// good, so the engine keeps it alive too.
+    fn detach_host(&mut self, window: WindowId) {
+        self.deferred.remove(&window);
+    }
+
+    fn view(&self, _tab: TabId) -> Option<&NSView> {
+        None
+    }
+
+    fn input_focused(&self, _tab: TabId) -> bool {
+        false
+    }
+
+    fn loading(&self, _tab: TabId) -> Option<f64> {
+        None
+    }
+
+    fn capture(&mut self, _tab: TabId) {}
+
+    fn picture(&self, _tab: TabId) -> Option<Retained<NSImage>> {
+        None
+    }
+
+    fn print(&mut self, tab: TabId) -> Result<(), EngineError> {
+        self.unsupported(tab, "print")
+    }
+
+    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError> {
+        self.unsupported(tab, "open the developer tools on")
+    }
+}
+
+/// The bridge carries no network of the browser's own and no content blocker yet: both
+/// refuse. `DevTools` will open programmatically, docked in the window.
+impl Engine for ChromiumEngine {
+    type Http = ChromiumHttp;
+    type Blocker = ChromiumContentBlocker;
+
+    const CAPS: Capabilities = Capabilities {
+        web_extensions: false,
+        inspector: Inspector::Programmatic,
+        blocked_counts: false,
+    };
+
+    fn http(&self) -> ChromiumHttp {
+        ChromiumHttp
+    }
+
+    fn content_blocker(
+        &mut self,
+        _directory: &Path,
+    ) -> Result<ChromiumContentBlocker, EngineError> {
+        Err(EngineError(
+            "the Chromium bridge has no content blocker yet".to_owned(),
+        ))
+    }
+
+    /// The wake is posted to Chromium's UI thread.
+    fn set_waker(&mut self, wake: Box<dyn Fn()>) {
+        self.inbox.set_waker(Rc::from(wake));
+    }
+
+    fn drain(&mut self, into: &mut Vec<EngineEvent<PageHandle>>) {
+        self.inbox.drain(into);
+    }
 }
 
 /// An engine error naming what failed and why.

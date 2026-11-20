@@ -28,6 +28,8 @@ pub struct MemoryPage {
     found: usize,
     /// How large it is drawn, across its navigations.
     pub(super) zoom: ZoomLevel,
+    /// A text field of the page it shows has focus.
+    pub(super) field_focused: bool,
 }
 
 impl MemoryPage {
@@ -43,6 +45,7 @@ impl MemoryPage {
             asked: None,
             found: 0,
             zoom: ZoomLevel::DEFAULT,
+            field_focused: false,
         }
     }
 
@@ -74,11 +77,13 @@ impl MemoryPage {
         }
     }
 
-    /// Starts showing `page`, at `url`: its scripts start over and nothing is found.
+    /// Starts showing `page`, at `url`: its scripts start over, nothing is found, and no field
+    /// has focus.
     pub(super) fn show(&mut self, url: Url, page: TestPage) {
         self.acts = page.on_load.iter().copied().collect();
         self.shown = Some((url, page));
         self.found = 0;
+        self.field_focused = false;
     }
 
     /// Selects a match of `query` in its text as `step` says, wrapping at the ends; matching

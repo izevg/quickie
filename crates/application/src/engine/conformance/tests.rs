@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use quickie_domain_browsing::{Jar, Profile, TabId};
 use url::Url;
 
-use super::{Driven, Event, Group, Harness, MemoryEngine, Outcome, PageSource, Report, run};
+use super::{Driven, Group, Harness, MemoryEngine, Outcome, PageSource, Report, run};
 use crate::{
-    Answer, AskKind, BlockerRules, ContentBlockerPort, EngineEvent, EnginePort, PageAsks, PageRect,
-    Permission,
+    Answer, AskKind, BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, Flow,
+    HttpMethod, HttpPort, HttpRequest, PageAsks, PageRect, Permission, StopSignal,
 };
 
 /// The reference engine, driven as an adapter would drive its own.
@@ -50,14 +50,6 @@ impl Harness for Memory {
         }
     }
 
-    fn set_waker(engine: &mut MemoryEngine, wake: Box<dyn Fn()>) {
-        engine.set_waker(wake);
-    }
-
-    fn drain(engine: &mut MemoryEngine, into: &mut Vec<Event<Self>>) {
-        engine.drain(into);
-    }
-
     fn click(
         &mut self,
         engine: &mut MemoryEngine,
@@ -82,7 +74,11 @@ impl Harness for Memory {
         engine: &mut MemoryEngine,
         rules: &BlockerRules,
     ) -> Driven<Result<(), String>> {
-        Ok(engine.install(rules).map_err(|error| error.to_string()))
+        let installed = engine
+            .content_blocker(Path::new("/rules"))
+            .map_err(|error| error.to_string())
+            .and_then(|mut blocker| blocker.install(rules).map_err(|error| error.to_string()));
+        Ok(installed)
     }
 
     fn crash(&mut self, engine: &mut MemoryEngine, tab: TabId) -> Driven<Result<(), String>> {
@@ -121,6 +117,28 @@ fn the_memory_engine_passes_every_check() {
             "{group} has no checks"
         );
     }
+}
+
+#[test]
+fn the_memory_engine_s_network_reaches_nothing() {
+    let http = Memory.engine().http();
+    let url = Memory.base().join("plain").unwrap();
+    let request = HttpRequest {
+        method: HttpMethod::Get,
+        url: url.clone(),
+        headers: Vec::new(),
+    };
+    let mut heard = 0;
+
+    let got = http.get(&url);
+    let streamed = http.stream(&request, &StopSignal::default(), &mut |_| {
+        heard += 1;
+        Flow::Continue
+    });
+
+    assert!(got.is_err());
+    assert!(streamed.is_err());
+    assert_eq!(heard, 0);
 }
 
 #[test]
