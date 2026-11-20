@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::{Closed, ClosedTab, ClosedWindow, CorruptSession, NextIds, RETENTION_MS, Session};
 use crate::{
     BrowsingError, Focus, Jar, JarChoice, JarId, PinnedSlot, Profile, Tab, TabId, Timestamp,
@@ -243,6 +245,67 @@ mod activating {
         assert!(matches!(session.tabs(ghost), Err(BrowsingError::UnknownWindow(w)) if w == ghost));
         assert_eq!(session.mru(ghost), None);
         assert_eq!(session.active(ghost), None);
+    }
+}
+
+mod placing {
+    use super::*;
+
+    #[test]
+    fn every_tab_knows_its_window() {
+        let (mut session, window, [a, _, c]) = three_tabs();
+        let other = session.open_window();
+        let x = open(&mut session, other, "x");
+
+        assert_eq!(session.window_of(a), Some(window));
+        assert_eq!(session.window_of(c), Some(window));
+        assert_eq!(session.window_of(x), Some(other));
+    }
+
+    #[test]
+    fn a_closed_tab_is_in_no_window() {
+        let (mut session, _, [a, _, _]) = three_tabs();
+
+        session.close(a, at(5)).unwrap();
+
+        assert_eq!(session.window_of(a), None);
+    }
+
+    #[test]
+    fn the_tabs_of_a_closed_window_are_in_no_window() {
+        let (mut session, window, [a, b, c]) = three_tabs();
+
+        session.close_window(window, at(5)).unwrap();
+
+        assert_eq!(
+            [a, b, c].map(|tab| session.window_of(tab)),
+            [None, None, None]
+        );
+    }
+
+    #[test]
+    fn a_reopened_tab_is_in_the_window_it_came_back_to() {
+        let (mut session, _, [_, _, c]) = three_tabs();
+        session.close(c, at(5)).unwrap();
+        let other = session.open_window();
+
+        session.reopen_closed(other).unwrap();
+
+        assert_eq!(session.window_of(c), Some(other));
+        let listed: Vec<TabId> = session.tabs(other).unwrap().map(|tab| tab.id).collect();
+        assert_eq!(listed, vec![c]);
+    }
+
+    #[test]
+    fn a_restored_session_knows_where_its_tabs_are() {
+        let (mut session, window, [a, ..]) = three_tabs();
+        let other = session.open_window();
+        let x = open(&mut session, other, "x");
+
+        let restored = Session::restore(session.snapshot().unwrap()).unwrap();
+
+        assert_eq!(restored.window_of(a), Some(window));
+        assert_eq!(restored.window_of(x), Some(other));
     }
 }
 
@@ -497,6 +560,17 @@ mod navigating {
 
         assert_eq!(result, Err(BrowsingError::UnknownTab(tab_id(1))));
     }
+
+    #[test]
+    fn a_snapshot_taken_before_keeps_the_page_it_saw() {
+        let (mut session, _, [a, _, _]) = three_tabs();
+        let before = session.snapshot().unwrap();
+
+        session.navigated(a, url("z"), "Zed".to_owned()).unwrap();
+
+        let saved = before.tabs.iter().find(|tab| tab.id == a).unwrap();
+        assert_eq!((&saved.url, saved.title.as_str()), (&url("a"), ""));
+    }
 }
 
 mod pinning {
@@ -615,7 +689,7 @@ mod restoring {
     fn rejects_a_live_agent_tab() {
         let agent = TabId::new(Profile::Agent, 0);
 
-        let result = corrupt(|s| s.tabs[0].id = agent);
+        let result = corrupt(|s| Arc::make_mut(&mut s.tabs[0]).id = agent);
 
         assert_eq!(result, Err(CorruptSession::ForeignTab(agent)));
     }
@@ -624,7 +698,7 @@ mod restoring {
     fn rejects_a_trashed_agent_tab() {
         let agent = TabId::new(Profile::Agent, 3);
 
-        let result = corrupt(|s| s.trash[0].tab.id = agent);
+        let result = corrupt(|s| Arc::make_mut(&mut s.trash[0]).tab.id = agent);
 
         assert_eq!(result, Err(CorruptSession::ForeignTab(agent)));
     }
@@ -661,7 +735,7 @@ mod restoring {
 
     #[test]
     fn rejects_a_trashed_tab_that_is_also_live() {
-        let result = corrupt(|s| s.trash[0].tab.id = tab_id(0));
+        let result = corrupt(|s| Arc::make_mut(&mut s.trash[0]).tab.id = tab_id(0));
 
         assert_eq!(result, Err(CorruptSession::DuplicateTab(tab_id(0))));
     }
@@ -685,7 +759,8 @@ mod restoring {
 
     #[test]
     fn checks_jars_in_the_trash_too() {
-        let result = corrupt(|s| s.trash[0].tab.jar = Jar::Throwaway(JarId::new(1)));
+        let result =
+            corrupt(|s| Arc::make_mut(&mut s.trash[0]).tab.jar = Jar::Throwaway(JarId::new(1)));
 
         assert_eq!(
             result,

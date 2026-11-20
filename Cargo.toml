@@ -17,12 +17,17 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-# Shields in the development engine: filter lists to WebKit content rule lists. MPL-2.0.
-adblock = { version = "0.13.6", features = ["content-blocking"] }
+# Shields in the development engine: filter lists to WebKit content rule lists. MPL-2.0. Only the
+# converter is used, so the default features (a domain resolver and regex handling for request
+# matching) stay out.
+adblock = { version = "0.13.6", default-features = false, features = ["content-blocking"] }
 # The Chromium boundary (adapter engine-chromium). Pinned to the copy Chromium vendors at the
 # version in engine/chromium.pin (third_party/rust/chromium_crates_io/vendor/cxx-v1), which GN
 # builds against; bump both together.
 cxx = "=1.0.202"
+# Benchmarks of the hot paths (`benches/` of domain and application crates); a dev-dependency
+# only, never in the product. MIT OR Apache-2.0.
+divan = "0.1"
 indexmap = "2"
 # The matcher only: the high-level `nucleo` crate spawns worker threads, which the pure domain
 # must not do.
@@ -85,7 +90,25 @@ multiple_unsafe_ops_per_block = "deny"
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
 
-# Used by cargo-mutants (.cargo/mutants.toml): no debug info, faster mutant builds.
+# The build to dogfood and ship: `cargo xtask bundle --release`. Panics still unwind: the
+# write-behind store reports a writer thread that panicked as a failed write instead of losing
+# the whole app (crates/adapters/store/src/write_behind.rs), and the agent's and the downloads'
+# worker threads end the same way.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# Dependencies (SQLite, adblock, nucleo, url, idna, ...) optimized in development builds and
+# tests; they are built once, and our own crates stay quick to rebuild.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Used by cargo-mutants (.cargo/mutants.toml): no debug info, faster mutant builds. Each mutant is
+# built once, so incremental state is only written, never reused.
 [profile.mutants]
 inherits = "dev"
 debug = 0
+incremental = false

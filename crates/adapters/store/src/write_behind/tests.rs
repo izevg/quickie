@@ -125,14 +125,14 @@ impl SessionRepo for Recorder {
         self.store.load()
     }
 
-    fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError> {
+    fn save(&mut self, snapshot: SessionSnapshot) -> Result<(), StoreError> {
         if let Some(gate) = self.gate.take() {
             gate.began.send(()).unwrap();
             gate.release.recv().unwrap();
         }
         // Record only once the write is on disk, so a test that waits for it can read it back.
-        let saved = self.store.save(snapshot);
-        self.written.lock().unwrap().push(snapshot.clone());
+        let saved = self.store.save(snapshot.clone());
+        self.written.lock().unwrap().push(snapshot);
         saved
     }
 }
@@ -170,11 +170,11 @@ impl ShieldsRepo for Recorder {
         self.store.load_shields()
     }
 
-    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError> {
+    fn save_sites(&mut self, sites: SitePoliciesSnapshot) -> Result<(), StoreError> {
         self.store.save_sites(sites)
     }
 
-    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError> {
+    fn save_lists(&mut self, lists: FilterListSetSnapshot) -> Result<(), StoreError> {
         self.store.save_lists(lists)
     }
 
@@ -188,7 +188,7 @@ impl ZoomRepo for Recorder {
         self.store.load_site_zooms()
     }
 
-    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError> {
+    fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
         self.store.save_site_zooms(zooms)
     }
 }
@@ -198,7 +198,7 @@ impl AgentRepo for Recorder {
         self.store.load_endpoint()
     }
 
-    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
+    fn save_endpoint(&mut self, endpoint: Option<EndpointSnapshot>) -> Result<(), StoreError> {
         self.store.save_endpoint(endpoint)
     }
 }
@@ -215,8 +215,8 @@ fn endpoint(model: &str) -> EndpointSnapshot {
 fn the_agent_endpoint_loads_after_its_saves_and_keeps_the_latest() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
-    store.save_endpoint(Some(&endpoint("old"))).unwrap();
-    store.save_endpoint(Some(&endpoint("new"))).unwrap();
+    store.save_endpoint(Some(endpoint("old"))).unwrap();
+    store.save_endpoint(Some(endpoint("new"))).unwrap();
 
     let loaded = store.load_endpoint();
 
@@ -231,7 +231,7 @@ fn the_agent_endpoint_loads_after_its_saves_and_keeps_the_latest() {
 fn forgetting_the_agent_endpoint_goes_through_the_writer() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
-    store.save_endpoint(Some(&endpoint("model"))).unwrap();
+    store.save_endpoint(Some(endpoint("model"))).unwrap();
     store.flush().unwrap();
 
     store.save_endpoint(None).unwrap();
@@ -246,9 +246,9 @@ fn site_zooms_load_after_their_saves_and_keep_the_latest() {
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
     let mut zooms = SiteZooms::new();
     zooms.step(Site::try_from("example.com").unwrap(), ZoomStep::In);
-    store.save_site_zooms(&zooms.snapshot()).unwrap();
+    store.save_site_zooms(zooms.snapshot()).unwrap();
     zooms.step(Site::try_from("example.org").unwrap(), ZoomStep::Out);
-    store.save_site_zooms(&zooms.snapshot()).unwrap();
+    store.save_site_zooms(zooms.snapshot()).unwrap();
 
     let loaded = store.load_site_zooms();
 
@@ -264,9 +264,7 @@ fn a_failed_zoom_write_reaches_the_shell() {
         .unwrap()
         .execute_batch("DROP TABLE site_zooms")
         .unwrap();
-    store
-        .save_site_zooms(&SiteZoomsSnapshot::default())
-        .unwrap();
+    store.save_site_zooms(SiteZoomsSnapshot::default()).unwrap();
 
     let flushed = store.flush();
 
@@ -290,8 +288,8 @@ fn shields_load_after_their_saves_and_keep_the_latest_of_each_list() {
     store
         .save_list_body(FilterListId::PeterLowe, b"other")
         .unwrap();
-    store.save_lists(&lists.snapshot()).unwrap();
-    store.save_sites(&sites.snapshot()).unwrap();
+    store.save_lists(lists.snapshot()).unwrap();
+    store.save_sites(sites.snapshot()).unwrap();
 
     let loaded = store.load_shields();
 
@@ -336,11 +334,11 @@ fn a_burst_while_the_writer_is_busy_costs_one_more_write_of_the_last_snapshot() 
         release: released,
     });
     let mut store = WriteBehindStore::spawn(recorder, Duration::ZERO).unwrap();
-    store.save(&session(1)).unwrap();
+    store.save(session(1)).unwrap();
     wait_began.recv_timeout(Duration::from_secs(5)).unwrap();
 
     for windows in 2..=20 {
-        store.save(&session(windows)).unwrap();
+        store.save(session(windows)).unwrap();
     }
     release.send(()).unwrap();
     store.flush().unwrap();
@@ -355,9 +353,9 @@ fn saves_within_the_settle_time_share_one_write() {
     let (recorder, written) = Recorder::new(&path);
     let mut store = WriteBehindStore::spawn(recorder, Duration::from_millis(500)).unwrap();
 
-    store.save(&session(1)).unwrap();
+    store.save(session(1)).unwrap();
     thread::sleep(Duration::from_millis(50));
-    store.save(&session(2)).unwrap();
+    store.save(session(2)).unwrap();
     eventually(|| !written.lock().unwrap().is_empty());
 
     assert_eq!(*written.lock().unwrap(), vec![session(2)]);
@@ -369,7 +367,7 @@ fn a_settled_batch_is_written_without_anyone_waiting_for_it() {
     let (recorder, written) = Recorder::new(&path);
     let mut store = WriteBehindStore::spawn(recorder, Duration::from_millis(1)).unwrap();
 
-    store.save(&session(3)).unwrap();
+    store.save(session(3)).unwrap();
     eventually(|| !written.lock().unwrap().is_empty());
 
     assert_eq!(on_disk(&path).0, Some(session(3)));
@@ -379,7 +377,7 @@ fn a_settled_batch_is_written_without_anyone_waiting_for_it() {
 fn a_flush_puts_every_kind_on_disk() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
-    store.save(&session(2)).unwrap();
+    store.save(session(2)).unwrap();
     store.save_history(&history()).unwrap();
     store.save_bookmarks(&bookmarks()).unwrap();
     store.save_shortcuts(&shortcuts()).unwrap();
@@ -406,7 +404,7 @@ fn opening_a_file_gives_a_store_that_writes_to_it() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::open(&path).unwrap();
 
-    store.save(&session(4)).unwrap();
+    store.save(session(4)).unwrap();
     store.pending().flush().unwrap();
 
     assert_eq!(on_disk(&path).0, Some(session(4)));
@@ -430,7 +428,7 @@ fn dropping_the_store_writes_what_is_pending() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
     let pending = store.pending();
-    store.save(&session(5)).unwrap();
+    store.save(session(5)).unwrap();
 
     drop(store);
 
@@ -442,7 +440,7 @@ fn dropping_the_store_writes_what_is_pending() {
 fn a_failed_write_is_kept_until_taken_once() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
-    store.save(&unwritable()).unwrap();
+    store.save(unwritable()).unwrap();
 
     let flushed = store.flush();
 
@@ -454,7 +452,7 @@ fn a_failed_write_is_kept_until_taken_once() {
 fn a_failed_write_waits_for_the_shell_to_take_it() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
-    store.save(&unwritable()).unwrap();
+    store.save(unwritable()).unwrap();
     store.load().unwrap();
 
     let taken = store.take_error();
@@ -467,7 +465,7 @@ fn a_failed_write_waits_for_the_shell_to_take_it() {
 fn a_failed_kind_does_not_keep_the_others_from_the_disk() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
-    store.save(&unwritable()).unwrap();
+    store.save(unwritable()).unwrap();
     store.save_history(&history()).unwrap();
 
     store.flush().unwrap_err();
@@ -480,7 +478,7 @@ fn a_failure_after_the_store_is_gone_still_reaches_the_shell() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
     let pending = store.pending();
-    store.save(&unwritable()).unwrap();
+    store.save(unwritable()).unwrap();
 
     drop(store);
 
@@ -491,7 +489,7 @@ fn a_failure_after_the_store_is_gone_still_reaches_the_shell() {
 fn loads_see_the_saves_made_before_them() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
-    store.save(&session(6)).unwrap();
+    store.save(session(6)).unwrap();
     store.save_bookmarks(&bookmarks()).unwrap();
 
     let session_loaded = store.load();
@@ -539,7 +537,7 @@ fn a_store_whose_writer_died_refuses_everything() {
 
     let stopped = StoreError("the store writer stopped".to_owned());
     assert_eq!(died, Err(stopped.clone()));
-    assert_eq!(store.save(&session(1)), Err(stopped.clone()));
+    assert_eq!(store.save(session(1)), Err(stopped.clone()));
     assert_eq!(store.load_library(), Err(stopped.clone()));
     assert_eq!(store.save_history(&history()), Err(stopped.clone()));
     assert_eq!(store.save_bookmarks(&bookmarks()), Err(stopped.clone()));

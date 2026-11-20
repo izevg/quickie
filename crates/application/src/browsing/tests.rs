@@ -871,6 +871,44 @@ mod navigating {
     }
 
     #[test]
+    fn the_page_the_tab_already_shows_saves_nothing() {
+        let mut browsing = started();
+        let saves = browsing.repo.saves;
+        fail_saves(&browsing);
+
+        let reported = browsing.navigated(t(0), home(), String::new());
+
+        assert_eq!(reported, Ok(()));
+        assert_eq!(browsing.repo.saves, saves);
+    }
+
+    #[test]
+    fn a_new_title_alone_is_saved() {
+        let mut browsing = started();
+
+        browsing.navigated(t(0), home(), "Home".to_owned()).unwrap();
+
+        assert_eq!(browsing.session().tab(t(0)).unwrap().title, "Home");
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
+    }
+
+    #[test]
+    fn a_new_url_alone_is_saved() {
+        let mut browsing = started();
+
+        browsing.navigated(t(0), url("z"), String::new()).unwrap();
+
+        assert_eq!(browsing.session().tab(t(0)).unwrap().url, url("z"));
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
+    }
+
+    #[test]
     fn a_navigation_of_a_closed_tab_is_benign() {
         let mut browsing = started();
 

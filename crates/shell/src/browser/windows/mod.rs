@@ -78,11 +78,7 @@ impl Browser {
 
     /// The window a tab is in.
     pub(super) fn window_of(&self, tab: TabId) -> Option<WindowId> {
-        let browsing = self.browsing.borrow();
-        let session = browsing.session();
-        session
-            .windows()
-            .find(|&window| session.mru(window).is_some_and(|mru| mru.contains(&tab)))
+        self.browsing.borrow().session().window_of(tab)
     }
 
     /// An `NSWindow` for session window `window`, its content view registered with the

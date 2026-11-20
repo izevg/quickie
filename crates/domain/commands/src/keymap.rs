@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use quickie_domain_kernel::CommandId;
 
 pub use binding::{BindingError, KeyBinding, KeymapEntry, Unbinding};
-pub use when::{WhenContext, WhenError, WhenExpr};
+pub use when::{ContextFlag, FocusedView, WhenContext, WhenError, WhenExpr};
 
 use crate::command::Catalog;
 use crate::key::{Chord, KeyStroke, Platform};
@@ -29,6 +29,9 @@ pub struct Keymap {
     defaults: Vec<KeyBinding>,
     user: Vec<KeymapEntry>,
     effective: Vec<KeyBinding>,
+    /// The positions in `effective` of the bindings each first stroke starts, oldest first: a
+    /// key press looks only at its own bindings, and evaluates no clause of the others.
+    by_first: HashMap<KeyStroke, Vec<usize>>,
 }
 
 /// What a key stroke does.
@@ -105,22 +108,23 @@ impl Keymap {
         pending: Option<KeyStroke>,
         context: &WhenContext,
     ) -> Resolution {
-        let mut candidates = self
-            .effective
+        let Some(positions) = self.by_first.get(&pending.unwrap_or(stroke)) else {
+            return Resolution::Unbound;
+        };
+        let mut candidates = positions
             .iter()
             .rev()
-            .filter(|binding| binding.applies(context));
+            .filter_map(|&at| self.effective.get(at));
         match pending {
-            None => candidates
-                .find(|binding| binding.chord.first == stroke)
-                .map_or(Resolution::Unbound, |binding| match binding.chord.second {
+            None => candidates.find(|binding| binding.applies(context)).map_or(
+                Resolution::Unbound,
+                |binding| match binding.chord.second {
                     Some(_) => Resolution::Pending(stroke),
                     None => Resolution::Command(binding.command.clone()),
-                }),
-            Some(first) => candidates
-                .find(|binding| {
-                    binding.chord.first == first && binding.chord.second == Some(stroke)
-                })
+                },
+            ),
+            Some(_) => candidates
+                .find(|binding| binding.chord.second == Some(stroke) && binding.applies(context))
                 .map_or(Resolution::Unbound, |binding| {
                     Resolution::Command(binding.command.clone())
                 }),
@@ -160,18 +164,23 @@ impl Keymap {
             KeymapEntry::Bind(binding) => Some(binding),
             KeymapEntry::Unbind(_) => None,
         });
-        let effective = defaults
+        let effective: Vec<KeyBinding> = defaults
             .iter()
             .filter(|binding| !removals.iter().any(|removal| removal.removes(binding)))
             .chain(added)
             .cloned()
             .collect();
+        let mut by_first: HashMap<KeyStroke, Vec<usize>> = HashMap::new();
+        for (at, binding) in effective.iter().enumerate() {
+            by_first.entry(binding.chord.first).or_default().push(at);
+        }
         Self {
             platform,
             reserved: defaults::reserved(platform),
             defaults,
             user,
             effective,
+            by_first,
         }
     }
 

@@ -1,4 +1,4 @@
-use super::{MAX_DEPTH, WhenContext, WhenError, WhenExpr};
+use super::{ContextFlag, FocusedView, MAX_DEPTH, WhenContext, WhenError, WhenExpr};
 
 fn when(text: &str) -> WhenExpr {
     WhenExpr::try_from(text).unwrap()
@@ -147,6 +147,192 @@ fn not_applies_to_a_whole_comparison() {
     let context = WhenContext::new().with_value("view", "x");
 
     assert!(!holds("!view == 'x'", &context));
+}
+
+// ---- Quickie's own context keys ----------------------------------------------------------------
+
+#[test]
+fn every_flag_is_found_by_its_name() {
+    for flag in ContextFlag::ALL {
+        assert_eq!(ContextFlag::from_name(flag.name()), Some(flag));
+    }
+    assert_eq!(ContextFlag::from_name("editorFocus"), None);
+}
+
+#[test]
+fn flags_have_the_names_clauses_use() {
+    let names = ContextFlag::ALL.map(ContextFlag::name);
+
+    assert_eq!(
+        names,
+        [
+            "pageFocused",
+            "inputFocused",
+            "paletteOpen",
+            "addressOpen",
+            "overviewOpen",
+            "hintsOpen",
+            "switcherOpen",
+            "popoverOpen",
+            "agentOpen",
+        ]
+    );
+}
+
+#[test]
+fn every_view_is_found_by_its_name() {
+    for view in FocusedView::ALL {
+        assert_eq!(FocusedView::from_name(view.name()), Some(view));
+    }
+    assert_eq!(FocusedView::from_name("sidebar"), None);
+}
+
+#[test]
+fn views_have_the_names_clauses_use() {
+    let names = FocusedView::ALL.map(FocusedView::name);
+
+    assert_eq!(
+        names,
+        ["page", "palette", "address", "overview", "settings"]
+    );
+}
+
+#[test]
+fn each_flag_is_set_on_its_own() {
+    for flag in ContextFlag::ALL {
+        let context = WhenContext::new().with(flag);
+
+        for other in ContextFlag::ALL {
+            assert_eq!(holds(other.name(), &context), other == flag, "{other:?}");
+        }
+    }
+}
+
+#[test]
+fn a_flag_set_by_name_is_the_flag_set_by_type() {
+    for flag in ContextFlag::ALL {
+        assert_eq!(
+            WhenContext::new().with_flag(flag.name()),
+            WhenContext::new().with(flag)
+        );
+    }
+}
+
+#[test]
+fn a_view_set_by_name_is_the_view_set_by_type() {
+    for view in FocusedView::ALL {
+        assert_eq!(
+            WhenContext::new().with_value("focusedView", view.name()),
+            WhenContext::new().in_view(view)
+        );
+    }
+}
+
+#[test]
+fn a_view_compares_by_its_name() {
+    let context = WhenContext::new().in_view(FocusedView::Settings);
+
+    assert!(holds("focusedView == 'settings'", &context));
+    assert!(!holds("focusedView == 'page'", &context));
+    assert!(holds("focusedView != 'page'", &context));
+    assert!(holds("focusedView", &context));
+}
+
+#[test]
+fn a_view_quickie_does_not_have_is_still_a_value() {
+    let context = WhenContext::new().with_value("focusedView", "sidebar");
+
+    assert!(holds("focusedView == 'sidebar'", &context));
+    assert!(!holds("focusedView == 'page'", &context));
+    assert!(holds("focusedView", &context));
+}
+
+#[test]
+fn a_later_view_replaces_an_earlier_one() {
+    let unknown_then_known = WhenContext::new()
+        .with_value("focusedView", "sidebar")
+        .in_view(FocusedView::Page);
+    let known_then_unknown = WhenContext::new()
+        .in_view(FocusedView::Page)
+        .with_value("focusedView", "sidebar");
+
+    assert!(holds("focusedView == 'page'", &unknown_then_known));
+    assert!(!holds("focusedView == 'sidebar'", &unknown_then_known));
+    assert!(holds("focusedView == 'sidebar'", &known_then_unknown));
+    assert!(!holds("focusedView == 'page'", &known_then_unknown));
+}
+
+#[test]
+fn setting_the_view_keeps_the_other_values() {
+    let context = WhenContext::new()
+        .with_value("mode", "insert")
+        .in_view(FocusedView::Page);
+
+    assert!(holds("mode == 'insert'", &context));
+}
+
+#[test]
+fn a_later_value_replaces_an_earlier_one() {
+    let context = WhenContext::new()
+        .with_value("mode", "insert")
+        .with_value("mode", "normal");
+
+    assert!(holds("mode == 'normal'", &context));
+    assert!(!holds("mode == 'insert'", &context));
+}
+
+#[test]
+fn setting_a_flag_twice_is_setting_it_once() {
+    let twice = WhenContext::new().with_flag("a").with_flag("a");
+
+    assert_eq!(twice, WhenContext::new().with_flag("a"));
+}
+
+#[test]
+fn setting_one_of_quickies_flags_twice_keeps_it_set() {
+    let twice = WhenContext::new()
+        .with(ContextFlag::HintsOpen)
+        .with(ContextFlag::HintsOpen);
+
+    assert!(holds("hintsOpen", &twice));
+}
+
+#[test]
+fn a_view_prints_as_its_name() {
+    let clause = when("focusedView == 'palette' || focusedView != 'page'");
+
+    assert_eq!(
+        clause.to_string(),
+        "focusedView == 'palette' || focusedView != 'page'"
+    );
+}
+
+#[test]
+fn focused_view_set_as_a_flag_is_true() {
+    let context = WhenContext::new().with_flag("focusedView");
+
+    assert!(holds("focusedView", &context));
+    assert!(!holds("focusedView == 'page'", &context));
+}
+
+#[test]
+fn one_of_quickies_flags_may_hold_a_value() {
+    let context = WhenContext::new().with_value("pageFocused", "yes");
+
+    assert!(holds("pageFocused", &context));
+    assert!(holds("pageFocused == 'yes'", &context));
+    assert!(!holds(
+        "pageFocused",
+        &WhenContext::new().with_value("pageFocused", "")
+    ));
+}
+
+#[test]
+fn a_view_name_compared_with_another_key_is_plain_text() {
+    let context = WhenContext::new().with_value("panel", "page");
+
+    assert!(holds("panel == 'page'", &context));
+    assert!(!holds("focusedView == 'page'", &context));
 }
 
 // ---- canonical text ----------------------------------------------------------------------------

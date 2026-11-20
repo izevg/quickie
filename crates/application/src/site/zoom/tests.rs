@@ -24,12 +24,12 @@ impl ZoomRepo for FakeZoomRepo {
         Ok(self.saved.clone())
     }
 
-    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError> {
+    fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
         if self.save_fails {
             return Err(StoreError("save".to_owned()));
         }
         self.saves += 1;
-        self.saved = zooms.clone();
+        self.saved = zooms;
         Ok(())
     }
 }

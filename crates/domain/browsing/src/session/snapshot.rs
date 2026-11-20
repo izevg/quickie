@@ -6,6 +6,7 @@
 //! otherwise, can hand an agent tab to the store.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use quickie_domain_kernel::{Profile, TabId, WindowId};
@@ -26,16 +27,20 @@ pub struct NextIds {
 
 /// The main profile's whole session as plain data, for the store to write and read back. Every
 /// id in it is of [`Profile::Main`]; there is no agent snapshot.
+///
+/// Its tabs are shared with the session it was taken from, so taking one after every command
+/// copies no URL or title. They are immutable while shared: the session copies a tab before it
+/// changes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionSnapshot {
     /// Live tabs in opening order.
-    pub tabs: Vec<Tab>,
+    pub tabs: Vec<Arc<Tab>>,
     /// Open windows in opening order, each with its tabs most recent first.
     pub windows: Vec<(WindowId, Vec<TabId>)>,
     /// Slot `n` is at index `n - 1`.
     pub slots: [Option<TabId>; PinnedSlot::COUNT],
     /// Closed tabs, oldest first.
-    pub trash: Vec<ClosedTab>,
+    pub trash: Vec<Arc<ClosedTab>>,
     /// The id counters.
     pub next: NextIds,
 }
@@ -95,9 +100,13 @@ impl Session {
             next,
         } = snapshot;
         check_ids(&tabs, &windows, &trash, next)?;
-        let tabs: IndexMap<TabId, Tab> = tabs.into_iter().map(|tab| (tab.id, tab)).collect();
+        let tabs: IndexMap<TabId, Arc<Tab>> = tabs.into_iter().map(|tab| (tab.id, tab)).collect();
         check_windows(&tabs, &windows)?;
         check_slots(&tabs, &slots)?;
+        let placement = windows
+            .iter()
+            .flat_map(|(window, order)| order.iter().map(|&tab| (tab, *window)))
+            .collect();
         Ok(Self {
             profile: Profile::Main,
             tabs,
@@ -105,6 +114,7 @@ impl Session {
                 .into_iter()
                 .map(|(id, order)| (id, MruStack::from_order(order)))
                 .collect(),
+            placement,
             slots,
             trash: Trash::from_oldest_first(trash),
             next,
@@ -112,19 +122,20 @@ impl Session {
     }
 
     /// The main profile's session as plain data; `restore(snapshot())` gives back an equal
-    /// session. `None` for the agent's session, which is never saved.
+    /// session. `None` for the agent's session, which is never saved. Its tabs are shared, not
+    /// copied.
     #[must_use]
     pub fn snapshot(&self) -> Option<SessionSnapshot> {
         match self.profile {
             Profile::Main => Some(SessionSnapshot {
-                tabs: self.tabs.values().cloned().collect(),
+                tabs: self.tabs.values().map(Arc::clone).collect(),
                 windows: self
                     .windows
                     .iter()
                     .map(|(&id, mru)| (id, mru.as_slice().to_vec()))
                     .collect(),
                 slots: self.slots,
-                trash: self.trash.iter().cloned().collect(),
+                trash: self.trash.iter().map(Arc::clone).collect(),
                 next: self.next,
             }),
             // The agent leaves an audit log, not tabs: its session ends with the process.
@@ -134,13 +145,14 @@ impl Session {
 }
 
 fn check_ids(
-    tabs: &[Tab],
+    tabs: &[Arc<Tab>],
     windows: &[(WindowId, Vec<TabId>)],
-    trash: &[ClosedTab],
+    trash: &[Arc<ClosedTab>],
     next: NextIds,
 ) -> Result<(), CorruptSession> {
     let mut seen = HashSet::new();
-    for tab in tabs.iter().chain(trash.iter().map(|closed| &closed.tab)) {
+    let live = tabs.iter().map(Arc::as_ref);
+    for tab in live.chain(trash.iter().map(|closed| &closed.tab)) {
         if tab.id.profile() != Profile::Main {
             return Err(CorruptSession::ForeignTab(tab.id));
         }
@@ -172,7 +184,7 @@ fn check_ids(
 }
 
 fn check_windows(
-    tabs: &IndexMap<TabId, Tab>,
+    tabs: &IndexMap<TabId, Arc<Tab>>,
     windows: &[(WindowId, Vec<TabId>)],
 ) -> Result<(), CorruptSession> {
     let mut placed = HashSet::new();
@@ -191,7 +203,7 @@ fn check_windows(
 }
 
 fn check_slots(
-    tabs: &IndexMap<TabId, Tab>,
+    tabs: &IndexMap<TabId, Arc<Tab>>,
     slots: &[Option<TabId>; PinnedSlot::COUNT],
 ) -> Result<(), CorruptSession> {
     let mut seen = HashSet::new();
