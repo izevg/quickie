@@ -72,12 +72,7 @@ impl CycleHold {
     /// Position of the selection in [`TabCycle::order`].
     #[must_use]
     pub fn selected_index(&self) -> usize {
-        let selected = self.cycle.selected();
-        self.cycle
-            .order()
-            .iter()
-            .position(|&tab| tab == selected)
-            .unwrap_or_default()
+        self.cycle.cursor()
     }
 }
 

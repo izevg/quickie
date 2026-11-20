@@ -31,7 +31,9 @@ use objc2_app_kit::{
     NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSView, NSWindow,
 };
 use quickie_application::Navigation;
-use quickie_domain_commands::{CommandId, Key, KeyStroke, Modifiers, Resolution, WhenContext};
+use quickie_domain_commands::{
+    CommandId, ContextFlag, FocusedView, Key, KeyStroke, Modifiers, Resolution, WhenContext,
+};
 use url::Url;
 
 use super::Browser;
@@ -135,7 +137,7 @@ impl Browser {
             self.close_settings();
             return Outcome::Overlay;
         }
-        let context = WhenContext::new().with_value("focusedView", "settings");
+        let context = WhenContext::new().in_view(FocusedView::Settings);
         match self.keymap.borrow().resolve(stroke, None, &context) {
             Resolution::Command(id) if id.as_str() == "quickie.app.settings" => Outcome::Command {
                 id,
@@ -238,34 +240,40 @@ impl Browser {
     pub(super) fn when(&self) -> WhenContext {
         let mut context = WhenContext::new();
         let view = if self.command_palette.is_open() {
-            context = context.with_flag("paletteOpen").with_flag("inputFocused");
-            "palette"
+            context = context
+                .with(ContextFlag::PaletteOpen)
+                .with(ContextFlag::InputFocused);
+            FocusedView::Palette
         } else if self.address.is_open() {
-            context = context.with_flag("addressOpen").with_flag("inputFocused");
-            "address"
+            context = context
+                .with(ContextFlag::AddressOpen)
+                .with(ContextFlag::InputFocused);
+            FocusedView::Address
         } else if self.navigation.overview_open() {
-            context = context.with_flag("overviewOpen").with_flag("inputFocused");
-            "overview"
+            context = context
+                .with(ContextFlag::OverviewOpen)
+                .with(ContextFlag::InputFocused);
+            FocusedView::Overview
         } else {
-            context = context.with_flag("pageFocused");
+            context = context.with(ContextFlag::PageFocused);
             if self.find_focused() || self.page_input_focused() {
-                context = context.with_flag("inputFocused");
+                context = context.with(ContextFlag::InputFocused);
             }
-            "page"
+            FocusedView::Page
         };
         if self.navigation.hints_open() {
-            context = context.with_flag("hintsOpen");
+            context = context.with(ContextFlag::HintsOpen);
         }
         if self.cycle.borrow().is_some() {
-            context = context.with_flag("switcherOpen");
+            context = context.with(ContextFlag::SwitcherOpen);
         }
         if self.popovers.is_open() {
-            context = context.with_flag("popoverOpen");
+            context = context.with(ContextFlag::PopoverOpen);
         }
         if self.agent_ui.is_open() {
-            context = context.with_flag("agentOpen");
+            context = context.with(ContextFlag::AgentOpen);
         }
-        context.with_value("focusedView", view)
+        context.in_view(view)
     }
 
     /// True when the current window's page has the keyboard and says a text field of its own

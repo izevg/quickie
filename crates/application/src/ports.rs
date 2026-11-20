@@ -36,12 +36,13 @@ pub trait SessionRepo {
     /// The store could not be read.
     fn load(&self) -> Result<Option<SessionSnapshot>, StoreError>;
 
-    /// Replaces the saved session, atomically.
+    /// Replaces the saved session, atomically. The snapshot is handed over, so a store that
+    /// writes later keeps it without a copy.
     ///
     /// # Errors
     ///
     /// The store could not be written.
-    fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError>;
+    fn save(&mut self, snapshot: SessionSnapshot) -> Result<(), StoreError>;
 }
 
 /// The library as last saved. Each part is `None` until it is first saved, so a profile that
@@ -145,7 +146,7 @@ pub trait ZoomRepo {
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError>;
+    fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError>;
 }
 
 /// A navigation inside a tab.
@@ -244,14 +245,14 @@ pub trait ShieldsRepo {
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError>;
+    fn save_sites(&mut self, sites: SitePoliciesSnapshot) -> Result<(), StoreError>;
 
     /// Replaces the saved filter list states, atomically.
     ///
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError>;
+    fn save_lists(&mut self, lists: FilterListSetSnapshot) -> Result<(), StoreError>;
 
     /// Replaces the saved content of one list, atomically.
     ///
@@ -448,7 +449,7 @@ pub trait AgentRepo {
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError>;
+    fn save_endpoint(&mut self, endpoint: Option<EndpointSnapshot>) -> Result<(), StoreError>;
 }
 
 /// One chat completion to stream.

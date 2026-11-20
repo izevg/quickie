@@ -134,7 +134,7 @@ fn main() -> ExitCode {
     // The application holds its delegate weakly: this binding keeps it for the app's lifetime.
     let delegate = AppDelegate::new(&browser, mtm);
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-    menu::install(&app, &delegate, &Catalog::builtin(), mtm);
+    menu::install(&app, &delegate, browser.catalog(), mtm);
     let _flush_on_quit = flush_on_quit(pending);
     let _shortcuts = install_shortcuts(&browser);
     browser.show();

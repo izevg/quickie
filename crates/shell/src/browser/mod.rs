@@ -252,6 +252,11 @@ impl Browser {
         }
     }
 
+    /// Every command the browser runs, built once at start, for the menu bar.
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
     /// Runs the command `id` as a key would: a menu item asked. An id the catalog does not
     /// know does nothing.
     pub fn run_command(&self, id: &str) {

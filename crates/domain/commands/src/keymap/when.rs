@@ -1,11 +1,14 @@
 //! `when` clauses: the condition under which a binding applies, a subset of VS Code's.
 
+mod context;
 mod parse;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
 use std::fmt;
+
+pub use context::{ContextFlag, FocusedView, WhenContext};
+use context::{ContextKey, ContextValue};
 
 /// How deep parentheses may nest; a guard against a `keybindings.json` that would exhaust the
 /// stack.
@@ -22,9 +25,15 @@ pub struct WhenExpr(Node);
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Node {
     Literal(bool),
-    Flag(String),
-    Equals { key: String, value: String },
-    NotEquals { key: String, value: String },
+    Flag(ContextKey),
+    Equals {
+        key: ContextKey,
+        value: ContextValue,
+    },
+    NotEquals {
+        key: ContextKey,
+        value: ContextValue,
+    },
     Not(Box<Node>),
     And(Vec<Node>),
     Or(Vec<Node>),
@@ -57,8 +66,8 @@ impl Node {
         match self {
             Self::Literal(value) => *value,
             Self::Flag(key) => context.is_truthy(key),
-            Self::Equals { key, value } => context.value(key) == Some(value),
-            Self::NotEquals { key, value } => context.value(key) != Some(value),
+            Self::Equals { key, value } => context.holds(key, value),
+            Self::NotEquals { key, value } => !context.holds(key, value),
             Self::Not(inner) => !inner.evaluate(context),
             Self::And(operands) => operands.iter().all(|operand| operand.evaluate(context)),
             Self::Or(operands) => operands.iter().any(|operand| operand.evaluate(context)),
@@ -94,9 +103,13 @@ impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Literal(value) => write!(f, "{value}"),
-            Self::Flag(key) => f.write_str(key),
-            Self::Equals { key, value } => write!(f, "{key} == {}", Quoted(value)),
-            Self::NotEquals { key, value } => write!(f, "{key} != {}", Quoted(value)),
+            Self::Flag(key) => f.write_str(key.name()),
+            Self::Equals { key, value } => {
+                write!(f, "{} == {}", key.name(), Quoted(value.as_str()))
+            }
+            Self::NotEquals { key, value } => {
+                write!(f, "{} != {}", key.name(), Quoted(value.as_str()))
+            }
             Self::Not(inner) => {
                 f.write_str("!")?;
                 inner.fmt_operand(f, matches!(**inner, Self::And(_) | Self::Or(_)))
@@ -118,45 +131,6 @@ impl fmt::Display for Quoted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let quote = if self.0.contains('\'') { '"' } else { '\'' };
         write!(f, "{quote}{}{quote}", self.0)
-    }
-}
-
-/// What is true right now: the flags that are set and the string values of context keys, such as
-/// `inputFocused` and `focusedView == 'palette'`. The shell fills it on each key event.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct WhenContext {
-    flags: HashSet<String>,
-    values: HashMap<String, String>,
-}
-
-impl WhenContext {
-    /// A context where nothing is set.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// The same context with the flag `key` set.
-    #[must_use]
-    pub fn with_flag(mut self, key: impl Into<String>) -> Self {
-        self.flags.insert(key.into());
-        self
-    }
-
-    /// The same context with `key` holding `value`.
-    #[must_use]
-    pub fn with_value(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.values.insert(key.into(), value.into());
-        self
-    }
-
-    /// A key is true when it is a set flag or holds a non-empty value, as in VS Code.
-    fn is_truthy(&self, key: &str) -> bool {
-        self.flags.contains(key) || self.value(key).is_some_and(|value| !value.is_empty())
-    }
-
-    fn value(&self, key: &str) -> Option<&String> {
-        self.values.get(key)
     }
 }
 
