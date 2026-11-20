@@ -69,6 +69,18 @@ printf 'build: Tools/Scripts/build-webkit'
 printf ' %s' "$@"
 printf '\nbuild: full transcript in %s\n' "$log"
 
+# Every target compiles with -ivfsoverlay $(BUILD_DIR)/availability-overlay.yaml, but only a script
+# phase of bmalloc writes it, and nothing orders JavaScriptCore's testLibJSCToolsHelper after
+# bmalloc: on a clean tree its dependency scan can run first and fail ("virtual filesystem overlay
+# file ... not found"; seen at a6331649). Writing it up front with the same script, the same way,
+# removes the race; bmalloc's phase later rewrites the same file.
+overlay=$src/WebKitLibraries/AvailabilityOverlay
+if [ -f "$overlay/generate-overlay.py" ]; then
+  mkdir -p "$products"
+  python3 "$overlay/generate-overlay.py" --sdk "$(xcrun --sdk macosx --show-sdk-path)" \
+    --stubs "$overlay" --out "$products/availability-overlay.yaml"
+fi
+
 start=$(date +%s)
 status_file=$build/webkit-build.status
 rm -f "$status_file"
