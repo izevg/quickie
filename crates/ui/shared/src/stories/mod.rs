@@ -8,8 +8,11 @@
 //! - [`play`]: synthetic events and the accessibility tree.
 //!
 //! The command line of a story binary (`cargo xtask ui` runs it):
-//! `[check | render | accept | list] [<widget>[/<state>[.<theme>]] ...] [--scale <n>]
-//! [--out <dir>] [--from <dir>]`. `check` is what `cargo test` runs.
+//! `[check | render | diff | accept | list] [<widget>[/<state>[.<theme>]] ...] [--scale <n>]
+//! [--out <dir>] [--from <dir>] [--base <dir>]`. `check` is what `cargo test` runs. `diff`
+//! renders like `render` and compares each image with the render of the same story in
+//! `--base` (another commit's renders, made on this machine) instead of with its reference;
+//! it lists the stories whose image changed in `<out>/changed.txt` (`cargo xtask ui diff`).
 
 #![expect(
     clippy::print_stdout,
@@ -213,6 +216,7 @@ impl Scene {
 enum Mode {
     Check,
     Render,
+    Diff,
     Accept,
     List,
 }
@@ -223,6 +227,8 @@ struct Options {
     scale: f64,
     out: PathBuf,
     from: Option<PathBuf>,
+    /// The renders `diff` compares with: another commit's, made on this machine.
+    base: Option<PathBuf>,
     /// References are required and must come from this renderer (`QUICKIE_UI_STRICT=1`, CI).
     strict: bool,
 }
@@ -257,7 +263,7 @@ pub fn run(stories: &[Story], manifest_dir: &str) -> bool {
         }
         // Another crate's stories were named.
         _ if chosen.is_empty() => Ok(true),
-        Mode::Render | Mode::Check => {
+        Mode::Render | Mode::Check | Mode::Diff => {
             render::start(mtm);
             check(&chosen, &options, &references, mtm)
         }
@@ -278,11 +284,13 @@ fn options(args: impl Iterator<Item = String>, manifest: &Path) -> Result<Option
     let mut scale = 1.0;
     let mut out = None;
     let mut from = None;
+    let mut base = None;
     let mut args = args.peekable();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "check" => mode = Mode::Check,
             "render" => mode = Mode::Render,
+            "diff" => mode = Mode::Diff,
             "accept" => mode = Mode::Accept,
             "list" => mode = Mode::List,
             "--scale" => {
@@ -298,6 +306,11 @@ fn options(args: impl Iterator<Item = String>, manifest: &Path) -> Result<Option
                     args.next().ok_or("--from takes a directory")?,
                 ));
             }
+            "--base" => {
+                base = Some(PathBuf::from(
+                    args.next().ok_or("--base takes a directory")?,
+                ));
+            }
             // Flags a test runner may pass, such as `--nocapture`.
             flag if flag.starts_with("--") => {}
             filter => filters.push(filter.to_owned()),
@@ -306,12 +319,16 @@ fn options(args: impl Iterator<Item = String>, manifest: &Path) -> Result<Option
     if mode != Mode::Render && (scale - 1.0).abs() > f64::EPSILON {
         return Err("references are 1x; --scale is for `render` only".to_owned());
     }
+    if mode == Mode::Diff && base.is_none() {
+        return Err("diff takes --base <dir>, the renders to compare with".to_owned());
+    }
     Ok(Options {
         mode,
         filters,
         scale,
         out: out.unwrap_or_else(|| out_dir(manifest)),
         from,
+        base,
         strict: std::env::var("QUICKIE_UI_STRICT").is_ok_and(|value| value == "1"),
     })
 }
@@ -480,6 +497,7 @@ fn check(
     }
     let started = Instant::now();
     let mut count = 0;
+    let mut changed = String::new();
     for &(story, theme) in chosen {
         let shot = shoot(story, theme, options.scale, mtm)?;
         let path = story.render_path(&options.out, theme, "");
@@ -498,6 +516,20 @@ fn check(
             let (ok, note) = verdict(story, theme, &path, references, options)?;
             passed &= ok;
             line.push_str(&note);
+        } else if let Some(base) = options
+            .base
+            .as_deref()
+            .filter(|_| options.mode == Mode::Diff)
+        {
+            // A story the base does not have is new; the caller sees that from the files.
+            let before = story.render_path(base, theme, "");
+            let diff_path = story.render_path(&options.out, theme, ".diff");
+            if before.exists()
+                && let Some(note) = differs(&before, &path, &diff_path)?
+            {
+                let _ = writeln!(changed, "{}.{}", story.id(), theme.name());
+                line.push_str(&note);
+            }
         } else if options.mode == Mode::Render {
             let _ = write!(line, "  {}", path.display());
         }
@@ -514,6 +546,10 @@ fn check(
     fs::create_dir_all(&options.out).map_err(|e| format!("{}: {e}", options.out.display()))?;
     fs::write(options.out.join("renderer.txt"), format!("{ours}\n"))
         .map_err(|e| format!("renderer.txt: {e}"))?;
+    if options.mode == Mode::Diff {
+        fs::write(options.out.join("changed.txt"), changed)
+            .map_err(|e| format!("changed.txt: {e}"))?;
+    }
     println!(
         "stories: {count} render(s) in {} ms, {}",
         started.elapsed().as_millis(),
@@ -538,34 +574,37 @@ fn verdict(
         let ok = !options.strict;
         return Ok((ok, "  no reference (cargo xtask ui accept)".to_owned()));
     }
-    let expected = render::pixels(&*render::read_png(&reference)?)
-        .ok_or_else(|| format!("{}: unreadable", reference.display()))?;
+    Ok(
+        differs(&reference, actual, &diff_path)?
+            .map_or((true, String::new()), |note| (false, note)),
+    )
+}
+
+/// Compares the render at `actual` with the image at `expected` within [`TOLERANCE`]: `None`
+/// when they match, else what differs. Writes the diff to `diff_path` when pixels differ.
+fn differs(expected: &Path, actual: &Path, diff_path: &Path) -> Result<Option<String>, String> {
+    let before = render::pixels(&*render::read_png(expected)?)
+        .ok_or_else(|| format!("{}: unreadable", expected.display()))?;
     let rendered = render::pixels(&*render::read_png(actual)?)
         .ok_or_else(|| format!("{}: unreadable", actual.display()))?;
-    Ok(match compare(&expected, &rendered, &TOLERANCE) {
-        Verdict::Same { .. } => (true, String::new()),
-        Verdict::Resized { expected, actual } => (
-            false,
-            format!(
-                "  CHANGED SIZE: {}x{} -> {}x{}",
-                expected.0, expected.1, actual.0, actual.1
-            ),
-        ),
+    Ok(match compare(&before, &rendered, &TOLERANCE) {
+        Verdict::Same { .. } => None,
+        Verdict::Resized { expected, actual } => Some(format!(
+            "  CHANGED SIZE: {}x{} -> {}x{}",
+            expected.0, expected.1, actual.0, actual.1
+        )),
         Verdict::Different {
             differing,
             allowed,
             diff,
         } => {
             if let Some(rep) = render::rep_of(&diff) {
-                render::write_png(&rep, &diff_path)?;
+                render::write_png(&rep, diff_path)?;
             }
-            (
-                false,
-                format!(
-                    "  DIFFERS: {differing} pixels (at most {allowed}), see {}",
-                    diff_path.display()
-                ),
-            )
+            Some(format!(
+                "  DIFFERS: {differing} pixels (at most {allowed}), see {}",
+                diff_path.display()
+            ))
         }
     })
 }

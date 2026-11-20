@@ -6,19 +6,29 @@
 //! - `check [<filter>]`: what `cargo test` runs: renders, plays, and comparisons.
 //! - `accept [<filter>] [--from <dir>]`: renders become the references; `--from` takes the
 //!   renders of a CI run instead (its `ui-renders` artifact).
+//! - `diff [--base <rev>] [--when-foreign]`: renders at the base and at `HEAD` on this machine
+//!   and names the stories whose looks changed ([`diff`]).
 //!
 //! A filter is `<widget>`, `<widget>/<state>`, or `<widget>/<state>.<theme>`. Every story
 //! binary gets the same arguments and keeps the stories the filters name.
 
+mod base;
+mod diff;
+mod report;
+
 use std::process::Command;
 
-/// The crates with a `stories` test target.
-const PACKAGES: [&str; 2] = ["quickie-ui-widgets", "quickie-ui-screens"];
+/// The crates with a `stories` test target, and their directories.
+const STORY_CRATES: [(&str, &str); 2] = [
+    ("quickie-ui-widgets", "crates/ui/widgets"),
+    ("quickie-ui-screens", "crates/ui/screens"),
+];
 
 const MODES: [&str; 4] = ["list", "render", "check", "accept"];
 
 pub const USAGE: &str = "cargo xtask ui <list | render | check | accept> \
-                         [<widget>[/<state>[.<theme>]] ...] [--scale <n>] [--from <dir>]";
+                         [<widget>[/<state>[.<theme>]] ...] [--scale <n>] [--from <dir>], \
+                         or cargo xtask ui diff [--base <rev>] [--when-foreign]";
 
 /// The `cargo` arguments that run every story binary with `args`.
 pub fn arguments(args: &[&str]) -> Result<Vec<String>, String> {
@@ -32,7 +42,7 @@ pub fn arguments(args: &[&str]) -> Result<Vec<String>, String> {
         .into_iter()
         .map(str::to_owned)
         .collect();
-    for package in PACKAGES {
+    for (package, _) in STORY_CRATES {
         out.push("--package".to_owned());
         out.push(package.to_owned());
     }
@@ -43,6 +53,9 @@ pub fn arguments(args: &[&str]) -> Result<Vec<String>, String> {
 
 /// Runs the story binaries; their own output says what they did.
 pub fn run(cargo: &str, args: &[&str]) -> Result<(), String> {
+    if let ["diff", rest @ ..] = args {
+        return diff::run(cargo, rest);
+    }
     let status = Command::new(cargo)
         .args(arguments(args)?)
         .status()

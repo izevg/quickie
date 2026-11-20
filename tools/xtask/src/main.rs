@@ -21,7 +21,7 @@ use serde_json::Value;
 
 const USAGE: &str = "usage: cargo xtask <structure | layers | commit-msg <file> | \
                      bundle [--release] [--bundle-id <id>] | ui <list | render | check | accept> \
-                     [<widget>[/<state>[.<theme>]] ...]>";
+                     [<widget>[/<state>[.<theme>]] ...] | ui diff [--base <rev>] [--when-foreign]>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

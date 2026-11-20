@@ -93,6 +93,10 @@ run = "cargo test --package quickie-engine-webkit --test conformance"
 description = "UI stories: headless renders, plays, and comparison with the reference images (macOS)"
 run = "cargo xtask ui check"
 
+[tasks.ui-diff]
+description = "UI stories rendered at the base and at HEAD here and compared, where the references come from another macOS"
+run = "cargo xtask ui diff --when-foreign"
+
 [tasks.deny]
 description = "Licenses, advisories, bans, sources"
 run = "cargo deny --log-level error --config .cargo/deny.toml check"
@@ -141,7 +145,7 @@ depends = [
 
 [tasks.pre-push]
 description = "Full gates, run by .githooks/pre-push"
-depends = ["pre-commit", "deny", "machete", "links", "mutants"]
+depends = ["pre-commit", "deny", "machete", "links", "mutants", "ui-diff"]
 
 [tasks.ci]
 description = "The CI gates (.github/workflows/ci.yml); mutation runs as its own CI job"
