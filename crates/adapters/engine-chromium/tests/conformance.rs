@@ -46,7 +46,8 @@ impl Harness for Chromium {
             | Group::Downloads
             | Group::Blocker
             | Group::Crash
-            | Group::Zoom => Some(PARKED),
+            | Group::Zoom
+            | Group::Video => Some(PARKED),
         }
     }
 

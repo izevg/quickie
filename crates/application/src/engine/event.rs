@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use quickie_domain_browsing::{FindMatches, Focus, Jar, TabId};
+use quickie_domain_browsing::{FindMatches, Focus, Jar, TabId, Video};
 use url::Url;
 
 use crate::Permission;
@@ -39,6 +39,9 @@ pub enum EngineEvent<P> {
     /// The page entered or left full screen (the Fullscreen API: a video's full-screen button,
     /// `requestFullscreen`).
     Fullscreen { tab: TabId, state: Fullscreen },
+    /// What the page's video does changed: the one that played last in its main frame, or
+    /// `None` once it has none (the page left, or the video went away).
+    Video { tab: TabId, video: Option<Video> },
     /// The page asks the user a question and waits: answer it through the engine with the
     /// ask's token. Closing the tab declines it.
     Asked(Ask),

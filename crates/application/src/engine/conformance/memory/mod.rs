@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use quickie_domain_browsing::{Focus, Jar, JarId, TabId, WindowId};
+use quickie_domain_browsing::{Focus, Jar, JarId, TabId, Video, WindowId};
 use quickie_domain_settings::ZoomLevel;
 use quickie_domain_shields::Site;
 use url::Url;
@@ -24,8 +24,8 @@ use super::{Act, Control, Resource};
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, Downloads,
     EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found, Fullscreen,
-    LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageZoom, Permission, ReplyToken,
-    Ticket,
+    LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageVideo, PageZoom, Permission,
+    ReplyToken, Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -48,6 +48,8 @@ pub struct MemoryEngine {
     running: HashMap<DownloadToken, PathBuf>,
     /// The last number given to an ask, a request, or a download.
     serial: u64,
+    /// The tab whose video floats in a slot.
+    floated: Option<TabId>,
 }
 
 impl MemoryEngine {
@@ -67,6 +69,7 @@ impl MemoryEngine {
             files: HashMap::new(),
             running: HashMap::new(),
             serial: 0,
+            floated: None,
         }
     }
 
@@ -118,6 +121,28 @@ impl MemoryEngine {
         Ok(())
     }
 
+    /// The user plays a video on a tab's page, `video` as it then is; the page reports it. A
+    /// tab without a page plays nothing.
+    pub fn play(&mut self, tab: TabId, video: Video) {
+        if let Some(page) = self.pages.get_mut(&tab) {
+            let audible = match video {
+                Video::Playing { audible } => audible,
+                Video::Paused => page.video.is_some_and(|(_, audible)| audible),
+            };
+            page.video = Some((video, audible));
+            self.events.push(EngineEvent::Video {
+                tab,
+                video: Some(video),
+            });
+        }
+    }
+
+    /// The tab whose video floats in a slot.
+    #[must_use]
+    pub fn floated(&self) -> Option<TabId> {
+        self.floated
+    }
+
     fn page(&mut self, tab: TabId) -> Result<&mut MemoryPage, EngineError> {
         self.pages
             .get_mut(&tab)
@@ -143,11 +168,15 @@ impl MemoryEngine {
             let path = url.as_str().strip_prefix(self.base.as_str());
             match path.and_then(resource) {
                 Some(Resource::Page(shown)) => {
-                    if page.show(url.clone(), shown) {
+                    let left = page.show(url.clone(), shown);
+                    if left.fullscreen {
                         self.events.push(EngineEvent::Fullscreen {
                             tab,
                             state: Fullscreen::Left,
                         });
+                    }
+                    if left.video {
+                        self.events.push(EngineEvent::Video { tab, video: None });
                     }
                     self.events
                         .committed(tab, url, Some(shown.title.to_owned()));
@@ -219,6 +248,7 @@ impl MemoryEngine {
             }
             Act::FocusField => page.field_focused = true,
             Act::AddFrame(path) => self.events.titled(tab, format!("framed:{path}")),
+            Act::PlayVideo => self.play(tab, Video::Playing { audible: false }),
             Act::ShowScripts => {
                 let rules = self.rules.borrow();
                 let ran = page
@@ -387,8 +417,11 @@ impl EnginePort for MemoryEngine {
         self.adopt(MemoryPage::new(jar, url.clone()), tab)
     }
 
+    /// A floating page shown again docks.
     fn show(&mut self, _window: WindowId, tab: TabId) -> Result<(), EngineError> {
-        self.page(tab).map(|_| ())
+        self.page(tab)?;
+        self.dock_video(tab);
+        Ok(())
     }
 
     fn navigate(&mut self, tab: TabId, navigation: &Navigation) -> Result<(), EngineError> {
@@ -409,6 +442,7 @@ impl EnginePort for MemoryEngine {
             .ok_or_else(|| EngineError(format!("no page for {tab}")))?;
         self.events.forget(tab);
         self.pictures.remove(&tab);
+        self.dock_video(tab);
         Ok(())
     }
 
@@ -578,6 +612,35 @@ impl PageAsks for MemoryEngine {
             state: Fullscreen::Left,
         });
         self.events.titled(tab, "fullscreen:none".to_owned());
+    }
+}
+
+/// One page floats at a time, in a slot that draws nothing; playing or pausing a video the
+/// page has is reported at once, and a page without one plays nothing.
+impl PageVideo for MemoryEngine {
+    fn float_video(&mut self, tab: TabId, _slot: &MemoryView) -> Result<(), EngineError> {
+        self.page(tab)?;
+        self.floated = Some(tab);
+        Ok(())
+    }
+
+    fn dock_video(&mut self, tab: TabId) {
+        if self.floated == Some(tab) {
+            self.floated = None;
+        }
+    }
+
+    fn play_video(&mut self, tab: TabId, play: bool) -> Result<(), EngineError> {
+        let Some((_, audible)) = self.page(tab)?.video else {
+            return Ok(());
+        };
+        let video = if play {
+            Video::Playing { audible }
+        } else {
+            Video::Paused
+        };
+        self.play(tab, video);
+        Ok(())
     }
 }
 

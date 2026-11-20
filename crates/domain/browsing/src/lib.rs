@@ -17,8 +17,9 @@ pub use session::{
     SessionSnapshot,
 };
 pub use tab::{
-    Destination, FindMatches, Focus, Jar, JarChoice, JarId, Origin, PinnedSlot, SEARCH_ENGINE,
-    SlotOutOfRange, Tab, Transport, is_cross_origin, registrable_domain,
+    Destination, FindMatches, Focus, Jar, JarChoice, JarId, MiniPlayer, Origin, PinnedSlot,
+    PlayerChange, SEARCH_ENGINE, SlotOutOfRange, Tab, Transport, Video, is_cross_origin,
+    registrable_domain,
 };
 
 /// A command named a tab or a window the session does not have.

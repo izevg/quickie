@@ -97,7 +97,7 @@ the slices inside a group still never use each other.
 | Group | Slices |
 |---|---|
 | `palette` | `command_palette` (modes: commands, go-to, ask), `address_overlay` (the page's URL and actions; local suggestions with inline completion as the user types) |
-| `tabs` | `tab_switcher`, `tab_overview` |
+| `tabs` | `tab_switcher`, `tab_overview`, `mini_player` (the video of a tab the user left, no mockup) |
 | `page` | `frame` (the page in its window: edge to edge, or inset as a card with *Inset page*), `find_bar`, `load_progress_line`, `origin_chip` |
 | `hints` | `link_hints_layer` (labels drawn natively above the page, never in its DOM) |
 | `feedback` | `toast_stack`, `fullscreen_notice`, `key_log` (E1, the last key presses and what became of them; palette only) |

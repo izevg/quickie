@@ -136,7 +136,8 @@ impl Harness for WebKit {
             | Group::Downloads
             | Group::Blocker
             | Group::Crash
-            | Group::Zoom => None,
+            | Group::Zoom
+            | Group::Video => None,
         }
     }
 
