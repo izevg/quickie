@@ -76,10 +76,41 @@ jobs:
       - name: Sync
         run: engine/webkit/scripts/sync
 
+      # Xcode's compilation cache (.build/webkit-cas, ~5 GB) carries compiled objects from one run
+      # to the next: a rebuild of the same pin, or of a pin a few patches on, is mostly cache hits.
+      # WebKitBuild (~9 GB) is not kept: both would not fit the repository's 10 GB of caches.
+      # Keys are per runner and Xcode (objects from another compiler are useless) and unique per
+      # run, so every run saves what it compiled, even a failed or timed-out one, and the next run
+      # restores the newest; GitHub evicts the oldest past 10 GB.
+      - name: Cache key
+        id: cas
+        run: |
+          # shellcheck disable=SC1091
+          . engine/webkit/webkit.pin
+          prefix="webkit-cas-${RUNNER_LABEL}-${XCODE_APP%.app}-"
+          echo "prefix=$prefix" >>"$GITHUB_OUTPUT"
+          echo "key=$prefix${WEBKIT_COMMIT:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >>"$GITHUB_OUTPUT"
+        env:
+          RUNNER_LABEL: ${{ inputs.runner || 'xcode-27' }}
+
+      # actions/cache/restore v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build/webkit-cas
+          key: ${{ steps.cas.outputs.key }}
+          restore-keys: ${{ steps.cas.outputs.prefix }}
+
       - name: Build
         env:
           QUICKIE_BUILD_MINUTES: "300"
         run: engine/webkit/scripts/build
+
+      # actions/cache/save v6.1.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: always() && steps.cas.outputs.key != ''
+        with:
+          path: .build/webkit-cas
+          key: ${{ steps.cas.outputs.key }}
 
       - name: Package
         id: package
