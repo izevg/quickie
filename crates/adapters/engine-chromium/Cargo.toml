@@ -17,5 +17,8 @@ quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
 url.workspace = true
 
+[dev-dependencies]
+quickie-application = { workspace = true, features = ["conformance"] }
+
 [lints]
 workspace = true

@@ -1,0 +1,480 @@
+//! What is on a page (find, hints, text), what it fetches (downloads, blocker), and its
+//! renderer dying (crash).
+
+use std::path::Path;
+use std::sync::Arc;
+
+use quickie_domain_browsing::{FindMatches, Jar};
+use quickie_domain_shields::{ContentHash, FilterListId, Site};
+
+use super::{Case, Checked, Run, ensure, same, tab};
+use crate::conformance::{Group, Harness, site};
+use crate::{
+    BlockerRules, DownloadEvent, DownloadToken, EngineEvent, EnginePort, FindStep, Followed, Found,
+    ListRules, Navigation, Ticket,
+};
+
+pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
+    let case = |group, name, run| Case { group, name, run };
+    vec![
+        case(
+            Group::Find,
+            "find_counts_the_matches_and_steps_through_them",
+            find_steps,
+        ),
+        case(
+            Group::Find,
+            "an_empty_query_or_no_match_finds_nothing",
+            find_nothing,
+        ),
+        case(
+            Group::Hints,
+            "the_targets_are_the_links_and_controls_in_order",
+            targets_in_order,
+        ),
+        case(
+            Group::Hints,
+            "following_a_link_names_where_it_goes",
+            following_a_link,
+        ),
+        case(
+            Group::Hints,
+            "following_a_button_clicks_it",
+            following_a_button,
+        ),
+        case(Group::Text, "the_text_is_what_the_page_shows", page_text),
+        case(
+            Group::Downloads,
+            "an_attachment_downloads_into_the_folder",
+            attachment_downloads,
+        ),
+        case(
+            Group::Downloads,
+            "a_download_asked_for_downloads_the_same_way",
+            asked_download,
+        ),
+        case(
+            Group::Downloads,
+            "a_cancelled_download_leaves_no_file",
+            cancelled_download,
+        ),
+        case(
+            Group::Downloads,
+            "without_a_folder_a_download_is_refused",
+            refused_download,
+        ),
+        case(Group::Blocker, "a_blocked_script_never_runs", blocked),
+        case(
+            Group::Blocker,
+            "an_unshielded_site_loads_everything",
+            unshielded,
+        ),
+        case(
+            Group::Crash,
+            "a_crashed_page_is_reported_and_reloads",
+            crashed,
+        ),
+    ]
+}
+
+/// Finds `query` in tab 1 and waits for the matches.
+fn find<H: Harness>(
+    run: &mut Run<'_, H>,
+    query: &str,
+    step: FindStep,
+) -> Result<FindMatches, String> {
+    let mark = run.events.len();
+    run.harness.find(&mut run.engine, tab(1), query, step)?;
+    let found = run.take(
+        mark,
+        &format!("the matches of {query:?}"),
+        |event| matches!(event, EngineEvent::Found(Found { tab: about, .. }) if *about == tab(1)),
+    )?;
+    match found {
+        EngineEvent::Found(found) => {
+            same(
+                "the query the matches are for",
+                &found.query.as_str(),
+                &query,
+            )?;
+            Ok(found.matches)
+        }
+        other => Err(format!("{other:?} is not a find")),
+    }
+}
+
+fn find_steps<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let mut steps = Vec::new();
+    for step in [
+        FindStep::Refine,
+        FindStep::Next,
+        FindStep::Next,
+        FindStep::Next,
+        FindStep::Previous,
+    ] {
+        steps.push(find(run, "alpha", step)?);
+    }
+
+    same(
+        "the matches of alpha, step by step",
+        &steps,
+        &[1, 2, 3, 1, 3]
+            .map(|current| FindMatches::new(Some(current), 3))
+            .to_vec(),
+    )
+}
+
+fn find_nothing<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let missing = find(run, "zeta", FindStep::Refine)?;
+    let next = find(run, "zeta", FindStep::Next)?;
+    let empty = find(run, "", FindStep::Refine)?;
+
+    same(
+        "the matches of zeta",
+        &(missing, next),
+        &(FindMatches::NONE, FindMatches::NONE),
+    )?;
+    same("the matches of nothing", &empty, &FindMatches::NONE)
+}
+
+/// Opens the opener page in tab 1.
+fn opener<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "opener", Jar::Main)?;
+    run.wait_visit(1, "opener", "Opener")
+}
+
+/// Collects tab 1's targets, follows target `index`, and waits for what following it left to
+/// do.
+fn follow<H: Harness>(
+    run: &mut Run<'_, H>,
+    index: usize,
+    background: bool,
+) -> Result<Followed, String> {
+    run.targets(1)?;
+    let ticket = run
+        .harness
+        .follow_link(&mut run.engine, tab(1), index, background)?
+        .ok_or("the page is gone")?;
+    let answer = run.take(0, "what following left to do", |event| {
+        matches!(event, EngineEvent::Followed { ticket: answered, .. } if *answered == ticket)
+    })?;
+    match answer {
+        EngineEvent::Followed { followed, .. } => Ok(followed),
+        other => Err(format!("{other:?} is not a followed link")),
+    }
+}
+
+fn targets_in_order<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    opener(run)?;
+
+    let targets = run.targets(1)?;
+
+    same(
+        "which targets are links",
+        &targets.iter().map(|target| target.link).collect::<Vec<_>>(),
+        &vec![true, true, false, false, false],
+    )?;
+    let sized = targets.iter().all(|target| {
+        target.frame.x >= 0.0 && target.frame.width > 0.0 && target.frame.height > 0.0
+    });
+    let ordered = targets
+        .windows(2)
+        .all(|pair| matches!(pair, [above, below] if above.frame.y < below.frame.y));
+    ensure(sized && ordered, || {
+        format!("the targets are not laid out top to bottom in the view: {targets:?}")
+    })?;
+    let first = run.harness.link_targets(&mut run.engine, tab(1))?;
+    let second = run.harness.link_targets(&mut run.engine, tab(1))?;
+    ensure(first != second, || {
+        format!("two requests got one ticket: {first:?}")
+    })?;
+    ensure(
+        run.harness.link_targets(&mut run.engine, tab(9))?.is_none(),
+        || "a tab without a page has link targets".to_owned(),
+    )
+}
+
+fn following_a_link<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let popup = run.url("popup");
+    opener(run)?;
+
+    let background = follow(run, 0, true)?;
+    let blank = follow(run, 0, false)?;
+
+    same(
+        "following a link in the background",
+        &background,
+        &Followed::Background(popup.clone()),
+    )?;
+    same(
+        "following a link to a new window",
+        &blank,
+        &Followed::NewTab(popup),
+    )
+}
+
+fn following_a_button<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    opener(run)?;
+
+    let followed = follow(run, 4, false)?;
+
+    same("following a button", &followed, &Followed::Done)?;
+    run.wait_title(1, "Clicked")?;
+    ensure(
+        run.harness
+            .follow_link(&mut run.engine, tab(9), 0, false)?
+            .is_none(),
+        || "a tab without a page followed a link".to_owned(),
+    )
+}
+
+fn page_text<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let ticket: Ticket = run
+        .harness
+        .page_text(&mut run.engine, tab(1))?
+        .ok_or("the page is gone")?;
+
+    let answer = run.take(
+        0,
+        "the page's text",
+        |event| matches!(event, EngineEvent::Text { ticket: answered, .. } if *answered == ticket),
+    )?;
+    let EngineEvent::Text {
+        tab: about, text, ..
+    } = answer
+    else {
+        return Err(format!("{answer:?} is not page text"));
+    };
+    same("whose text", &about, &tab(1))?;
+    ensure(text.contains("alpha beta Alpha gamma alpha"), || {
+        format!("the page's text is {text:?}")
+    })?;
+    ensure(
+        run.harness.page_text(&mut run.engine, tab(9))?.is_none(),
+        || "a tab without a page has text".to_owned(),
+    )
+}
+
+/// The downloads reported so far, oldest first.
+fn downloads<P>(events: &[EngineEvent<P>]) -> impl Iterator<Item = &DownloadEvent> {
+    events.iter().filter_map(|event| match event {
+        EngineEvent::Download(download) => Some(download),
+        _ => None,
+    })
+}
+
+/// Waits for the download of `path` to start, from tab 1's page, into `folder`: its token.
+fn started<H: Harness>(
+    run: &mut Run<'_, H>,
+    path: &str,
+    folder: &Path,
+) -> Result<DownloadToken, String> {
+    run.wait("a download to start", |events| {
+        downloads(events).any(|event| matches!(event, DownloadEvent::Started { .. }))
+    })?;
+    let want = (tab(1), Jar::Main, run.url(path), folder.join(path));
+    let started = downloads(&run.events).find_map(|event| match event {
+        DownloadEvent::Started {
+            token,
+            tab,
+            jar,
+            url,
+            file,
+        } => Some((*token, (*tab, *jar, url.clone(), file.clone()))),
+        _ => None,
+    });
+    let (token, got) = started.ok_or("the download went missing")?;
+    same("the started download", &got, &want)?;
+    Ok(token)
+}
+
+/// Waits for download `token` to finish and checks the file holds all of `path`.
+fn finished<H: Harness>(
+    run: &mut Run<'_, H>,
+    token: DownloadToken,
+    path: &str,
+    folder: &Path,
+) -> Checked {
+    run.wait("the download to end", |events| {
+        downloads(events).any(|event| {
+            event.token() == token
+                && matches!(
+                    event,
+                    DownloadEvent::Finished { .. } | DownloadEvent::Failed { .. }
+                )
+        })
+    })?;
+    ensure(
+        downloads(&run.events).any(|event| *event == DownloadEvent::Finished { token }),
+        || "the download failed".to_owned(),
+    )?;
+    let want = site::resource(path).map(|resource| resource.body().into_bytes());
+    let file = run.harness.downloaded(&run.engine, &folder.join(path))?;
+    same("the downloaded file", &file, &want)
+}
+
+fn attachment_downloads<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let folder = run.harness.downloads_into(&mut run.engine)??;
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let attachment = run.url("report.bin");
+    run.engine
+        .navigate(tab(1), &Navigation::Load(attachment))
+        .map_err(|error| format!("loading the attachment failed: {error}"))?;
+
+    let token = started(run, "report.bin", &folder)?;
+    finished(run, token, "report.bin", &folder)?;
+    run.wait_visit(1, "plain", "Plain")
+}
+
+fn asked_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let folder = run.harness.downloads_into(&mut run.engine)??;
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let attachment = run.url("report.bin");
+    run.harness
+        .download(&mut run.engine, tab(1), &attachment)?
+        .map_err(|error| format!("downloading failed: {error}"))?;
+
+    let token = started(run, "report.bin", &folder)?;
+    finished(run, token, "report.bin", &folder)?;
+    let without = run.harness.download(&mut run.engine, tab(9), &attachment)?;
+    ensure(without.is_err(), || {
+        "a tab without a page downloaded".to_owned()
+    })
+}
+
+fn cancelled_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let folder = run.harness.downloads_into(&mut run.engine)??;
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+    let stalled = run.url("stalled.bin");
+    run.harness
+        .download(&mut run.engine, tab(1), &stalled)?
+        .map_err(|error| format!("downloading failed: {error}"))?;
+    let token = started(run, "stalled.bin", &folder)?;
+
+    run.harness.cancel_download(&mut run.engine, token)?;
+    let mark = run.events.len();
+    run.idle();
+
+    let after: Vec<_> = downloads(run.events.get(mark..).unwrap_or_default())
+        .filter(|event| event.token() == token)
+        .collect();
+    ensure(after.is_empty(), || {
+        format!("a cancelled download still reported {after:?}")
+    })?;
+    let file = run
+        .harness
+        .downloaded(&run.engine, &folder.join("stalled.bin"))?;
+    same("the cancelled download's file", &file, &None)
+}
+
+fn refused_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let attachment = run.url("report.bin");
+    run.engine
+        .navigate(tab(1), &Navigation::Load(attachment.clone()))
+        .map_err(|error| format!("loading the attachment failed: {error}"))?;
+    run.harness
+        .download(&mut run.engine, tab(1), &attachment)?
+        .map_err(|error| format!("downloading failed: {error}"))?;
+
+    run.wait("both downloads to be refused", |events| {
+        refused(events).len() == 2
+    })?;
+    let tokens = refused(&run.events);
+    ensure(
+        matches!(tokens.as_slice(), [first, second] if first != second),
+        || format!("two refused downloads have the tokens {tokens:?}"),
+    )
+}
+
+/// The downloads refused so far.
+fn refused<P>(events: &[EngineEvent<P>]) -> Vec<DownloadToken> {
+    downloads(events)
+        .filter(|event| matches!(event, DownloadEvent::Refused { .. }))
+        .map(DownloadEvent::token)
+        .collect()
+}
+
+/// Rules from one list that blocks the tracker, unshielding `unshielded`.
+fn rules(unshielded: Vec<Site>) -> BlockerRules {
+    let list: &[u8] = b"! the conformance suite's list\n/tracker.js\n";
+    BlockerRules {
+        lists: vec![ListRules {
+            list: FilterListId::EasyPrivacy,
+            hash: ContentHash::of(list),
+            body: Arc::from(list),
+        }],
+        unshielded,
+    }
+}
+
+/// The tracked page's title when every script ran.
+const EVERY_SCRIPT: &str = "scripts:app.js;tracker.js;";
+
+/// The tracked page's title when the tracker was blocked.
+const NO_TRACKER: &str = "scripts:app.js;";
+
+fn blocked<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "tracked", Jar::Main)?;
+    run.wait_title(1, EVERY_SCRIPT)?;
+
+    run.harness.block(&mut run.engine, &rules(Vec::new()))??;
+    run.engine
+        .navigate(tab(1), &Navigation::Reload)
+        .map_err(|error| format!("reloading failed: {error}"))?;
+
+    run.wait_title(1, NO_TRACKER)
+}
+
+fn unshielded<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let site = Site::try_from(&run.harness.base()).map_err(|error| error.to_string())?;
+    run.harness.block(&mut run.engine, &rules(Vec::new()))??;
+    run.create(1, "tracked", Jar::Main)?;
+    run.wait_title(1, NO_TRACKER)?;
+
+    run.harness.block(&mut run.engine, &rules(vec![site]))??;
+    run.engine
+        .navigate(tab(1), &Navigation::Reload)
+        .map_err(|error| format!("reloading failed: {error}"))?;
+
+    run.wait_title(1, EVERY_SCRIPT)
+}
+
+fn crashed<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    run.harness.crash(&mut run.engine, tab(1))??;
+
+    run.wait("the crash", |events| {
+        events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::Crashed { tab: about } if *about == tab(1)))
+    })?;
+    let mark = run.events.len();
+    run.engine
+        .navigate(tab(1), &Navigation::Reload)
+        .map_err(|error| format!("reloading failed: {error}"))?;
+    run.wait("the reload's commit", |events| {
+        events.iter().skip(mark).any(
+            |event| matches!(event, EngineEvent::Committed { tab: about, .. } if *about == tab(1)),
+        )
+    })?;
+    run.wait_visit(1, "plain", "Plain")
+}

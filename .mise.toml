@@ -85,6 +85,10 @@ run = "cargo clippy --workspace --all-targets -- -D warnings"
 description = "All tests"
 run = "cargo test --workspace --no-fail-fast --quiet"
 
+[tasks.conformance]
+description = "The engine conformance suite on the WebKit engine (macOS)"
+run = "cargo test --package quickie-engine-webkit --test conformance"
+
 [tasks.deny]
 description = "Licenses, advisories, bans, sources"
 run = "cargo deny --log-level error --config .cargo/deny.toml check"
