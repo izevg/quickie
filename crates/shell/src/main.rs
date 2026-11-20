@@ -21,8 +21,9 @@
 //! a window, `⌘⇧T` reopens, `⌃⇥` /
 //! `⌃⇧⇥` switch in most-recently-used order, `⌘1` … `⌘9` go to a pinned slot and `⌥⌘1` …
 //! `⌥⌘9` pin there, `⌘D` bookmarks, `⇧⌘C` / `⌥⌘C` copy the URL / a Markdown link, `⌘J`
-//! shows the downloads (saved to `~/Downloads`), `⌥⌘S` the site's shields, `?` in the palette
-//! asks the agent about the page and `⌘.` stops it. `⌘Q` quits.
+//! shows the downloads (saved to `~/Downloads`), `⌥⌘S` the site's shields, `⌘=` / `⌘-` / `⌘0`
+//! zoom the site in, out, and back to 100 %, `⌥⌘P` prints, `⇧⌘R` reloads past the cache, `?`
+//! in the palette asks the agent about the page and `⌘.` stops it. `⌘Q` quits.
 //! Launching opens no network connection; the start page is served from memory, and the agent
 //! contacts its endpoint only when asked.
 
@@ -51,7 +52,9 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter};
-use quickie_application::{Agent, Browsing, Clock, Library, LoadedKeymap, Shields, load_keymap};
+use quickie_application::{
+    Agent, Browsing, Clock, Library, LoadedKeymap, Shields, Zoom, load_keymap,
+};
 use quickie_domain_browsing::Timestamp;
 use quickie_domain_commands::{Catalog, Keymap, Platform};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
@@ -80,6 +83,9 @@ pub const PLATFORM: Platform = Platform::MacOs;
 /// The agent use cases as the app composes them: the endpoint in the store, its key in the
 /// login Keychain, each request's fence marker from the system's generator.
 pub type Agents = Agent<WriteBehindStore, KeychainSecrets, SystemEntropy>;
+
+/// The page zoom use cases as the app composes them.
+pub type Zooms = Zoom<WriteBehindStore>;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
@@ -167,6 +173,10 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         .map_err(|error| error.to_string())?;
     let shields =
         Shields::start(shields_store, SystemClock, blocker).map_err(|error| error.to_string())?;
+    // And the site zooms.
+    let zoom_store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let zoom_pending = zoom_store.pending();
+    let zoom = Zoom::start(zoom_store).map_err(|error| error.to_string())?;
     let downloads_folder = home_dir()?.join("Downloads");
     browsing
         .engine_mut()
@@ -177,13 +187,20 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let secrets = KeychainSecrets::login();
     let agent = Agent::start(agent_store, secrets.clone(), SystemEntropy)
         .map_err(|error| error.to_string())?;
-    let writes = vec![pending, library_pending, shields_pending, agent_pending];
+    let writes = vec![
+        pending,
+        library_pending,
+        shields_pending,
+        agent_pending,
+        zoom_pending,
+    ];
     let services = Services {
         browsing,
         library,
         shields,
         agent,
         secrets,
+        zoom,
         palette: Palette::new(catalog.clone(), SystemClock),
         catalog,
         keymap,

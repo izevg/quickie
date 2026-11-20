@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use quickie_application::{
     AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
-    ShieldsSnapshot, StoreError,
+    ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::{NextIds, Session, SessionSnapshot};
@@ -18,6 +18,7 @@ use quickie_domain_library::{
     Bookmarks, BookmarksSnapshot, DownloadsSnapshot, History, HistorySnapshot, SearchShortcuts,
     SearchShortcutsSnapshot, Timestamp,
 };
+use quickie_domain_settings::{SiteZooms, SiteZoomsSnapshot, ZoomStep};
 use quickie_domain_shields::{
     FilterListId, FilterListSet, FilterListSetSnapshot, Site, SitePolicies, SitePoliciesSnapshot,
 };
@@ -180,6 +181,16 @@ impl ShieldsRepo for Recorder {
     }
 }
 
+impl ZoomRepo for Recorder {
+    fn load_site_zooms(&self) -> Result<SiteZoomsSnapshot, StoreError> {
+        self.store.load_site_zooms()
+    }
+
+    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError> {
+        self.store.save_site_zooms(zooms)
+    }
+}
+
 impl AgentRepo for Recorder {
     fn load_endpoint(&self) -> Result<Option<EndpointSnapshot>, StoreError> {
         self.store.load_endpoint()
@@ -225,6 +236,39 @@ fn forgetting_the_agent_endpoint_goes_through_the_writer() {
     store.flush().unwrap();
 
     assert_eq!(SqliteStore::open(&path).unwrap().load_endpoint(), Ok(None));
+}
+
+#[test]
+fn site_zooms_load_after_their_saves_and_keep_the_latest() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let mut zooms = SiteZooms::new();
+    zooms.step(Site::try_from("example.com").unwrap(), ZoomStep::In);
+    store.save_site_zooms(&zooms.snapshot()).unwrap();
+    zooms.step(Site::try_from("example.org").unwrap(), ZoomStep::Out);
+    store.save_site_zooms(&zooms.snapshot()).unwrap();
+
+    let loaded = store.load_site_zooms();
+
+    assert_eq!(loaded, Ok(zooms.snapshot()));
+    assert_eq!(SqliteStore::open(&path).unwrap().load_site_zooms(), loaded);
+}
+
+#[test]
+fn a_failed_zoom_write_reaches_the_shell() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DROP TABLE site_zooms")
+        .unwrap();
+    store
+        .save_site_zooms(&SiteZoomsSnapshot::default())
+        .unwrap();
+
+    let flushed = store.flush();
+
+    assert!(matches!(flushed, Err(StoreError(message)) if message.contains("site_zooms")));
 }
 
 #[test]

@@ -100,7 +100,9 @@ impl Browser {
         let (Some(tab), Some(window)) = (self.overview_tab(index), self.overview_window()) else {
             return;
         };
-        self.run(|browsing| browsing.close(tab));
+        if let Some(closed) = self.run(|browsing| browsing.close(tab)) {
+            self.forget_zooms(closed.released_jar);
+        }
         if self.active(window).is_none() {
             let home = self.home.clone();
             self.run(|browsing| browsing.open(window, home, JarChoice::Main, Focus::Foreground));

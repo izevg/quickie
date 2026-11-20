@@ -1,6 +1,6 @@
 [package]
 name = "quickie-domain-kernel"
-description = "Shared kernel of the Quickie domain: identifiers and primitives of every bounded context"
+description = "Shared kernel of the Quickie domain: identifiers, sites, and primitives of every bounded context"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

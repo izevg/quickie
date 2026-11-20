@@ -1,5 +1,5 @@
 //! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
-//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`] and [`AgentRepo`].
+//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`] and [`ZoomRepo`].
 //!
 //! A save replaces one aggregate inside one transaction, so a crash mid-save leaves the previous
 //! version intact. Even with write-ahead logging a save takes milliseconds, more than a frame,
@@ -22,16 +22,17 @@ use std::path::Path;
 
 use quickie_application::{
     AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
-    ShieldsSnapshot, StoreError,
+    ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
 };
+use quickie_domain_settings::SiteZoomsSnapshot;
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use rusqlite::Connection;
-use settings::{agent, keymap};
+use settings::{agent, keymap, zoom};
 
 /// The SQLite store.
 #[derive(Debug)]
@@ -114,6 +115,16 @@ impl AgentRepo for SqliteStore {
 
     fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
         agent::save(&mut self.db, endpoint)
+    }
+}
+
+impl ZoomRepo for SqliteStore {
+    fn load_site_zooms(&self) -> Result<SiteZoomsSnapshot, StoreError> {
+        zoom::load(&self.db)
+    }
+
+    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError> {
+        zoom::save(&mut self.db, zooms)
     }
 }
 

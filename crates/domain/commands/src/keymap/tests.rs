@@ -60,7 +60,7 @@ const HINTS: &str = "quickie.hints.toggle";
 
 /// The macOS defaults as they were written before `mod` existed, row for row, plus the rows
 /// added since in their `cmd` form: the keymap of `mod` must stay exactly this on macOS.
-const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 47] = [
+const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 53] = [
     ("cmd+shift+p", "quickie.palette.openCommands", None),
     ("cmd+k", "quickie.palette.openCommands", None),
     ("cmd+p", "quickie.palette.goto", None),
@@ -92,6 +92,12 @@ const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 47] = [
     ("alt+cmd+8", "quickie.tab.pinToSlot8", None),
     ("alt+cmd+9", "quickie.tab.pinToSlot9", None),
     ("cmd+r", "quickie.tab.reload", None),
+    ("cmd+shift+r", "quickie.tab.hardReload", None),
+    ("cmd+=", "quickie.page.zoomIn", None),
+    ("cmd+shift+=", "quickie.page.zoomIn", None),
+    ("cmd+-", "quickie.page.zoomOut", None),
+    ("cmd+0", "quickie.page.zoomReset", None),
+    ("alt+cmd+p", "quickie.page.print", None),
     ("cmd+[", "quickie.navigation.back", None),
     ("cmd+]", "quickie.navigation.forward", None),
     ("cmd+f", "quickie.page.find", None),

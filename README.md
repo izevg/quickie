@@ -91,7 +91,9 @@ Linux: `keybindings.json` writes it `mod` (`mod+shift+p`), and `⌃⇥` stays Ct
 | `⌘1` … `⌘9` | Pinned slots |
 | `⌘⌥1` … `⌘⌥9` | Pin the tab to a slot |
 | `⌘[` / `⌘]` | Back / forward |
-| `⌘R` | Reload |
+| `⌘R` / `⌘⇧R` | Reload / reload past the cache |
+| `⌘=` or `⌘+` / `⌘-` / `⌘0` | Zoom in / out / back to 100 %, remembered per site |
+| `⌘⌥P` | Print the page (File → Save Page as PDF, or the palette, saves it to Downloads) |
 | `⌘D` | Bookmark the page |
 | `⌘F` | Find in page |
 | `⌘G` / `⌘⇧G` | Next / previous match |

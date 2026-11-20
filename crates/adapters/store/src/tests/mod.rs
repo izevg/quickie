@@ -6,8 +6,9 @@ mod session;
 mod settings;
 
 use quickie_application::{
-    AgentRepo, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+    AgentRepo, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError, ZoomRepo,
 };
+use quickie_domain_settings::SiteZoomsSnapshot;
 use rusqlite::Connection;
 use url::Url;
 
@@ -66,7 +67,7 @@ fn a_first_version_database_keeps_its_session_and_gains_the_library() {
 }
 
 #[test]
-fn a_seventh_version_database_gains_an_empty_agent_endpoint() {
+fn a_seventh_version_database_gains_an_empty_agent_endpoint_and_no_site_zooms() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shell.sqlite");
     let mut db = Connection::open(&path).unwrap();
@@ -80,7 +81,8 @@ fn a_seventh_version_database_gains_an_empty_agent_endpoint() {
 
     let store = SqliteStore::open(&path).unwrap();
 
-    assert_eq!(user_version(&store.db), 8);
+    assert_eq!(user_version(&store.db), i64::try_from(VERSION).unwrap());
     assert_eq!(store.load(), Ok(Some(session)));
     assert_eq!(store.load_endpoint(), Ok(None));
+    assert_eq!(store.load_site_zooms(), Ok(SiteZoomsSnapshot::default()));
 }

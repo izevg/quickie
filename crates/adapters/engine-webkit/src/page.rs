@@ -15,9 +15,11 @@ pub(crate) use scripts::FocusReports;
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSImage, NSView};
-use objc2_foundation::{NSError, NSNumber, NSRect, NSString, NSURL, NSURLRequest};
+use objc2::{MainThreadMarker, MainThreadOnly, sel};
+use objc2_app_kit::{NSImage, NSPrintInfo, NSPrintingPaginationMode, NSView};
+use objc2_foundation::{
+    NSData, NSError, NSNumber, NSObjectProtocol, NSRect, NSString, NSURL, NSURLRequest,
+};
 use objc2_web_kit::{
     WKContentWorld, WKSnapshotConfiguration, WKUserContentController, WKUserScript,
     WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
@@ -132,6 +134,12 @@ impl WebPage {
         unsafe { view.setAllowsBackForwardNavigationGestures(true) };
         // SAFETY: as above.
         unsafe { view.setAllowsMagnification(false) };
+        // Web Inspector can attach (Safari's Develop menu, "Inspect Element"): public API since
+        // macOS 13.3, so asked for before it is called on an older system.
+        if view.respondsToSelector(sel!(setInspectable:)) {
+            // SAFETY: a plain boolean setter the view answers to.
+            unsafe { view.setInspectable(true) };
+        }
         let hooks = Rc::new(hooks);
         let observer = PageObserver::new(Rc::clone(&hooks), mtm);
         observer.attach(&view);
@@ -225,9 +233,97 @@ impl WebPage {
         let _navigation = unsafe { self.view.reload() };
     }
 
+    pub(crate) fn reload_from_origin(&self) {
+        // SAFETY: reloading has no preconditions.
+        let _navigation = unsafe { self.view.reloadFromOrigin() };
+    }
+
     pub(crate) fn stop(&self) {
         // SAFETY: stopping has no preconditions.
         unsafe { self.view.stopLoading() };
+    }
+
+    /// The page's zoom: `1.0` for actual size.
+    pub(crate) fn zoom(&self) -> f64 {
+        // SAFETY: a plain getter.
+        unsafe { self.view.pageZoom() }
+    }
+
+    /// Zooms the page's content (text and layout, not a magnified picture) by `factor`. The
+    /// view keeps it across navigations, so the caller sets it on every commit.
+    pub(crate) fn set_zoom(&self, factor: f64) {
+        if (self.zoom() - factor).abs() > f64::EPSILON {
+            // SAFETY: a plain setter; any positive factor is valid.
+            unsafe { self.view.setPageZoom(factor) };
+        }
+    }
+
+    /// Whether Web Inspector may attach to the page.
+    pub(crate) fn inspectable(&self) -> bool {
+        // SAFETY: a plain getter, asked only where the view answers to it.
+        self.view.respondsToSelector(sel!(isInspectable)) && unsafe { self.view.isInspectable() }
+    }
+
+    /// Opens the print panel as a sheet on the page's window; `WebKit` lays the page out in
+    /// pages and prints it, or saves it as a PDF from the panel.
+    pub(crate) fn print(&self) -> Result<(), EngineError> {
+        let window = self
+            .view
+            .window()
+            .ok_or_else(|| EngineError("the page is not in a window".to_owned()))?;
+        // SAFETY: the shared print info always exists; the operation copies it.
+        let operation = unsafe {
+            self.view
+                .printOperationWithPrintInfo(&NSPrintInfo::sharedPrintInfo())
+        };
+        operation.setShowsPrintPanel(true);
+        operation.setShowsProgressPanel(true);
+        let info = operation.printInfo();
+        info.setHorizontalPagination(NSPrintingPaginationMode::Automatic);
+        info.setVerticalPagination(NSPrintingPaginationMode::Automatic);
+        info.setVerticallyCentered(false);
+        // WebKit's print view starts with an empty frame and prints blank pages unless it has
+        // the page's size.
+        if let Some(printed) = operation.view() {
+            printed.setFrame(self.view.bounds());
+        }
+        // SAFETY: no delegate and no selector, so nothing is called back; a null context is
+        // never read.
+        unsafe {
+            operation.runOperationModalForWindow_delegate_didRunSelector_contextInfo(
+                &window,
+                None,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        Ok(())
+    }
+
+    /// Renders the whole page as a PDF, off the main thread; `done` gets its bytes, or why it
+    /// could not, on the main thread.
+    pub(crate) fn pdf(&self, done: impl FnOnce(Result<Vec<u8>, String>) + 'static) {
+        let done = Cell::new(Some(done));
+        let block = RcBlock::new(move |data: *mut NSData, error: *mut NSError| {
+            // SAFETY: WebKit passes valid data or null for the duration of the call.
+            let data = unsafe { data.as_ref() };
+            // SAFETY: as above, an error or null.
+            let error = unsafe { error.as_ref() };
+            let made = match (data, error) {
+                (Some(data), None) => Ok(data.to_vec()),
+                (_, Some(error)) => Err(error.localizedDescription().to_string()),
+                (None, None) => Err("WebKit made no PDF".to_owned()),
+            };
+            if let Some(done) = done.take() {
+                done(made);
+            }
+        });
+        // SAFETY: no configuration means the whole page; WebKit calls the block once on the
+        // main thread, where its captures live.
+        unsafe {
+            self.view
+                .createPDFWithConfiguration_completionHandler(None, &block);
+        }
     }
 
     /// How much of the page has loaded, `0.0 ..= 1.0`, while it loads; `None` once it is done.

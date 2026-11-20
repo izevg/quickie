@@ -3,7 +3,8 @@
 //! commands, commands to use cases, and puts the outcome on screen.
 //!
 //! - [`keys`]: key events → the keymap → a command; the overlays' fixed keys; the `⌃⇥` hold.
-//! - [`commands`]: the dispatcher, from a command id to the use case that does it.
+//! - [`commands`]: the dispatcher, from a command id to the use case that does it; page zoom,
+//!   printing, and saving a page as a PDF.
 //! - [`palette`]: the command palette's query and what choosing a row does.
 //! - [`page`]: find in page, the origin chip, the load progress line, the sheets of what pages
 //!   ask, and the full-screen notice.
@@ -44,7 +45,7 @@ pub use system::launch_urls;
 
 use crate::input::cycle::CycleHold;
 use crate::window::{browser_window, set_title};
-use crate::{Agents, App, Guard, Lib, Palette};
+use crate::{Agents, App, Guard, Lib, Palette, Zooms};
 use navigation::NavigationOverlays;
 
 /// What the browser runs on, composed by `main`.
@@ -55,6 +56,7 @@ pub struct Services {
     pub agent: Agents,
     /// The Keychain, for the worker threads that ask the endpoint.
     pub secrets: KeychainSecrets,
+    pub zoom: Zooms,
     pub palette: Palette,
     pub catalog: Catalog,
     pub keymap: Keymap,
@@ -74,6 +76,7 @@ pub struct Browser {
     shields: RefCell<Guard>,
     agent: RefCell<Agents>,
     agent_ui: agent::AgentUi,
+    zoom: RefCell<Zooms>,
     palette: Palette,
     catalog: Catalog,
     keymap: Keymap,
@@ -132,12 +135,19 @@ impl Browser {
                 "The agent's saved endpoint was unreadable and is set up anew ({corrupt})"
             ));
         }
+        notices.extend(
+            services
+                .zoom
+                .corrupt_on_start()
+                .map(|corrupt| format!("Site zooms started fresh: {corrupt}")),
+        );
         let browser = Rc::new_cyclic(|this| Self {
             browsing: RefCell::new(services.browsing),
             library: RefCell::new(services.library),
             shields: RefCell::new(services.shields),
             agent: RefCell::new(services.agent),
             agent_ui: agent::AgentUi::new(services.secrets, mtm),
+            zoom: RefCell::new(services.zoom),
             palette: services.palette,
             catalog: services.catalog,
             keymap: services.keymap,
@@ -269,6 +279,7 @@ impl Browser {
         for error in failures {
             self.report(&error);
         }
+        self.show_zooms(Some(&loaded));
         for tab in loaded {
             self.applied(tab);
         }

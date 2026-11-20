@@ -408,6 +408,7 @@ fn navigations_map_to_the_bridge() {
         Navigation::Back,
         Navigation::Forward,
         Navigation::Reload,
+        Navigation::HardReload,
         Navigation::Stop,
     ];
 
@@ -416,7 +417,8 @@ fn navigations_map_to_the_bridge() {
         .map(|navigation| engine.navigate(tab(7), navigation))
         .collect();
 
-    assert_eq!(results, [Ok(()), Ok(()), Ok(()), Ok(()), Ok(())]);
+    assert!(results.iter().all(Result::is_ok), "{results:?}");
+    assert_eq!(results.len(), 6);
     let navigate = |kind, url: &str| Call::Navigate {
         tab: 7,
         kind,
@@ -429,6 +431,7 @@ fn navigations_map_to_the_bridge() {
             navigate(NavigationKind::Back, ""),
             navigate(NavigationKind::Forward, ""),
             navigate(NavigationKind::Reload, ""),
+            navigate(NavigationKind::HardReload, ""),
             navigate(NavigationKind::Stop, ""),
         ]
     );
@@ -443,6 +446,7 @@ fn a_failed_navigation_says_what_was_asked() {
         Navigation::Back,
         Navigation::Forward,
         Navigation::Reload,
+        Navigation::HardReload,
         Navigation::Stop,
     ];
 
@@ -458,6 +462,7 @@ fn a_failed_navigation_says_what_was_asked() {
             rejected("go back in tab#7"),
             rejected("go forward in tab#7"),
             rejected("reload in tab#7"),
+            rejected("reload past the cache in tab#7"),
             rejected("stop loading in tab#7"),
         ]
     );

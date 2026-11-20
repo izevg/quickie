@@ -12,6 +12,7 @@ use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, Win
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
 };
+use quickie_domain_settings::SiteZoomsSnapshot;
 use quickie_domain_shields::{
     ContentHash, FilterListId, FilterListSetSnapshot, Site, SitePoliciesSnapshot,
 };
@@ -117,6 +118,24 @@ pub trait KeymapRepo {
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError>;
 }
 
+/// Where each site's page zoom persists (`shell.sqlite` in the product). Only the main jar's:
+/// nothing of a throwaway jar reaches it.
+pub trait ZoomRepo {
+    /// The saved zooms; none on a fresh profile.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be read.
+    fn load_site_zooms(&self) -> Result<SiteZoomsSnapshot, StoreError>;
+
+    /// Replaces the saved zooms, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError>;
+}
+
 /// A navigation inside a tab.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Navigation {
@@ -128,6 +147,8 @@ pub enum Navigation {
     Forward,
     /// Reload.
     Reload,
+    /// Reload from the origin, past every cache.
+    HardReload,
     /// Stop loading.
     Stop,
 }

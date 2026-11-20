@@ -8,13 +8,14 @@ use std::time::{Duration, Instant};
 
 use quickie_application::{
     AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
-    ShieldsSnapshot, StoreError,
+    ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
 };
+use quickie_domain_settings::SiteZoomsSnapshot;
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 
 use super::Failure;
@@ -51,6 +52,8 @@ pub(super) enum Save {
     Body(FilterListId, Vec<u8>),
     /// The agent's endpoint, or that there is none.
     Endpoint(Option<EndpointSnapshot>),
+    /// Each site's page zoom.
+    Zooms(SiteZoomsSnapshot),
 }
 
 /// A job served only once the pending saves are written, so it sees them.
@@ -66,6 +69,8 @@ pub(super) enum Barrier {
     LoadShields(Sender<Result<ShieldsSnapshot, StoreError>>),
     /// Answer with the saved agent endpoint.
     LoadEndpoint(Sender<Result<Option<EndpointSnapshot>, StoreError>>),
+    /// Answer with the saved site zooms.
+    LoadZooms(Sender<Result<SiteZoomsSnapshot, StoreError>>),
     /// Answer once written.
     Flush(Sender<()>),
 }
@@ -87,6 +92,7 @@ struct Batch {
         reason = "whether a save is pending, and whether it saves an endpoint or forgets it"
     )]
     endpoint: Option<Option<EndpointSnapshot>>,
+    zooms: Option<SiteZoomsSnapshot>,
 }
 
 impl Batch {
@@ -104,12 +110,13 @@ impl Batch {
                 self.bodies.insert(list, body);
             }
             Save::Endpoint(endpoint) => self.endpoint = Some(endpoint),
+            Save::Zooms(zooms) => self.zooms = Some(zooms),
         }
     }
 
     /// Writes and empties the batch. A failure does not stop the other kinds; the last one is
     /// kept for the shell. A list's content goes before the list states that describe it.
-    fn write<S: SessionRepo + LibraryRepo + ShieldsRepo + AgentRepo>(
+    fn write<S: SessionRepo + LibraryRepo + ShieldsRepo + AgentRepo + ZoomRepo>(
         &mut self,
         store: &mut S,
         failure: &Failure,
@@ -137,6 +144,7 @@ impl Batch {
             self.endpoint
                 .take()
                 .map(|endpoint| store.save_endpoint(endpoint.as_ref())),
+            self.zooms.take().map(|zooms| store.save_site_zooms(&zooms)),
         ];
         if let Some(error) = bodies
             .into_iter()
@@ -153,7 +161,7 @@ impl Batch {
 /// after its first save, or sooner when a job needs it on disk.
 pub(super) fn run<S>(mut store: S, inbox: &Receiver<Job>, settle: Duration, failure: &Failure)
 where
-    S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo,
+    S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo + ZoomRepo,
 {
     let mut batch = Batch::default();
     // When the pending batch is written; `None` while nothing is pending.
@@ -190,7 +198,7 @@ where
 
 /// Answers a barrier once the batch is written. A caller that stopped waiting needs no answer,
 /// so a failed reply is dropped.
-fn serve<S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo>(
+fn serve<S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo + ZoomRepo>(
     store: &S,
     barrier: Barrier,
 ) {
@@ -200,6 +208,7 @@ fn serve<S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo>(
         Barrier::LoadLibrary(reply) => drop(reply.send(store.load_library())),
         Barrier::LoadKeybindings(reply) => drop(reply.send(store.load_keybindings())),
         Barrier::LoadShields(reply) => drop(reply.send(store.load_shields())),
+        Barrier::LoadZooms(reply) => drop(reply.send(store.load_site_zooms())),
         Barrier::Flush(reply) => drop(reply.send(())),
     }
 }

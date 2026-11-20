@@ -216,6 +216,7 @@ impl EnginePort for ChromiumEngine {
             Navigation::Back => (NavigationKind::Back, "", "go back"),
             Navigation::Forward => (NavigationKind::Forward, "", "go forward"),
             Navigation::Reload => (NavigationKind::Reload, "", "reload"),
+            Navigation::HardReload => (NavigationKind::HardReload, "", "reload past the cache"),
             Navigation::Stop => (NavigationKind::Stop, "", "stop loading"),
         };
         self.bridge

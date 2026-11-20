@@ -687,6 +687,7 @@ dependencies = [
  "quickie-domain-browsing",
  "quickie-domain-commands",
  "quickie-domain-library",
+ "quickie-domain-settings",
  "quickie-domain-shields",
  "quickie-engine-webkit",
  "quickie-llm",
@@ -706,6 +707,7 @@ dependencies = [
  "quickie-domain-commands",
  "quickie-domain-library",
  "quickie-domain-palette",
+ "quickie-domain-settings",
  "quickie-domain-shields",
  "thiserror 2.0.21",
  "url",
@@ -744,6 +746,7 @@ name = "quickie-domain-kernel"
 version = "0.0.0"
 dependencies = [
  "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]
@@ -763,6 +766,16 @@ dependencies = [
  "nucleo-matcher",
  "quickie-domain-kernel",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "quickie-domain-settings"
+version = "0.0.0"
+dependencies = [
+ "indexmap",
+ "quickie-domain-kernel",
+ "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]
@@ -823,6 +836,7 @@ dependencies = [
  "quickie-domain-agents",
  "quickie-domain-browsing",
  "quickie-domain-library",
+ "quickie-domain-settings",
  "quickie-domain-shields",
  "rusqlite",
  "tempfile",

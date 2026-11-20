@@ -257,6 +257,9 @@ bool TabRegistry::Navigate(std::uint64_t tab, NavigationKind kind, const GURL& u
     case NavigationKind::Reload:
       controller.Reload(content::ReloadType::NORMAL, /*check_for_repost=*/true);
       return true;
+    case NavigationKind::HardReload:
+      controller.Reload(content::ReloadType::BYPASSING_CACHE, /*check_for_repost=*/true);
+      return true;
     case NavigationKind::Stop:
       page->contents->Stop();
       return true;
