@@ -3,7 +3,6 @@
 //! before its host view exists, and which throwaway jars ever got a profile.
 
 mod inbox;
-mod reports;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
@@ -11,12 +10,12 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use quickie_application::{EngineError, EnginePort, Navigated, Navigation};
+use quickie_application::{EngineError, EngineEvent, EnginePort, Navigation};
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
 
 use inbox::Inbox;
-pub use inbox::{OpenedPage, PageHandle};
+pub use inbox::PageHandle;
 
 use crate::bridge::{Bridge, BridgeError, Ffi, KeyEquivalent, NavigationKind, dispatch};
 
@@ -111,21 +110,15 @@ impl ChromiumEngine {
         }
     }
 
-    /// Sets what runs, later on the main loop and never inside an engine call, when pages have
-    /// reported navigations or opened pages. It should drain [`Self::take_navigations`] and
-    /// [`Self::take_opened`].
-    pub fn on_navigated(&mut self, wake: impl Fn() + 'static) {
+    /// Sets what runs, later on the main loop and never inside an engine call, when events
+    /// wait: it should [`Self::drain`] them. Events already waiting wake it at once.
+    pub fn set_waker(&mut self, wake: impl Fn() + 'static) {
         self.inbox.set_waker(Rc::new(wake));
     }
 
-    /// Navigations committed and titles changed since the last call, one per tab.
-    pub fn take_navigations(&mut self) -> Vec<Navigated> {
-        self.inbox.take_navigations()
-    }
-
-    /// Pages Chromium opened since the last call, in the order it opened them.
-    pub fn take_opened(&mut self) -> Vec<OpenedPage> {
-        self.inbox.take_opened()
+    /// Moves what pages did since the last call to the end of `events`, oldest first.
+    pub fn drain(&mut self, events: &mut Vec<EngineEvent<PageHandle>>) {
+        self.inbox.drain(events);
     }
 
     /// Gives a page Chromium opened its tab id; from now on it is that tab's page.

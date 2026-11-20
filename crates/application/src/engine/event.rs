@@ -4,20 +4,82 @@
 
 use std::path::PathBuf;
 
-use quickie_domain_browsing::{FindMatches, Jar, TabId};
+use quickie_domain_browsing::{FindMatches, Focus, Jar, TabId};
 use url::Url;
 
 use crate::Permission;
 
-/// A tab's committed URL and current title, for `Browsing::navigated`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Navigated {
-    pub tab: TabId,
-    pub url: Url,
-    pub title: String,
-    /// The page committed a navigation since the last report: a visit. `false` when only its
-    /// title changed.
-    pub committed: bool,
+/// What pages did, in the order they did it. An engine queues them and the shell drains them on
+/// the main thread after the engine's waker ran, never inside an engine call, so no engine call
+/// ever re-enters a use case. `P` is the engine's handle on a page it opened by itself, the type
+/// `Browsing::adopt` takes.
+#[derive(Debug, PartialEq)]
+pub enum EngineEvent<P> {
+    /// The page committed a navigation: a visit to `url`, titled `title` so far.
+    Committed { tab: TabId, url: Url, title: String },
+    /// The page's title changed after its commit was reported: the visit to `url` is renamed.
+    Titled { tab: TabId, url: Url, title: String },
+    /// How much of the page has loaded, `0.0 ..= 1.0`, while it loads; `None` once it stopped.
+    /// One per tab between drains: the latest.
+    Loading { tab: TabId, progress: Option<f64> },
+    /// A page opened a page of its own (a popup, a `target=_blank` link, a `⌘`-click), to adopt
+    /// into a tab next to its opener's, in its jar. `url` is `about:blank` for a page opened
+    /// without one.
+    Opened {
+        opener: TabId,
+        page: P,
+        url: Url,
+        focus: Focus,
+    },
+    /// The page closed itself (`window.close()`).
+    ClosedByPage { tab: TabId },
+    /// The process that rendered the page is gone, and the page with it; the tab stays and a
+    /// reload brings it back.
+    Crashed { tab: TabId },
+    /// The page entered (`true`) or left full screen.
+    Fullscreen { tab: TabId, entered: bool },
+    /// The page asks the user a question and waits: answer it through the engine with the
+    /// ask's token. Closing the tab declines it.
+    Asked(Ask),
+    /// The matches of a find.
+    Found(Found),
+    /// The links and controls on screen, in document order, for the link hints that `ticket`
+    /// asked for.
+    Targets {
+        tab: TabId,
+        ticket: Ticket,
+        targets: Vec<LinkTarget>,
+    },
+    /// What following the link hint that `ticket` named left for the browser to do.
+    Followed {
+        tab: TabId,
+        ticket: Ticket,
+        followed: Followed,
+    },
+    /// The rendered text of the page, for the read that `ticket` asked for; empty when the page
+    /// has none or could not be read.
+    Text {
+        tab: TabId,
+        ticket: Ticket,
+        text: String,
+    },
+    /// A new picture of the page can be read.
+    Pictured { tab: TabId },
+    /// A download moved on.
+    Download(DownloadEvent),
+}
+
+/// Names a request for a page's content (its text, its link targets, following one): the event
+/// that answers it carries the same ticket. The engine mints it; the shell only compares it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Ticket(u64);
+
+impl Ticket {
+    /// The ticket an engine numbered `raw`; unique among its requests for as long as it runs.
+    #[must_use]
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
 }
 
 /// Where a find goes from the current selection.

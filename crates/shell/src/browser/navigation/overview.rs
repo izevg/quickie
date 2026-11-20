@@ -164,16 +164,18 @@ impl Browser {
             if Some(tab) != active && engine.thumbnail(tab).is_some() {
                 continue;
             }
-            let this = self.this.clone();
-            engine.capture(tab, move || {
-                if let Some(browser) = this.upgrade() {
-                    browser.thumbnail_ready(tab);
-                }
-            });
+            engine.capture(tab);
         }
     }
 
-    fn thumbnail_ready(&self, tab: TabId) {
+    /// A new picture of a tab's page is ready ([`EngineEvent::Pictured`]): its card shows it
+    /// when the overview is open.
+    ///
+    /// [`EngineEvent::Pictured`]: quickie_application::EngineEvent::Pictured
+    pub(in crate::browser) fn thumbnail_ready(&self, tab: TabId) {
+        if !self.navigation.overview.is_open() {
+            return;
+        }
         let Some(index) = self
             .navigation
             .overview_tabs

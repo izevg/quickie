@@ -33,24 +33,9 @@ impl Browser {
         self.popovers.downloads.show(&host, &downloads, trigger);
     }
 
-    /// The engine's download reports since the last time, into the library.
-    pub(in crate::browser) fn download_reports(&self) {
-        let reports = {
-            let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
-                return;
-            };
-            browsing.engine_mut().take_download_reports()
-        };
-        if reports.is_empty() {
-            return;
-        }
-        for report in reports {
-            self.download_report(report);
-        }
-        self.refresh_downloads();
-    }
-
-    fn download_report(&self, report: DownloadEvent) {
+    /// A download the engine reported on, into the library. The popover catches up once per
+    /// drain ([`Self::refresh_downloads`]).
+    pub(in crate::browser) fn download_report(&self, report: DownloadEvent) {
         let key = report.token();
         let id = self.popovers.links.borrow().ids.get(&key).copied();
         let mut library = self.library.borrow_mut();
@@ -240,7 +225,7 @@ impl Browser {
     }
 
     /// The popover shows the list as it is now.
-    fn refresh_downloads(&self) {
+    pub(in crate::browser) fn refresh_downloads(&self) {
         if !self.popovers.downloads.is_open() {
             return;
         }

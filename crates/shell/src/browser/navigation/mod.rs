@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSEvent, NSEventPhase};
+use quickie_application::Ticket;
 use quickie_domain_browsing::{TabId, WindowId};
 use quickie_domain_commands::KeyStroke;
 use quickie_ui_shared::Trigger;
@@ -30,6 +31,11 @@ pub struct NavigationOverlays {
     hints: LinkHintsLayer,
     /// The page the hints label.
     hinted: Cell<Option<(WindowId, TabId)>>,
+    /// The link targets the hints wait for: the ticket of the page's answer, its window, and
+    /// whether links open in the background.
+    targets_asked: Cell<Option<(Ticket, WindowId, bool)>>,
+    /// The hint being followed: the ticket of the page's answer and its window.
+    following: Cell<Option<(Ticket, WindowId)>>,
 }
 
 impl NavigationOverlays {
@@ -40,6 +46,8 @@ impl NavigationOverlays {
             overview_tabs: RefCell::new((None, Vec::new())),
             hints: LinkHintsLayer::new(mtm),
             hinted: Cell::new(None),
+            targets_asked: Cell::new(None),
+            following: Cell::new(None),
         }
     }
 

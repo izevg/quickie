@@ -67,42 +67,34 @@ pub enum SheetRoute {
 }
 
 impl Browser {
-    /// Takes what pages asked since the last time: answered at once when `Prompts` says so,
-    /// else queued for a sheet.
-    pub(in crate::browser) fn take_asks(&self) {
-        let asks = {
-            let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
-                return;
-            };
-            browsing.engine_mut().take_asks()
-        };
-        for ask in asks {
-            let mut prompts = self.page.asks.prompts.borrow_mut();
-            let offer_block = match &ask.kind {
-                AskKind::Dialog(_) => match prompts.dialog(ask.tab) {
-                    DialogGate::Cancel => {
-                        drop(prompts);
-                        self.reply(ask.token, &Answer::Decline);
-                        continue;
-                    }
-                    DialogGate::Show { offer_block } => offer_block,
-                },
-                AskKind::Permission(permission) => {
-                    if prompts.permission(&ask.origin, *permission) == PermissionGate::Allow {
-                        drop(prompts);
-                        self.reply(ask.token, &Answer::Accept(None));
-                        continue;
-                    }
-                    false
+    /// A page asked: answered at once when `Prompts` says so, else queued for a sheet, which
+    /// [`Self::present_asks`] puts on screen.
+    pub(in crate::browser) fn asked(&self, ask: Ask) {
+        let mut prompts = self.page.asks.prompts.borrow_mut();
+        let offer_block = match &ask.kind {
+            AskKind::Dialog(_) => match prompts.dialog(ask.tab) {
+                DialogGate::Cancel => {
+                    drop(prompts);
+                    self.reply(ask.token, &Answer::Decline);
+                    return;
                 }
-            };
-            drop(prompts);
-            self.page
-                .asks
-                .queue
-                .borrow_mut()
-                .push(Queued { ask, offer_block });
-        }
+                DialogGate::Show { offer_block } => offer_block,
+            },
+            AskKind::Permission(permission) => {
+                if prompts.permission(&ask.origin, *permission) == PermissionGate::Allow {
+                    drop(prompts);
+                    self.reply(ask.token, &Answer::Accept(None));
+                    return;
+                }
+                false
+            }
+        };
+        drop(prompts);
+        self.page
+            .asks
+            .queue
+            .borrow_mut()
+            .push(Queued { ask, offer_block });
     }
 
     /// Puts each window's sheet on screen: the oldest ask of its active tab, or none. Asks of

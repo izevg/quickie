@@ -78,8 +78,8 @@ needs `engine/scripts/sync --reset` first, which discards everything `apply` did
   is to show before the shell attached its host view (shown on `attach_host`), and which
   throwaway jars got a profile (`destroy_jar` of a jar whose tabs were never shown calls nothing).
   Events are recorded, never handled inside a bridge call: Rust asks `ScheduleWake` to post
-  `RunWake`, and the shell drains `take_navigations` and `take_opened` from that task, like the
-  `WebKit` engine's waker.
+  `RunWake`, and the shell drains the one queue of `EngineEvent`s (`drain`) from that task, like
+  the `WebKit` engine's waker.
 - **Window.** The factory override asks `quickie::MaybeCreateBrowserWindow` first. Browsers the
   registry creates, and normal or popup Browsers Chromium creates on its own, get a
   `QuickieBrowserWindow`: no Views, the active page's `NSView` added under the shell's host view.
@@ -127,7 +127,7 @@ no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compi
 | [patches/startup/browser-main-parts.patch](patches/startup/browser-main-parts.patch), [overrides/](overrides/) | ld64 resolves the weak defaults to the strong definitions in `//quickie` |
 | [quickie/BUILD.gn](quickie/BUILD.gn) | Dependency labels (`gn check`); `crate_root` outside the target's directory; GN targets for the crate's new dependencies (`quickie-application`, `quickie-domain-browsing`, `url`) |
 | [quickie/bridge/quickie_bridge.cc](quickie/bridge/quickie_bridge.cc) | `ScheduleWake`: `base::BindOnce(&RunWake)` on the cxx-generated `extern "Rust"` function; the generated `ffi.rs.h` still passes `clang++ -fsyntax-only` with `ScheduleWake` and `RunWake` (`base/task/sequenced_task_runner.h`) |
-| [../crates/adapters/engine-chromium/src/engine/reports.rs](../crates/adapters/engine-chromium/src/engine/reports.rs) | A commit keeps the last title until the page reports one: that Chromium calls `TitleWasSet` after every cross-document commit, even without a `<title>` (`content/browser/web_contents/web_contents_impl.cc`) |
+| [../crates/adapters/engine-chromium/src/engine/inbox.rs](../crates/adapters/engine-chromium/src/engine/inbox.rs) | A commit keeps the last title until the page reports one: that Chromium calls `TitleWasSet` after every cross-document commit, even without a `<title>` (`content/browser/web_contents/web_contents_impl.cc`) |
 | [quickie/bridge/tab_registry.h](quickie/bridge/tab_registry.h) | DevTools-prefixed OTR profiles as jars: other `IsDevTools()` effects; extensions off there (`chrome/browser/profiles/profile.cc`) |
 | [quickie/bridge/tab_registry.cc](quickie/bridge/tab_registry.cc) | A Browser Chromium creates may get its first tab before the factory returns (covered by a posted scan); pages Chromium destroys are not reported to Rust yet |
 | [quickie/main_parts.cc](quickie/main_parts.cc) | Dock-icon reopen (`chrome/browser/app_controller_mac.mm`) still creates a Browser |

@@ -1,7 +1,7 @@
 //! Downloads on `WKDownload`. A page hands over a navigation that became a download (a
 //! response `WebKit` cannot show, an attachment, a link with `download`); the center becomes
 //! its delegate, picks the file it goes to, watches its progress, and reports
-//! [`DownloadEvent`]s for the shell to drain.
+//! [`DownloadEvent`]s into the engine's event queue.
 //!
 //! **Never overwrite.** A download goes to the Downloads folder under its suggested name made
 //! safe ([`name::safe_name`]); when that name is taken on disk, or by a download still running,
@@ -54,7 +54,7 @@ struct Live {
     reported: (u64, Option<u64>),
 }
 
-/// Every running download, and what they reported.
+/// Every running download.
 pub(crate) struct DownloadCenter {
     mtm: MainThreadMarker,
     delegate: Retained<DownloadDelegate>,
@@ -63,15 +63,14 @@ pub(crate) struct DownloadCenter {
     reserved: Arc<Mutex<HashSet<PathBuf>>>,
     live: RefCell<Vec<Live>>,
     next: Cell<u64>,
-    reports: RefCell<Vec<DownloadEvent>>,
     timer: RefCell<Option<Retained<NSTimer>>>,
-    /// Tells the engine's inbox that reports wait.
-    notify: Box<dyn Fn()>,
+    /// Where each report goes: the engine's event queue.
+    report: Box<dyn Fn(DownloadEvent)>,
 }
 
 impl DownloadCenter {
-    /// A center with no downloads; `notify` runs whenever a report is recorded.
-    pub(crate) fn new(notify: impl Fn() + 'static, mtm: MainThreadMarker) -> Rc<Self> {
+    /// A center with no downloads; `report` hears what every download does, oldest first.
+    pub(crate) fn new(report: impl Fn(DownloadEvent) + 'static, mtm: MainThreadMarker) -> Rc<Self> {
         Rc::new_cyclic(|this: &Weak<Self>| {
             let this = this.clone();
             let delegate = DownloadDelegate::new(
@@ -89,9 +88,8 @@ impl DownloadCenter {
                 reserved: Arc::default(),
                 live: RefCell::new(Vec::new()),
                 next: Cell::new(0),
-                reports: RefCell::new(Vec::new()),
                 timer: RefCell::new(None),
-                notify: Box::new(notify),
+                report: Box::new(report),
             }
         })
     }
@@ -215,11 +213,6 @@ impl DownloadCenter {
         // SAFETY: WebKit calls the block once the download stopped, on the main thread; it
         // captures only `Send` values.
         unsafe { live.download.cancel(Some(&stopped)) };
-    }
-
-    /// The reports since the last call, oldest first.
-    pub(crate) fn take_reports(&self) -> Vec<DownloadEvent> {
-        std::mem::take(&mut *self.reports.borrow_mut())
     }
 
     fn delegate_event(self: Rc<Self>, event: DelegateEvent) {
@@ -380,8 +373,7 @@ impl DownloadCenter {
     }
 
     fn report(&self, report: DownloadEvent) {
-        self.reports.borrow_mut().push(report);
-        (self.notify)();
+        (self.report)(report);
     }
 
     /// Reads every running download's progress, reporting what moved; stops the timer once
