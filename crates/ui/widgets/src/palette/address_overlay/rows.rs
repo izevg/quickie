@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use quickie_application::{Suggestion, SuggestionKind};
-use quickie_ui_shared::ListRow;
+use quickie_ui_shared::{IconTint, ListRow, RowIcon};
 
 /// The row of `suggestion`. Equal targets make equal keys, so a row that stays in the answer
 /// stays in the table.
@@ -20,8 +20,24 @@ pub fn row(suggestion: &Suggestion) -> ListRow {
         detail: suggestion.url.clone(),
         detail_matches: suggestion.url_matches.clone(),
         detail_strong: suggestion.host.clone(),
+        icon: Some(icon(suggestion.kind)),
         trailing: what(suggestion.kind).map(str::to_owned),
         ..ListRow::default()
+    }
+}
+
+/// The glyph in a row's tile, the same the palette shows for each kind of page.
+fn icon(kind: SuggestionKind) -> RowIcon {
+    let (name, tint) = match kind {
+        SuggestionKind::GoTo => ("arrow.right.circle", IconTint::Accent),
+        SuggestionKind::Search => ("magnifyingglass", IconTint::Accent),
+        SuggestionKind::OpenTab => ("globe", IconTint::Secondary),
+        SuggestionKind::Bookmark => ("bookmark", IconTint::Secondary),
+        SuggestionKind::History => ("clock.arrow.circlepath", IconTint::Secondary),
+    };
+    RowIcon::Symbol {
+        name: name.to_owned(),
+        tint,
     }
 }
 
@@ -39,6 +55,7 @@ const fn what(kind: SuggestionKind) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use quickie_application::{Suggestion, SuggestionKind, Target};
+    use quickie_ui_shared::{IconTint, RowIcon};
     use url::Url;
 
     use super::row;
@@ -80,6 +97,35 @@ mod tests {
         assert_eq!(what(SuggestionKind::History).as_deref(), Some("History"));
         assert_eq!(what(SuggestionKind::GoTo), None);
         assert_eq!(what(SuggestionKind::Search), None);
+    }
+
+    #[test]
+    fn each_kind_has_its_glyph() {
+        let glyph = |kind| match row(&suggestion(kind, "https://github.com/")).icon {
+            Some(RowIcon::Symbol { name, tint }) => (name, tint),
+            other => panic!("no symbol: {other:?}"),
+        };
+
+        assert_eq!(
+            glyph(SuggestionKind::GoTo),
+            ("arrow.right.circle".to_owned(), IconTint::Accent)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::Search),
+            ("magnifyingglass".to_owned(), IconTint::Accent)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::OpenTab),
+            ("globe".to_owned(), IconTint::Secondary)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::Bookmark),
+            ("bookmark".to_owned(), IconTint::Secondary)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::History),
+            ("clock.arrow.circlepath".to_owned(), IconTint::Secondary)
+        );
     }
 
     #[test]
