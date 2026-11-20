@@ -6,8 +6,8 @@
 
 #![expect(
     unsafe_code,
-    reason = "AppKit through objc2: field selection and superviews, the palette field's \
-              delegate, the find bar's buttons and edits, Core Animation transactions, the \
+    reason = "AppKit through objc2: field selection and superviews, the address URL's \
+              paragraph style, the find bar's buttons and edits, Core Animation transactions, the \
               toast and chip timers, the overview's click target and edit observer, layer \
               contents, and the answer's text storage and link delegate"
 )]

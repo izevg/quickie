@@ -96,7 +96,7 @@ the slices inside a group still never use each other.
 
 | Group | Slices |
 |---|---|
-| `palette` | `command_palette` (modes: commands, go-to, ask), `address_overlay` |
+| `palette` | `command_palette` (modes: commands, go-to, ask), `address_overlay` (the page's URL and actions; local suggestions with inline completion as the user types) |
 | `tabs` | `tab_switcher`, `tab_overview` |
 | `page` | `find_bar`, `load_progress_line`, `origin_chip` |
 | `hints` | `link_hints_layer` (labels drawn natively above the page, never in its DOM) |
@@ -125,6 +125,10 @@ the slices inside a group still never use each other.
   source buttons) live in `widgets/agent` for the same reason. The answer panel docks at the
   right of the window instead of under the palette as in the mockup, so a passage a citation
   scrolls to stays in view beside the answer.
+
+- `history_row`, `tab_row`, and `origin_label` live in `widgets/palette/address_overlay` (its
+  rows and its origin line) until an `entities` crate exists. The action rows carry keycaps but
+  no icons until the shared list row gets a leading icon.
 
 - The mockups' window chrome, sample pages, and API names (`LiquidGlassWindow`,
   `.windowChromePresentation`, a Metal compositor) are invented by the generator: reference for

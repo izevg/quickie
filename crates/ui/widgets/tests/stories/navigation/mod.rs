@@ -7,4 +7,9 @@ mod tabs;
 
 use quickie_ui_shared::stories::Story;
 
-pub const GROUPS: [&[Story]; 3] = [palette::STORIES, tabs::STORIES, page::STORIES];
+pub const GROUPS: [&[Story]; 4] = [
+    palette::STORIES,
+    palette::address::STORIES,
+    tabs::STORIES,
+    page::STORIES,
+];

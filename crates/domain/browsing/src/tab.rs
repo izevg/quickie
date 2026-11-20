@@ -1,12 +1,14 @@
 //! A tab and the value objects around it: cookie jars, pinned slots, the origin of its page,
-//! and the matches of a find on it.
+//! and the matches of a find on it, and where typed text takes it.
 
+mod destination;
 mod find;
 mod origin;
 
 use quickie_domain_kernel::TabId;
 use url::Url;
 
+pub use destination::{Destination, SEARCH_ENGINE};
 pub use find::FindMatches;
 pub use origin::{Origin, Transport, is_cross_origin, registrable_domain};
 
