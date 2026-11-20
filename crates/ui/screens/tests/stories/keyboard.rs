@@ -54,7 +54,7 @@ fn refusal(keys: &str, refused: &Rejection, catalog: &Catalog) -> String {
             format!("{keys} already runs {other}")
         }
         Rejection::Malformed(BindingError::Typing(_)) => {
-            format!("{keys} would type into text fields; add ⌘, ⌥ or ⌃")
+            format!("{keys} types text; add ⌘, ⌥ or ⌃")
         }
         other => other.to_string(),
     }
@@ -226,7 +226,7 @@ pub fn typing(scene: &mut Scene) {
             .borrow()
             .as_ref()
             .and_then(|recorded| recorded.problem.clone()),
-        Some("⇧F would type into text fields; add ⌘, ⌥ or ⌃".to_owned()),
+        Some("⇧F types text; add ⌘, ⌥ or ⌃".to_owned()),
         "the browser refuses a key that types and the row says why",
     );
 }

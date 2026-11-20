@@ -307,7 +307,7 @@ impl Browser {
                 format!("{keys} already runs {other}")
             }
             Rejection::Malformed(BindingError::Typing(_)) => {
-                format!("{keys} would type into text fields; add ⌘, ⌥ or ⌃")
+                format!("{keys} types text; add ⌘, ⌥ or ⌃")
             }
             other => other.to_string(),
         }
