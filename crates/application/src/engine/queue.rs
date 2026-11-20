@@ -419,6 +419,20 @@ mod tests {
     }
 
     #[test]
+    fn another_tab_s_commit_does_not_split_a_count() {
+        let mut queue = EventQueue::default();
+        queue.blocked(tab(1));
+        queue.committed(tab(2), url("https://b.example/"), Some(String::new()));
+
+        queue.blocked(tab(1));
+
+        assert_eq!(
+            drained(&mut queue),
+            [blocked(1, 2), committed(2, "https://b.example/", "")]
+        );
+    }
+
+    #[test]
     fn a_blocked_count_stops_at_the_largest_number() {
         let mut queue = EventQueue::default();
         queue.push(blocked(1, u32::MAX));
