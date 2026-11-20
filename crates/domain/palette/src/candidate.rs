@@ -2,8 +2,10 @@
 //! shortcuts, the agent's skills. The caller owns them and names each with its own key.
 
 mod frecency;
+mod text;
 
 pub use frecency::{Frecency, FrecencyError};
+pub use text::{Text, TextSpan, Texts};
 
 /// What a candidate is, which decides the modes it appears in and how much it is boosted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -44,16 +46,20 @@ impl Kind {
 }
 
 /// One thing the palette can offer, under the caller's key `K` (a tab id, a command id, a URL).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Candidate<K> {
+/// Its text is borrowed from wherever the caller keeps it ([`Texts`], best), so ranking fifty
+/// thousand pages copies none of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Candidate<'a, K> {
     /// The caller's name for the candidate, handed back in the ranking.
     pub key: K,
     /// What the candidate is.
     pub kind: Kind,
     /// The main line: a page title, a command name, a heading.
-    pub title: String,
+    pub title: Text<'a>,
     /// The second line: a host or URL, a key binding, a shortcut keyword.
-    pub detail: String,
-    /// How often and how recently the user chose it.
-    pub visits: Frecency,
+    pub detail: Text<'a>,
+    /// How often and how recently the user chose it: its [`Frecency::score`] when the palette
+    /// opened. Scored once per opening, since a few seconds of typing move no visit across the
+    /// days that separate one weight from the next.
+    pub frecency: u64,
 }
