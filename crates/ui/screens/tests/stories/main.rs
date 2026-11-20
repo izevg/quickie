@@ -25,10 +25,17 @@ use quickie_ui_screens::{
 use quickie_ui_shared::stories::{self, Key, LIGHT, LIGHT_DARK, Scene, Story, Theme};
 use quickie_ui_widgets::{AgentSettings, SettingsSummary, Tone};
 
-const fn settings(state: &'static str, themes: &'static [Theme], scene: fn(&mut Scene)) -> Story {
+/// One story of a Settings pane; each pane is its own widget so its states stay within the rule
+/// of four.
+const fn settings(
+    pane: &'static str,
+    state: &'static str,
+    themes: &'static [Theme],
+    scene: fn(&mut Scene),
+) -> Story {
     Story {
         group: "settings",
-        widget: "settings",
+        widget: pane,
         state,
         themes,
         window: (900.0, 640.0),
@@ -37,19 +44,24 @@ const fn settings(state: &'static str, themes: &'static [Theme], scene: fn(&mut 
 }
 
 const STORIES: &[Story] = &[
-    settings("general", LIGHT_DARK, general),
-    settings("general-default", LIGHT, general_default),
-    settings("shields", LIGHT_DARK, shields),
-    settings("shields-fetching", LIGHT, shields_fetching),
-    settings("shields-no-lists", LIGHT_DARK, shields_no_lists),
-    settings("keyboard", LIGHT_DARK, keyboard::table_full),
-    settings("keyboard-refused", LIGHT_DARK, keyboard::table),
-    settings("keyboard-problems", LIGHT, keyboard::problems),
-    settings("keyboard-recording", LIGHT, keyboard::recording),
-    settings("keyboard-recorded", LIGHT, keyboard::recorded),
-    settings("keyboard-conflict", LIGHT_DARK, keyboard::conflict),
-    settings("agent", LIGHT_DARK, agent),
-    settings("agent-problem", LIGHT, agent_problem),
+    settings("general", "general", LIGHT_DARK, general),
+    settings("general", "general-default", LIGHT, general_default),
+    settings("shields", "shields", LIGHT_DARK, shields),
+    settings("shields", "shields-fetching", LIGHT, shields_fetching),
+    settings("shields", "shields-no-lists", LIGHT_DARK, shields_no_lists),
+    settings("keyboard", "keyboard", LIGHT_DARK, keyboard::table_full),
+    settings("keyboard", "keyboard-refused", LIGHT_DARK, keyboard::table),
+    settings("keyboard", "keyboard-problems", LIGHT, keyboard::problems),
+    settings("keyboard", "keyboard-recording", LIGHT, keyboard::recording),
+    settings("keyboard", "keyboard-recorded", LIGHT, keyboard::recorded),
+    settings(
+        "keyboard",
+        "keyboard-conflict",
+        LIGHT_DARK,
+        keyboard::conflict,
+    ),
+    settings("agent", "agent", LIGHT_DARK, agent),
+    settings("agent", "agent-problem", LIGHT, agent_problem),
 ];
 
 fn main() -> ExitCode {
