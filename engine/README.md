@@ -160,6 +160,11 @@ no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compi
 9. Opened pages: `EnginePort::adopt` binds the engine's page handle to the new tab before
    `Browsing::adopt` shows it (resolved). Still open: pages Chromium opened and Rust never adopts
    have no bridge call to close them; they go only with their jar or the Browser.
+10. The `HttpPort` on `SimpleURLLoader` (`net_bridge/`) must never follow a redirect, whole or
+    streamed: set the redirect mode to error or manual and deliver the 3xx as the answer, as
+    `UrlSessionHttp` does. Following one would re-send an LLM prompt, the page included, to an
+    unvalidated host, possibly over plain http. The contract is on `HttpPort::stream`; port the
+    redirect tests of `crates/adapters/engine-webkit/src/network/tests.rs` with it.
 
 ## Rebasing to a new Extended Stable
 

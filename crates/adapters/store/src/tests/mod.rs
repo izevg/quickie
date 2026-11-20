@@ -1,11 +1,13 @@
 //! Integration tests against real SQLite, in memory or in a temporary file; this module holds
 //! the schema's own.
 
-mod keymap;
 mod library;
 mod session;
+mod settings;
 
-use quickie_application::{KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError};
+use quickie_application::{
+    AgentRepo, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, StoreError,
+};
 use rusqlite::Connection;
 use url::Url;
 
@@ -60,4 +62,25 @@ fn a_first_version_database_keeps_its_session_and_gains_the_library() {
     assert_eq!(store.load(), Ok(Some(session)));
     assert_eq!(store.load_library(), Ok(LibrarySnapshot::default()));
     assert_eq!(store.load_keybindings(), Ok(Vec::new()));
+    assert_eq!(store.load_endpoint(), Ok(None));
+}
+
+#[test]
+fn a_seventh_version_database_gains_an_empty_agent_endpoint() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shell.sqlite");
+    let mut db = Connection::open(&path).unwrap();
+    for migration in &MIGRATIONS[..7] {
+        db.execute_batch(migration).unwrap();
+    }
+    db.pragma_update(None, "user_version", 7).unwrap();
+    let session = session::busy();
+    crate::session::save(&mut db, &session).unwrap();
+    drop(db);
+
+    let store = SqliteStore::open(&path).unwrap();
+
+    assert_eq!(user_version(&store.db), 8);
+    assert_eq!(store.load(), Ok(Some(session)));
+    assert_eq!(store.load_endpoint(), Ok(None));
 }

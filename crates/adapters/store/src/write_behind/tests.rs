@@ -9,9 +9,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
     ShieldsSnapshot, StoreError,
 };
+use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::{NextIds, Session, SessionSnapshot};
 use quickie_domain_library::{
     Bookmarks, BookmarksSnapshot, DownloadsSnapshot, History, HistorySnapshot, SearchShortcuts,
@@ -177,6 +178,53 @@ impl ShieldsRepo for Recorder {
     fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {
         self.store.save_list_body(list, body)
     }
+}
+
+impl AgentRepo for Recorder {
+    fn load_endpoint(&self) -> Result<Option<EndpointSnapshot>, StoreError> {
+        self.store.load_endpoint()
+    }
+
+    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
+        self.store.save_endpoint(endpoint)
+    }
+}
+
+fn endpoint(model: &str) -> EndpointSnapshot {
+    EndpointSnapshot {
+        base_url: "http://127.0.0.1:11434/v1/".to_owned(),
+        model: model.to_owned(),
+        key_ref: None,
+    }
+}
+
+#[test]
+fn the_agent_endpoint_loads_after_its_saves_and_keeps_the_latest() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    store.save_endpoint(Some(&endpoint("old"))).unwrap();
+    store.save_endpoint(Some(&endpoint("new"))).unwrap();
+
+    let loaded = store.load_endpoint();
+
+    assert_eq!(loaded, Ok(Some(endpoint("new"))));
+    assert_eq!(
+        SqliteStore::open(&path).unwrap().load_endpoint(),
+        Ok(Some(endpoint("new")))
+    );
+}
+
+#[test]
+fn forgetting_the_agent_endpoint_goes_through_the_writer() {
+    let (_dir, path) = database();
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    store.save_endpoint(Some(&endpoint("model"))).unwrap();
+    store.flush().unwrap();
+
+    store.save_endpoint(None).unwrap();
+    store.flush().unwrap();
+
+    assert_eq!(SqliteStore::open(&path).unwrap().load_endpoint(), Ok(None));
 }
 
 #[test]

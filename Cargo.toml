@@ -28,6 +28,7 @@ indexmap = "2"
 # must not do.
 nucleo-matcher = "0.3"
 quickie-application = { path = "crates/application" }
+quickie-domain-agents = { path = "crates/domain/agents" }
 quickie-domain-browsing = { path = "crates/domain/browsing" }
 quickie-domain-commands = { path = "crates/domain/commands" }
 quickie-domain-kernel = { path = "crates/domain/kernel" }
@@ -35,6 +36,8 @@ quickie-domain-library = { path = "crates/domain/library" }
 quickie-domain-palette = { path = "crates/domain/palette" }
 quickie-domain-shields = { path = "crates/domain/shields" }
 rusqlite = { version = "0.43", features = ["bundled"] }
+# The Keychain (adapter system), where LLM API keys live instead of files. MIT OR Apache-2.0.
+security-framework = "3.7"
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"

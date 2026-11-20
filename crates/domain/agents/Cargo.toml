@@ -1,0 +1,15 @@
+[package]
+name = "quickie-domain-agents"
+description = "Agents context of the Quickie domain: the LLM endpoint, skills, prompts that keep page content untrusted, and answers with citations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+quickie-domain-kernel.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
