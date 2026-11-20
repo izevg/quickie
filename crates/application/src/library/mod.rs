@@ -3,12 +3,19 @@
 //! The same transaction rule as browsing: a command changes a copy of one aggregate, the copy
 //! is saved, and only then does it replace the aggregate, so a failed save changes nothing. A
 //! command that changes nothing saves nothing.
+//!
+//! History is the exception, as it changes on every page load and may hold a hundred thousand
+//! pages: copying it per visit would cost the main thread more than a frame. A visit cannot
+//! fail, so history changes in place and saves only the entry it touched (and removes those a
+//! full history pushed out). A failed save is reported and leaves the visit in memory; the store
+//! catches up with that entry at its next visit.
 
 mod downloads;
 #[cfg(test)]
 mod tests;
 
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use quickie_domain_browsing::{Jar, Timestamp};
@@ -106,6 +113,14 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
         &self.shortcuts
     }
 
+    /// Keeps up to `cap` pages of history from now on, instead of
+    /// [`HISTORY_CAP`](quickie_domain_library::HISTORY_CAP). A history
+    /// already past it shrinks back at its next new page, which removes the pages visited longest
+    /// ago from memory and from the store.
+    pub fn set_history_cap(&mut self, cap: NonZeroUsize) {
+        self.history.set_cap(cap);
+    }
+
     /// The saved parts that were discarded at start, if any were.
     #[must_use]
     pub fn corrupt_on_start(&self) -> &[CorruptLibrary] {
@@ -114,62 +129,67 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
 
     /// Records a committed navigation, after `Browsing::navigated`. `jar` is the tab's jar: a
     /// throwaway jar exists so that a visit leaves no trace once its tabs close, and a history
-    /// entry would outlive them, so its visits are never recorded.
+    /// entry would outlive them, so its visits are never recorded. Saves the page's entry, and
+    /// removes the pages a full history pushed out.
     ///
     /// # Errors
     ///
-    /// The store failed.
+    /// The store failed; the visit stays recorded in memory.
     pub fn record_visit(&mut self, url: &Url, title: &str, jar: Jar) -> Result<Recorded, AppError> {
         if let Jar::Throwaway(_) = jar {
             return Ok(Recorded::Ignored);
         }
         let now = self.clock.now();
-        let mut next = self.history.clone();
-        let recorded = next.record_visit(url, title, now);
-        if recorded != Recorded::Ignored {
-            self.repo.save_history(&next.snapshot())?;
-            self.history = next;
+        let visited = self.history.record_visit(url, title, now);
+        if !visited.dropped.is_empty() {
+            let pages: Vec<Url> = visited.dropped.into_iter().map(|entry| entry.url).collect();
+            self.repo.remove_entries(&pages)?;
         }
-        Ok(recorded)
+        self.save_entry(url)?;
+        Ok(visited.recorded)
     }
 
     /// Gives a visited page the title it reported after its visit was recorded, without counting
     /// another visit. A throwaway jar's pages are not in history, so nothing changes for them.
-    /// Returns whether the title changed; only then is history saved.
+    /// Returns whether the title changed; only then is the page's entry saved.
     ///
     /// # Errors
     ///
-    /// The store failed.
+    /// The store failed; the new title stays in memory.
     pub fn retitle_visit(&mut self, url: &Url, title: &str, jar: Jar) -> Result<bool, AppError> {
         if let Jar::Throwaway(_) = jar {
             return Ok(false);
         }
-        let mut next = self.history.clone();
-        if !next.retitle(url, title) {
+        if !self.history.retitle(url, title) {
             return Ok(false);
         }
-        self.repo.save_history(&next.snapshot())?;
-        self.history = next;
+        self.save_entry(url)?;
         Ok(true)
     }
 
     /// Forgets every visit of the last `span` ("forget the last hour"); an entry left without a
-    /// known visit goes as a whole.
+    /// known visit goes as a whole. Rare and wide, so it saves the whole history.
     ///
     /// # Errors
     ///
-    /// The store failed.
+    /// The store failed; the visits stay forgotten in memory.
     pub fn forget_since(&mut self, span: Duration) -> Result<Forgotten, AppError> {
         let now = self.clock.now().as_millis();
         let span = u64::try_from(span.as_millis()).unwrap_or(u64::MAX);
         let since = Timestamp::from_millis(now.saturating_sub(span));
-        let mut next = self.history.clone();
-        let forgotten = next.clear_since(since);
+        let forgotten = self.history.clear_since(since);
         if forgotten.visits > 0 {
-            self.repo.save_history(&next.snapshot())?;
-            self.history = next;
+            self.repo.save_history(&self.history.snapshot())?;
         }
         Ok(forgotten)
+    }
+
+    /// Saves the history entry of the page `url` names, if it has one.
+    fn save_entry(&mut self, url: &Url) -> Result<(), StoreError> {
+        match self.history.get(url) {
+            Some(entry) => self.repo.upsert_entry(entry),
+            None => Ok(()),
+        }
     }
 
     /// Bookmarks a page (`⌘D`). A page already saved stays as it was.

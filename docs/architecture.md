@@ -137,8 +137,8 @@ ninth context means regrouping first.
 | `kernel` | IDs (`TabId`, `WindowId`, `CommandId`, ...), `Timestamp`, `Site`, shared value types | — |
 | `browsing` | `Window`, `Tab` (id, engine ref, pinned slot, last active), `MruStack`, `ClosedTabTrash` | MRU updates synchronously on activation; a closed tab stays 30 days in the trash |
 | `commands` | `Command`, `Keymap`, `KeyBinding` (chord, `when`), `WhenExpr`, `KeyStroke` (key code + ASCII) | Browser-reserved shortcuts never reach the page; a binding conflict is a validation error |
-| `palette` | `Query` (prefixes `>` `@` `#` `?` `!`), `Candidate`, `Frecency` | First batch within 16 ms, then streaming |
-| `library` | `HistoryEntry`, `Download` | Local only |
+| `palette` | `Query` (prefixes `>` `@` `#` `?` `!`), `Candidate` (text kept in `Texts`), `Frecency`, `Ranker` | Candidates are gathered, cut into characters, and scored once when the palette opens; a keystroke only ranks. First batch within 16 ms, then streaming |
+| `library` | `History` of `HistoryEntry`, `Download` | Local only. History keeps at most `HISTORY_CAP` (100 000) pages, pushing out the page visited longest ago; it is ordered by a last-visit number that only grows, and a visit saves its own entry, never the table |
 | `shields` | `SitePolicy`, `FilterListSet`, `FingerprintPolicy` | Per-site exceptions; lists only from allowed sources |
 | `agents` | `AgentSession` (built-in or external), `Mode` (Ask or Act), `ToolCall`, `CapabilityGrant`, `PendingAction`, `ProvenanceSet`, `LlmEndpoint` (base URL, model, key ref) | **Ask** only reads the current page of `main`, on an explicit request. **Act** only in the agent profile, URLs only from provenance, irreversible actions only after approval |
 | `settings` | `Preferences`; `SiteZooms` with `ZoomLevel` (Safari's steps, 50 % to 300 %) | A site at 100 % is not listed; a throwaway jar's zoom is never saved |

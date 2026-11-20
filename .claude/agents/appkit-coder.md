@@ -54,9 +54,18 @@ it and `AGENTS.md` disagree, stop and report.
 
 ## Verifying
 
-- Build and run what you built. For a GUI change, launch it in the background, capture the
-  window with `screencapture -x -o -l <windowid>` or `screencapture -x <file>` into
-  `$TMPDIR`, look at the image, then quit the app. Say exactly what you saw.
+- Render your widget with `cargo xtask ui render <widget>[/<state>]` (`ui list` names them;
+  `--scale 2` for detail) and look at `target/ui/<widget>/<state>.<theme>.png`, and at
+  `<state>.accessibility.txt`, before and after every visual change. No display needed; glass
+  is an opaque stand-in there. A new widget or state gets a story in its crate's
+  `tests/stories/`, with a play for the keys and clicks it handles (docs/quality.md, UI tests).
+- Update references only intentionally: take the CI renders with
+  `cargo xtask ui accept --from <ui-renders artifact> <widget>[/<state>]`, look at each PNG,
+  and say in the PR which references changed and why.
+- Build and run what you built. For a change that needs the whole app, launch it in the
+  background, capture the window with `screencapture -x -o -l <windowid>` or
+  `screencapture -x <file>` into `$TMPDIR`, look at the image, then quit the app. Say exactly
+  what you saw.
 - Unit-test the logic you add in pure Rust; AppKit glue is verified by running it.
 - `~/.local/bin/mise run pre-commit` must pass; run `pre-push` before opening the PR.
 

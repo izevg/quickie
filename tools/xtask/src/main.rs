@@ -11,6 +11,7 @@ mod bundle;
 mod commit_msg;
 mod layers;
 mod structure;
+mod ui;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,11 +20,21 @@ use std::process::{Command, ExitCode};
 use serde_json::Value;
 
 const USAGE: &str = "usage: cargo xtask <structure | layers | commit-msg <file> | \
-                     bundle [--release] [--bundle-id <id>]>";
+                     bundle [--release] [--bundle-id <id>] | ui <list | render | check | accept> \
+                     [<widget>[/<state>[.<theme>]] ...]>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    if let ["ui", rest @ ..] = args.as_slice() {
+        return match ui::run(&cargo(), rest) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("xtask ui: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if let ["bundle", rest @ ..] = args.as_slice() {
         return match run_bundle(rest) {
             Ok(app) => {

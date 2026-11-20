@@ -13,10 +13,11 @@ use quickie_application::{
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
-    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+    BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
 use quickie_domain_settings::SiteZoomsSnapshot;
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
+use url::Url;
 
 use super::Failure;
 
@@ -36,8 +37,12 @@ pub(super) enum Job {
 pub(super) enum Save {
     /// The session; boxed, as it is by far the largest.
     Session(Box<SessionSnapshot>),
-    /// The history.
+    /// The whole history.
     History(HistorySnapshot),
+    /// One page's history entry; boxed, as it comes with every page load.
+    HistoryEntry(Box<HistoryEntry>),
+    /// Pages whose history entries go.
+    HistoryRemoved(Vec<Url>),
     /// The bookmarks.
     Bookmarks(BookmarksSnapshot),
     /// The search shortcuts.
@@ -75,11 +80,21 @@ pub(super) enum Barrier {
     Flush(Sender<()>),
 }
 
+/// What happens to one page of history.
+enum PageChange {
+    /// Its entry is written over the saved one.
+    Upsert(Box<HistoryEntry>),
+    /// Its entry goes.
+    Remove,
+}
+
 /// The saves not written yet: at most one of each kind, the latest.
 #[derive(Default)]
 struct Batch {
     session: Option<Box<SessionSnapshot>>,
     history: Option<HistorySnapshot>,
+    /// The latest change of each page since `history`, written after it.
+    pages: BTreeMap<Url, PageChange>,
     bookmarks: Option<BookmarksSnapshot>,
     shortcuts: Option<SearchShortcutsSnapshot>,
     downloads: Option<DownloadsSnapshot>,
@@ -100,7 +115,20 @@ impl Batch {
     fn add(&mut self, save: Save) {
         match save {
             Save::Session(session) => self.session = Some(session),
-            Save::History(history) => self.history = Some(history),
+            Save::History(history) => {
+                // The snapshot was taken after every page change still waiting: it holds them.
+                self.pages.clear();
+                self.history = Some(history);
+            }
+            Save::HistoryEntry(entry) => {
+                self.pages
+                    .insert(entry.url.clone(), PageChange::Upsert(entry));
+            }
+            Save::HistoryRemoved(pages) => {
+                for page in pages {
+                    self.pages.insert(page, PageChange::Remove);
+                }
+            }
             Save::Bookmarks(bookmarks) => self.bookmarks = Some(bookmarks),
             Save::Shortcuts(shortcuts) => self.shortcuts = Some(shortcuts),
             Save::Downloads(downloads) => self.downloads = Some(downloads),
@@ -115,7 +143,8 @@ impl Batch {
     }
 
     /// Writes and empties the batch. A failure does not stop the other kinds; the last one is
-    /// kept for the shell. A list's content goes before the list states that describe it.
+    /// kept for the shell. A list's content goes before the list states that describe it, and a
+    /// whole history before the page changes made after it.
     fn write<S: SessionRepo + LibraryRepo + ShieldsRepo + AgentRepo + ZoomRepo>(
         &mut self,
         store: &mut S,
@@ -125,11 +154,14 @@ impl Batch {
             .into_iter()
             .map(|(list, body)| store.save_list_body(list, &body))
             .collect();
+        let history = self
+            .history
+            .take()
+            .map(|history| store.save_history(&history));
+        let pages = write_pages(std::mem::take(&mut self.pages), store);
         let results = [
             self.session.take().map(|session| store.save(*session)),
-            self.history
-                .take()
-                .map(|history| store.save_history(&history)),
+            history,
             self.bookmarks
                 .take()
                 .map(|bookmarks| store.save_bookmarks(&bookmarks)),
@@ -148,6 +180,7 @@ impl Batch {
         ];
         if let Some(error) = bodies
             .into_iter()
+            .chain(pages)
             .chain(results.into_iter().flatten())
             .filter_map(Result::err)
             .next_back()
@@ -155,6 +188,28 @@ impl Batch {
             *failure.lock().unwrap_or_else(PoisonError::into_inner) = Some(error);
         }
     }
+}
+
+/// Writes the pages' entries one by one and removes the removed pages' all at once.
+fn write_pages<S: LibraryRepo>(
+    pages: BTreeMap<Url, PageChange>,
+    store: &mut S,
+) -> Vec<Result<(), StoreError>> {
+    let mut removed = Vec::new();
+    let mut results: Vec<_> = pages
+        .into_iter()
+        .filter_map(|(page, change)| match change {
+            PageChange::Upsert(entry) => Some(store.upsert_entry(&entry)),
+            PageChange::Remove => {
+                removed.push(page);
+                None
+            }
+        })
+        .collect();
+    if !removed.is_empty() {
+        results.push(store.remove_entries(&removed));
+    }
+    results
 }
 
 /// Serves jobs until [`Job::Stop`] or until every sender is gone, writing a batch `settle`

@@ -4,7 +4,7 @@ use quickie_domain_library::{Bookmarks, History, Keyword, SearchShortcuts, Tag, 
 use quickie_domain_palette::Kind;
 use url::Url;
 
-use super::{Palette, PaletteItem, Sources, Target};
+use super::{Palette, PaletteIndex, PaletteItem, Sources, Target};
 use crate::fakes::FakeClock;
 
 fn url(path: &str) -> Url {
@@ -65,19 +65,20 @@ impl World {
         self.bookmarks.save(&url(path), title.to_owned(), NOW);
     }
 
-    fn query(&self, text: &str, limit: usize) -> Vec<PaletteItem> {
+    fn open(&self) -> PaletteIndex {
         let palette = Palette::new(Catalog::builtin(), FakeClock::default());
-        palette.query(
-            text,
-            limit,
-            &Sources {
-                session: &self.session,
-                history: &self.history,
-                bookmarks: &self.bookmarks,
-                shortcuts: &self.shortcuts,
-                keymap: &self.keymap,
-            },
-        )
+        palette.open(&Sources {
+            session: &self.session,
+            history: &self.history,
+            bookmarks: &self.bookmarks,
+            shortcuts: &self.shortcuts,
+            keymap: &self.keymap,
+        })
+    }
+
+    /// The answer of a palette opened for this one query.
+    fn query(&self, text: &str, limit: usize) -> Vec<PaletteItem> {
+        self.open().query(text, limit)
     }
 }
 
@@ -220,6 +221,21 @@ mod going_to {
     }
 
     #[test]
+    fn a_page_never_visited_adds_no_frecency() {
+        let mut world = World::new();
+        world.bookmark("a", "A");
+        world.visit("b", "B", 1);
+
+        let items = world.query("", 10);
+
+        // The visit is worth 4 × log2(101) = 24 points, the bookmark 20 and nothing more.
+        assert_eq!(
+            targets(&items),
+            [Target::Url(url("b")), Target::Url(url("a"))]
+        );
+    }
+
+    #[test]
     fn a_bookmark_takes_the_frecency_of_its_page() {
         let mut world = World::new();
         world.bookmark("rare", "Rare");
@@ -280,6 +296,49 @@ mod going_to {
 
         assert_eq!(best[0].target, Target::Url(url("page/9999")));
         assert_eq!(all.len(), 50);
+    }
+}
+
+mod open {
+    use super::*;
+
+    /// A world with something for every mode.
+    fn full() -> World {
+        let mut world = World::new();
+        world.tab("t", "Tab · über");
+        world.bookmark("b", "Bookmark");
+        world.bookmarks.tag(&url("b"), tag("rust")).unwrap();
+        world.visit("h", "History", 2);
+        world
+    }
+
+    #[test]
+    fn an_open_palette_answers_each_keystroke_as_a_fresh_one_would() {
+        let world = full();
+        let typed = [
+            "", "b", "bo", "über", ">rel", "#", "#ru", "!gh x", "?summ", "@a", "h",
+        ];
+        let mut index = world.open();
+
+        let typing: Vec<Vec<PaletteItem>> = typed.iter().map(|t| index.query(t, 10)).collect();
+
+        let fresh: Vec<Vec<PaletteItem>> = typed.iter().map(|t| world.query(t, 10)).collect();
+        assert_eq!(typing, fresh);
+    }
+
+    #[test]
+    fn an_open_palette_answers_from_what_it_gathered() {
+        let mut world = full();
+        let mut index = world.open();
+
+        world.visit("later", "Later", 1);
+
+        let found = index.query("later", 10);
+        assert_eq!(found, []);
+        assert_eq!(
+            targets(&world.query("later", 10)),
+            [Target::Url(url("later"))]
+        );
     }
 }
 

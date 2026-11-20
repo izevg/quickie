@@ -1,0 +1,249 @@
+//! The Settings window's stories (`docs/quality.md`, UI tests): every pane as the browser fills
+//! it, reached the way a user reaches it, with `↓` in the sidebar. The window's content (the
+//! sidebar and the pane, without the titlebar) is moved onto the story's page to render; the
+//! window itself is never ordered in. The sidebar's material does not draw offscreen, so the
+//! sidebar shows the page behind it.
+//!
+//! - [`keyboard`]: the keymap editor: the table, a refused user entry, and recording keys.
+
+mod keyboard;
+
+use std::cell::RefCell;
+use std::process::ExitCode;
+use std::rc::{Rc, Weak};
+
+use objc2::rc::Retained;
+use objc2_app_kit::{NSColor, NSTableView, NSView};
+use objc2_foundation::{NSPoint, NSRect};
+use quickie_application::{BindingLine, keymap_lines};
+use quickie_domain_commands::{Catalog, Keymap, Platform};
+use quickie_domain_shields::FilterListId;
+use quickie_ui_screens::{
+    GeneralState, KeysState, ListState, Pane, Recorded, SettingsAction, SettingsScreen,
+    ShieldsState,
+};
+use quickie_ui_shared::stories::{self, Key, LIGHT, LIGHT_DARK, Scene, Story, Theme};
+use quickie_ui_widgets::{AgentSettings, SettingsSummary, Tone};
+
+/// One story of a Settings pane; each pane is its own widget so its states stay within the rule
+/// of four.
+const fn settings(
+    pane: &'static str,
+    state: &'static str,
+    themes: &'static [Theme],
+    scene: fn(&mut Scene),
+) -> Story {
+    Story {
+        group: "settings",
+        widget: pane,
+        state,
+        themes,
+        window: (900.0, 640.0),
+        scene,
+    }
+}
+
+const STORIES: &[Story] = &[
+    settings("general", "general", LIGHT_DARK, general),
+    settings("general", "general-default", LIGHT, general_default),
+    settings("shields", "shields", LIGHT_DARK, shields),
+    settings("shields", "shields-fetching", LIGHT, shields_fetching),
+    settings("keyboard", "keyboard", LIGHT_DARK, keyboard::table_full),
+    settings("keyboard", "keyboard-refused", LIGHT_DARK, keyboard::table),
+    settings("keyboard", "keyboard-problems", LIGHT, keyboard::problems),
+    settings("keyboard", "keyboard-recording", LIGHT, keyboard::recording),
+    settings("keyboard", "keyboard-recorded", LIGHT, keyboard::recorded),
+    settings(
+        "keyboard",
+        "keyboard-conflict",
+        LIGHT_DARK,
+        keyboard::conflict,
+    ),
+    settings("agent", "agent", LIGHT_DARK, agent),
+    settings("agent", "agent-problem", LIGHT, agent_problem),
+];
+
+fn main() -> ExitCode {
+    if stories::run(STORIES, env!("CARGO_MANIFEST_DIR")) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// The screen as the browser holds it: the window, its agent form, the keymap it shows, and
+/// what the window asked. A recorded key is answered at once, as the browser answers it.
+pub struct Settings {
+    pub screen: SettingsScreen,
+    pub agent: AgentSettings,
+    pub keymap: Keymap,
+    pub actions: RefCell<Vec<SettingsAction>>,
+    /// The browser's last answer to a recorded press.
+    pub recorded: RefCell<Option<Recorded>>,
+}
+
+/// The window filled as the browser fills it, its content on the story's page, the sidebar
+/// with the keyboard on General.
+fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> {
+    let agent = AgentSettings::new(scene.mtm());
+    agent.load(&SettingsSummary {
+        base: "http://127.0.0.1:1234/v1".to_owned(),
+        model: "qwen3-8b".to_owned(),
+        has_key: false,
+    });
+    let screen = SettingsScreen::new(&agent, scene.mtm());
+    let keymap = Keymap::defaults(Platform::MacOs);
+    screen.set_general(&GeneralState {
+        default_browser: "Safari is your default browser.".to_owned(),
+        can_make_default: true,
+        downloads_folder: "/Users/ada/Downloads".to_owned(),
+    });
+    screen.set_shields(&shields_state(""));
+    screen.set_keys(&KeysState {
+        file: "/Users/ada/Library/Application Support/Quickie/keybindings.json".to_owned(),
+        lines: lines.unwrap_or_else(|| keymap_lines(&keymap, &Catalog::builtin(), &[])),
+        problems: Vec::new(),
+    });
+    let settings = Rc::new(Settings {
+        screen,
+        agent,
+        keymap,
+        actions: RefCell::new(Vec::new()),
+        recorded: RefCell::new(None),
+    });
+    let weak: Weak<Settings> = Rc::downgrade(&settings);
+    settings.screen.on_action(move |action| {
+        if let Some(settings) = weak.upgrade() {
+            keyboard::answer(&settings, &action);
+            settings.actions.borrow_mut().push(action);
+        }
+    });
+    let window = settings.screen.window();
+    if let Some(root) = window.contentView() {
+        let size = root.frame().size;
+        window.setContentView(Some(&NSView::new(scene.mtm())));
+        // The window's background, which the window draws behind its content.
+        let backdrop = NSView::new(scene.mtm());
+        backdrop.setWantsLayer(true);
+        if let Some(layer) = backdrop.layer() {
+            layer.setBackgroundColor(Some(&NSColor::windowBackgroundColor().CGColor()));
+        }
+        let page = scene.host().bounds().size;
+        backdrop.setFrame(NSRect::new(
+            NSPoint::new(
+                ((page.width - size.width) / 2.0).round(),
+                ((page.height - size.height) / 2.0).round(),
+            ),
+            size,
+        ));
+        root.setFrameOrigin(NSPoint::new(0.0, 0.0));
+        backdrop.addSubview(&root);
+        scene.host().addSubview(&backdrop);
+    }
+    if let Some(sidebar) = tables(scene.host()).into_iter().next() {
+        scene.window().makeFirstResponder(Some(&sidebar));
+    }
+    scene.keep(Rc::clone(&settings));
+    settings
+}
+
+/// Goes to `pane` with `↓` in the sidebar, from General, and checks the pane is up.
+fn go(scene: &mut Scene, pane: Pane, title: &str) {
+    let steps = match pane {
+        Pane::General => 0,
+        Pane::Shields => 1,
+        Pane::Keys => 2,
+        Pane::Agent => 3,
+    };
+    for _ in 0..steps {
+        scene.press(Key::Down);
+    }
+    // The sidebar's rows are not in the accessibility tree; the pane's title is.
+    let named = scene.accessibility().contains(&format!("value={title:?}"));
+    scene.check(named, format!("↓ ×{steps} in the sidebar shows {title}"));
+}
+
+/// The table views on the page, depth first: the sidebar's, then the keymap's.
+pub fn tables(view: &NSView) -> Vec<Retained<NSTableView>> {
+    let mut found = Vec::new();
+    for child in view.subviews() {
+        if let Ok(table) = child.clone().downcast::<NSTableView>() {
+            found.push(table);
+        }
+        found.extend(tables(&child));
+    }
+    found
+}
+
+fn shields_state(status: &str) -> ShieldsState {
+    ShieldsState {
+        lists: FilterListId::ALL
+            .iter()
+            .zip(0_u64..)
+            .map(|(&id, index)| ListState {
+                id,
+                enabled: index < 2,
+                fetched_ago_ms: (index < 2).then_some(3_600_000 * (index * 20 + 2)),
+            })
+            .collect(),
+        keep_fresh: true,
+        site_keys: "⌥⌘S".to_owned(),
+        status: status.to_owned(),
+    }
+}
+
+/// The default browser button asks the browser.
+fn general(scene: &mut Scene) {
+    let settings = open(scene, None);
+    go(scene, Pane::General, "General");
+    match scene.view_labelled("Make Default") {
+        Some(button) => scene.click(&button),
+        None => scene.check(false, "the default browser button is labelled"),
+    }
+    scene.check_eq(
+        settings.actions.borrow().clone(),
+        vec![SettingsAction::MakeDefaultBrowser],
+        "the button asks to become the default",
+    );
+}
+
+fn general_default(scene: &mut Scene) {
+    let settings = open(scene, None);
+    settings.screen.set_general(&GeneralState {
+        default_browser: "Quickie is your default browser.".to_owned(),
+        can_make_default: false,
+        downloads_folder: "/Users/ada/Library/Mobile Documents/com~apple~CloudDocs/Загрузки"
+            .to_owned(),
+    });
+    go(scene, Pane::General, "General");
+}
+
+fn shields(scene: &mut Scene) {
+    open(scene, None);
+    go(scene, Pane::Shields, "Privacy & Shields");
+}
+
+fn shields_fetching(scene: &mut Scene) {
+    let settings = open(scene, None);
+    settings
+        .screen
+        .set_shields(&shields_state("Fetching EasyList and EasyPrivacy…"));
+    go(scene, Pane::Shields, "Privacy & Shields");
+}
+
+fn agent(scene: &mut Scene) {
+    open(scene, None);
+    go(scene, Pane::Agent, "Agent");
+}
+
+fn agent_problem(scene: &mut Scene) {
+    let settings = open(scene, None);
+    settings
+        .agent
+        .set_models(&["qwen3-8b".to_owned(), "llama-3.2-3b".to_owned()]);
+    settings.agent.set_status(
+        "The endpoint answered 401: Incorrect API key provided. Check the key and try again.",
+        Tone::Problem,
+    );
+    go(scene, Pane::Agent, "Agent");
+}
