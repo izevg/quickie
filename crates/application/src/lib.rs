@@ -27,8 +27,8 @@ pub use engine::{
     Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, Downloads,
     Engine, EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost,
     ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, Inspector, LinkTarget,
-    PackageSource, PageAsks, PageContent, PageRect, PageSurface, PageZoom, ReplyToken, Ticket,
-    Unpacked, WindowTabs,
+    NoExtensions, PackageSource, PageAsks, PageContent, PageRect, PageSurface, PageZoom, PortsOf,
+    ReplyToken, Ticket, Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,
@@ -39,10 +39,11 @@ pub use palette::{
     Suggestion, SuggestionKind, Target,
 };
 pub use ports::{
-    AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
-    Entropy, ExtensionsRepo, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText,
-    KeymapFile, KeymapRepo, LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation,
-    SecretStore, SessionRepo, ShieldsRepo, ShieldsSnapshot, StopSignal, ZoomRepo,
+    ActiveRules, AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended,
+    EnginePort, Entropy, ExtensionsRepo, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest,
+    KeybindingText, KeymapFile, KeymapRepo, LibraryRepo, LibrarySnapshot, ListRules, LlmPort,
+    Navigation, RulesStatus, SecretStore, SessionRepo, ShieldsRepo, ShieldsSnapshot, StopSignal,
+    ZoomRepo,
 };
 pub use settings::extensions::{
     Approval, ExtensionOffer, ExtensionRun, ExtensionTrigger, Extensions, Fetched, ReadOutcome,

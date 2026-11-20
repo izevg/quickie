@@ -75,6 +75,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std"] }
 # Workspace crates carry a version so that `cargo deny` does not read them as wildcards.
+quickie-engine-chromium = { path = "crates/adapters/engine-chromium", version = "0.0.0" }
 quickie-engine-webkit = { path = "crates/adapters/engine-webkit", version = "0.0.0" }
 quickie-llm = { path = "crates/adapters/llm", version = "0.0.0" }
 quickie-store = { path = "crates/adapters/store", version = "0.0.0" }

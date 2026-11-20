@@ -28,9 +28,11 @@ use objc2_foundation::{NSDate, NSObjectProtocol, NSPoint, NSRect, NSRunLoop, NSS
 use quickie_application::conformance::{
     self, Driven, Group, Harness, PageSource, Resource, SITE, WINDOW,
 };
-use quickie_application::{BlockerRules, ContentBlockerPort, Engine, PageRect, PageSurface};
+use quickie_application::{
+    BlockerRules, ContentBlockerPort, Engine, PageRect, PageSurface, RulesStatus,
+};
 use quickie_domain_browsing::TabId;
-use quickie_engine_webkit::{BlockerStatus, WebKitContentBlocker, WebKitEngine};
+use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use tempfile::TempDir;
 use url::Url;
 
@@ -247,13 +249,13 @@ impl Harness for WebKit {
                 .map_err(|error| error.to_string())?;
             blocker.install(rules).map_err(|error| error.to_string())?;
             let give_up = Instant::now() + PATIENCE;
-            while blocker.status() == BlockerStatus::Compiling && Instant::now() < give_up {
+            while blocker.status() == RulesStatus::Compiling && Instant::now() < give_up {
                 spin();
             }
             let status = blocker.status();
             self.blockers.push(blocker);
             match status {
-                BlockerStatus::Installed(_) => Ok(()),
+                RulesStatus::Active(_) => Ok(()),
                 other => Err(format!("the blocker ended {other:?}")),
             }
         }))

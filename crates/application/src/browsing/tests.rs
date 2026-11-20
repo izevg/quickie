@@ -8,8 +8,9 @@ use quickie_domain_browsing::{
 use url::Url;
 
 use super::Browsing;
+use crate::conformance::MemoryEngine;
 use crate::fakes::{Call, FakeClock, FakeEngine, FakeRepo};
-use crate::{AppError, EngineError, Navigation, StoreError};
+use crate::{AppError, EngineError, EnginePort, Navigation, PageSurface, StoreError};
 
 type Subject = Browsing<FakeEngine, FakeRepo, FakeClock>;
 
@@ -277,26 +278,40 @@ mod starting {
         );
     }
 
+    /// A fresh start on a whole engine, whose ports the shell reaches.
+    fn on_a_whole_engine() -> Browsing<MemoryEngine, FakeRepo, FakeClock> {
+        Browsing::start(
+            Profile::Main,
+            MemoryEngine::new(url("")),
+            FakeRepo::default(),
+            FakeClock::default(),
+            &home(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn the_engine_is_reachable_for_the_shell() {
-        let mut browsing = started();
+        let mut browsing = on_a_whole_engine();
+        let tab = browsing.session().active(w0()).unwrap();
 
-        browsing.engine_mut().failing.push("show");
+        assert!(browsing.engine().view(tab).is_some());
+        browsing.engine_mut().close(tab).unwrap();
 
-        assert_eq!(browsing.engine.failing, vec!["show"]);
+        assert!(browsing.engine.view(tab).is_none());
     }
 
     #[test]
     fn the_session_and_the_engine_are_reachable_together() {
-        let mut browsing = started();
+        let mut browsing = on_a_whole_engine();
         let active = browsing.session().active(w0());
 
         let (session, engine) = browsing.session_and_engine();
-        engine.failing.push("show");
+        let tab = session.active(w0()).unwrap();
+        engine.close(tab).unwrap();
 
-        assert!(active.is_some());
-        assert_eq!(session.active(w0()), active);
-        assert_eq!(browsing.engine.failing, vec!["show"]);
+        assert_eq!(Some(tab), active);
+        assert!(browsing.engine.view(tab).is_none());
     }
 }
 

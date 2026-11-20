@@ -182,14 +182,15 @@ impl<R: ExtensionsRepo, H: ExtensionHost, C: Clock> Extensions<R, H, C> {
             .collect()
     }
 
-    /// The engine's extension host, for the shell to read what it shows.
+    /// The engine's extension host, through its port, for the shell to read what it shows.
     #[must_use]
-    pub fn host(&self) -> &H {
+    pub fn host(&self) -> &impl ExtensionHost<Popup = H::Popup> {
         &self.host
     }
 
-    /// The engine's extension host, for the shell to drain and to tell it about windows.
-    pub fn host_mut(&mut self) -> &mut H {
+    /// The engine's extension host, through its port, for the shell to drain and to tell it
+    /// about windows.
+    pub fn host_mut(&mut self) -> &mut impl ExtensionHost<Popup = H::Popup> {
         &mut self.host
     }
 

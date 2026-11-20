@@ -122,8 +122,9 @@ impl<R: ShieldsRepo, C: Clock, B: ContentBlockerPort> Shields<R, C, B> {
         &self.corrupt_on_start
     }
 
-    /// The content blocker adapter, for the shell to hear when it finished compiling.
-    pub fn blocker_mut(&mut self) -> &mut B {
+    /// The content blocker, through its port, for the shell to hear when it finished compiling
+    /// and what it made of the rules.
+    pub fn blocker_mut(&mut self) -> &mut impl ContentBlockerPort {
         &mut self.blocker
     }
 

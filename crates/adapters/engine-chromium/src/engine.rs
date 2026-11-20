@@ -26,7 +26,7 @@ use url::Url;
 
 use inbox::Inbox;
 pub use inbox::PageHandle;
-pub use requests::{ChromiumContentBlocker, ChromiumHttp};
+pub use requests::{ChromiumContentBlocker, ChromiumExtensions, ChromiumHttp};
 
 use crate::bridge::{Bridge, BridgeError, Ffi, KeyEquivalent, NavigationKind, dispatch};
 
@@ -362,11 +362,12 @@ impl PageSurface for ChromiumEngine {
     }
 }
 
-/// The bridge carries no network of the browser's own and no content blocker yet: both
-/// refuse. `DevTools` will open programmatically, docked in the window.
+/// The bridge carries no network of the browser's own, no content blocker, and no web
+/// extensions yet: each refuses. `DevTools` will open programmatically, docked in the window.
 impl Engine for ChromiumEngine {
     type Http = ChromiumHttp;
     type Blocker = ChromiumContentBlocker;
+    type Extensions = ChromiumExtensions;
 
     const CAPS: Capabilities = Capabilities {
         web_extensions: false,
@@ -378,13 +379,15 @@ impl Engine for ChromiumEngine {
         ChromiumHttp
     }
 
+    fn web_extensions(&mut self) -> Option<ChromiumExtensions> {
+        None
+    }
+
     fn content_blocker(
         &mut self,
         _directory: &Path,
     ) -> Result<ChromiumContentBlocker, EngineError> {
-        Err(EngineError(
-            "the Chromium bridge has no content blocker yet".to_owned(),
-        ))
+        Err(EngineError(requests::NO_BLOCKER.to_owned()))
     }
 
     /// The wake is posted to Chromium's UI thread.

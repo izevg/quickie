@@ -7,6 +7,8 @@
 //! browser (a permission, a popup to show, a tab to open, activate, or close) arrives as an
 //! [`ExtensionEvent`], drained by the shell after the host's waker ran.
 
+use std::convert::Infallible;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use quickie_domain_browsing::{TabId, WindowId};
@@ -97,6 +99,9 @@ pub enum ExtensionEvent {
 /// Runs web extensions in the main profile's pages, never in the agent's profile, and without
 /// access to throwaway jars' tabs and data.
 pub trait ExtensionHost {
+    /// A popup's page, as the toolkit shows it; the shell names its type.
+    type Popup;
+
     /// Reads the package at `location` (from [`ExtensionPackages::unpack`]) as `id`, without
     /// running it; [`ExtensionEvent::Read`] says what is in it. A package read earlier for
     /// `id` and not started is dropped.
@@ -153,6 +158,82 @@ pub trait ExtensionHost {
 
     /// Moves what extensions did since the last call to the end of `into`, oldest first.
     fn drain(&mut self, into: &mut Vec<ExtensionEvent>);
+
+    /// Sets what runs, later on the main loop and never inside a call to the host, when events
+    /// wait: it should [`Self::drain`] them. Set once, at start.
+    fn set_waker(&mut self, wake: Box<dyn Fn()>);
+
+    /// The popup [`ExtensionEvent::Popup`] announced, sized as its extension asked; `None` once
+    /// it is gone.
+    fn popup(&self) -> Option<Self::Popup>;
+
+    /// Closes the popup on screen, if any, as clicking outside it would.
+    fn close_popup(&self);
+}
+
+/// The host of an engine that runs no web extensions, whose popups would be `P`s: none can
+/// exist, so none is ever called.
+#[derive(Debug)]
+pub struct NoExtensions<P>(Infallible, PhantomData<P>);
+
+impl<P> ExtensionHost for NoExtensions<P> {
+    type Popup = P;
+
+    fn read(&mut self, _: &ExtensionId, _: &str) -> Result<(), EngineError> {
+        match self.0 {}
+    }
+
+    fn start(&mut self, _: &ExtensionId, _: &Access) -> Result<(), EngineError> {
+        match self.0 {}
+    }
+
+    fn stop(&mut self, _: &ExtensionId) {
+        match self.0 {}
+    }
+
+    fn discard(&mut self, _: &ExtensionId) {
+        match self.0 {}
+    }
+
+    fn remove(&mut self, _: &ExtensionId) {
+        match self.0 {}
+    }
+
+    fn perform_action(&mut self, _: &ExtensionId, _: Option<TabId>) -> Result<(), EngineError> {
+        match self.0 {}
+    }
+
+    fn perform_command(&mut self, _: &ExtensionId, _: &str) -> Result<(), EngineError> {
+        match self.0 {}
+    }
+
+    fn answer(&mut self, _: ReplyToken, _: &Grants) {
+        match self.0 {}
+    }
+
+    fn opened(&mut self, _: ReplyToken, _: Option<TabId>) {
+        match self.0 {}
+    }
+
+    fn arrange(&mut self, _: &[WindowTabs]) {
+        match self.0 {}
+    }
+
+    fn drain(&mut self, _: &mut Vec<ExtensionEvent>) {
+        match self.0 {}
+    }
+
+    fn set_waker(&mut self, _: Box<dyn Fn()>) {
+        match self.0 {}
+    }
+
+    fn popup(&self) -> Option<P> {
+        match self.0 {}
+    }
+
+    fn close_popup(&self) {
+        match self.0 {}
+    }
 }
 
 /// A package to install, as it arrived.
