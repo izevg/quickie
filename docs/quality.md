@@ -28,6 +28,7 @@ instead of skipping it.
 | Lint | clippy `-D warnings`, pedantic + restrictions | `lint` | yes | yes | Bugs, panics, unstated exceptions |
 | Tests | cargo test | `test` | yes | yes | Behavior, including the UI stories' plays ([UI tests](#ui-tests)) |
 | UI stories | `cargo xtask ui check` | `ui` | — | — | Widget looks against reference images; strict in CI ([UI tests](#ui-tests)) |
+| UI diff | `cargo xtask ui diff` | `ui-diff` | — | yes, where the references come from another macOS | A visual change reaching CI with a stale reference ([UI tests](#ui-tests)) |
 | Dependencies | cargo-deny | `deny` | — | yes | Licenses (no GPL family), advisories, sources |
 | Unused deps | cargo-machete | `machete` | — | yes | Dependency creep |
 | Links | lychee `--offline` | `links` | — | yes | Internal Markdown links and anchors |
@@ -145,6 +146,20 @@ agent, CI) can see a widget in seconds, and so that a change in looks or behavio
   Where it differs from the machine running the tests, the stories render and play but are not
   compared, and say so. The `ui stories` job runs strict (`QUICKIE_UI_STRICT=1`): there a
   missing reference or another renderer fails, and the renders are uploaded as `ui-renders`.
+- **Local diff.** On another macOS, `cargo xtask ui diff [--base <rev>]` catches a visual change
+  before CI does: it renders every story at the base and at the working tree on this machine
+  and compares the two with the same tolerance. The base defaults to the merge-base with the
+  upstream branch, else with the newest `origin/release/*`, else with `origin/main`. A changed
+  story whose reference is the base's fails: CI would fail on it. One whose reference changed
+  too (re-accepted, or removed) passes, and new and removed stories are listed. The base is a
+  detached worktree in `target/ui-diff/worktree` with its own target directory, moved to each
+  new base and never duplicated; its renders are kept per base commit and macOS build, so a
+  warm run renders only the working tree (about 6 s; a new base costs a build, about a
+  minute the first time). `mise run pre-push` runs it where `.renderer` names another macOS;
+  where it names this one, `cargo test` already compares. A changed story needs the CI
+  renders: push with its references removed (`git rm`), and the strict job fails on the
+  missing references and uploads their renders to accept. `git worktree remove
+  target/ui-diff/worktree` drops the worktree; after `cargo clean` the next run prunes it.
 - **Accepting references**, only on purpose: download the `ui-renders` artifact of the failing
   run and `cargo xtask ui accept --from <dir> [<widget>[/<state>]]`, then look at every changed
   PNG before committing it. `cargo xtask ui accept [<filter>]` without `--from` takes local
