@@ -5,7 +5,9 @@ use quickie_domain_browsing::{Focus, Jar, JarId};
 
 use super::{Case, Checked, Run, about, ensure, same, tab};
 use crate::conformance::{Group, Harness, WINDOW};
-use crate::{Answer, Ask, AskKind, Dialog, EngineEvent, EnginePort, Navigation, Permission};
+use crate::{
+    Answer, Ask, AskKind, Dialog, EngineEvent, EnginePort, Navigation, PageContent, Permission,
+};
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
     let case = |group, name, run| Case { group, name, run };
@@ -73,9 +75,9 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
 /// Clicks control `index` of tab `serial`'s page the way link hints do.
 fn click<H: Harness>(run: &mut Run<'_, H>, serial: u64, index: usize) -> Checked {
     run.targets(serial)?;
-    run.harness
-        .follow_link(&mut run.engine, tab(serial), index, false)?
-        .ok_or_else(|| format!("{} has no page to click in", tab(serial)))?;
+    run.engine
+        .follow_link(tab(serial), index, false)
+        .map_err(|error| format!("clicking in {} failed: {error}", tab(serial)))?;
     Ok(())
 }
 

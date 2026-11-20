@@ -102,6 +102,13 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         self.corrupt_on_start
     }
 
+    /// True when the tab's page exists in the engine. A restored tab gets one only when it is
+    /// first shown; until then it has nothing to read or find in.
+    #[must_use]
+    pub fn has_page(&self, tab: TabId) -> bool {
+        self.pages.contains(&tab)
+    }
+
     /// The engine adapter, for the shell to reach its views.
     pub fn engine_mut(&mut self) -> &mut E {
         &mut self.engine

@@ -7,7 +7,9 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use quickie_application::{EngineError, EngineEvent, EnginePort, Navigation};
+use quickie_application::{
+    EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageContent,
+};
 use quickie_domain_browsing::{Focus, Jar, JarId, Profile, TabId, WindowId};
 use url::Url;
 
@@ -664,6 +666,41 @@ fn a_refused_throwaway_page_gives_its_jar_no_profile() {
 
     assert_eq!(destroyed, Ok(()));
     assert_eq!(fake.calls(), []);
+}
+
+// ---- page content --------------------------------------------------------------------------
+
+#[test]
+fn page_content_is_unsupported_and_says_what_was_asked() {
+    let (mut engine, fake) = with_pages(&[7]);
+    let unsupported = |action: &str| {
+        EngineError(format!(
+            "{action} the page of main tab#7: the Chromium bridge cannot yet"
+        ))
+    };
+
+    let found = engine.find(tab(7), "alpha", FindStep::Refine);
+    let cleared = engine.clear_find(tab(7));
+    let read = engine.read_text(tab(7), 100);
+    let targets = engine.link_targets(tab(7));
+    let followed = engine.follow_link(tab(7), 0, false);
+
+    assert_eq!(found, Err(unsupported("find in")));
+    assert_eq!(cleared, Err(unsupported("find in")));
+    assert_eq!(read, Err(unsupported("read the text of")));
+    assert_eq!(targets, Err(unsupported("find link targets in")));
+    assert_eq!(followed, Err(unsupported("follow a link target in")));
+    assert_eq!(fake.calls(), []);
+    assert_eq!(drained(&mut engine), []);
+}
+
+#[test]
+fn page_content_of_a_tab_without_a_page_fails_as_such() {
+    let (mut engine, _fake) = engine();
+
+    let read = engine.read_text(tab(7), 100);
+
+    assert_eq!(read, Err(EngineError("no page for main tab#7".to_owned())));
 }
 
 // ---- events --------------------------------------------------------------------------------

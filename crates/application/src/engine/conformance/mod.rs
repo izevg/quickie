@@ -7,7 +7,8 @@
 //! The checks are grouped by what an engine can do ([`Group`]). An engine that cannot do a group
 //! says so, with why, in [`Harness::unsupported`]; nothing is skipped silently. A group the
 //! harness does not declare runs, and a page feature it needs that the harness does not drive
-//! fails it.
+//! fails it. A feature that is a port ([`PageContent`]: find, link hints, text) is called on the
+//! engine itself, and an engine that answers it with an error fails the group the same way.
 //!
 //! [`MemoryEngine`] is the reference: an engine whose pages live in memory and do what the suite's
 //! pages say, in turns of its own loop. It passes every group, which also keeps the suite honest.
@@ -26,8 +27,8 @@ use quickie_domain_browsing::{Profile, TabId, WindowId};
 use url::Url;
 
 use crate::{
-    Answer, BlockerRules, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, PageRect,
-    ReplyToken, Ticket,
+    Answer, BlockerRules, DownloadToken, EngineError, EngineEvent, EnginePort, PageContent,
+    PageRect, ReplyToken,
 };
 
 pub use memory::{MemoryEngine, MemoryPage};
@@ -116,12 +117,12 @@ pub trait PageSource {
     fn base(&self) -> Url;
 }
 
-/// One engine, as the suite drives it: the core port, how its loop runs, and the page features
-/// that are not ports yet, each mapped to the engine's own call. A feature the harness cannot
-/// drive answers [`NotDriven`].
+/// One engine, as the suite drives it: the ports it implements ([`EnginePort`],
+/// [`PageContent`]), how its loop runs, and the page features that are not ports yet, each
+/// mapped to the engine's own call. A feature the harness cannot drive answers [`NotDriven`].
 pub trait Harness: PageSource {
     /// The engine under test.
-    type Engine: EnginePort<Page: fmt::Debug>;
+    type Engine: EnginePort<Page: fmt::Debug> + PageContent;
 
     /// Why the engine does not do `group`, or `None` when it does and the group runs.
     fn unsupported(&self, group: Group) -> Option<&'static str>;
@@ -158,39 +159,6 @@ pub trait Harness: PageSource {
         answer: &Answer,
     ) -> Driven<bool>;
 
-    /// Finds `query` in a tab's page; the matches come as [`EngineEvent::Found`].
-    ///
-    /// # Errors
-    ///
-    /// The harness cannot drive it.
-    fn find(
-        &mut self,
-        engine: &mut Self::Engine,
-        tab: TabId,
-        query: &str,
-        step: FindStep,
-    ) -> Driven<()>;
-
-    /// Asks for the link targets of a tab's page; `None` when it has no page.
-    ///
-    /// # Errors
-    ///
-    /// The harness cannot drive it.
-    fn link_targets(&mut self, engine: &mut Self::Engine, tab: TabId) -> Driven<Option<Ticket>>;
-
-    /// Follows target `index` of the tab's last link targets; `None` when it has no page.
-    ///
-    /// # Errors
-    ///
-    /// The harness cannot drive it.
-    fn follow_link(
-        &mut self,
-        engine: &mut Self::Engine,
-        tab: TabId,
-        index: usize,
-        background: bool,
-    ) -> Driven<Option<Ticket>>;
-
     /// Clicks a tab's page in the middle of `at`, a link target's frame, as the user does,
     /// holding `⌘` when `command`; or says why it could not. The page is shown in [`WINDOW`].
     ///
@@ -204,13 +172,6 @@ pub trait Harness: PageSource {
         at: PageRect,
         command: bool,
     ) -> Driven<Result<(), String>>;
-
-    /// Asks for the rendered text of a tab's page; `None` when it has no page.
-    ///
-    /// # Errors
-    ///
-    /// The harness cannot drive it.
-    fn page_text(&mut self, engine: &mut Self::Engine, tab: TabId) -> Driven<Option<Ticket>>;
 
     /// Makes a new, empty folder the engine's downloads folder and names it, or says why it
     /// could not.

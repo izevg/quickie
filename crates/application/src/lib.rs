@@ -17,13 +17,15 @@ mod ports;
 mod shields;
 mod site;
 
-pub use agent::{Agent, AnswerEvent, AskError, Asking, LocalFound, detect_local, list_models};
+pub use agent::{
+    Agent, AnswerEvent, AskError, Asking, LocalFound, PageReader, detect_local, list_models,
+};
 pub use browsing::Browsing;
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::conformance;
 pub use engine::{
     Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, EventQueue, FindStep,
-    Followed, Found, LinkTarget, PageRect, ReplyToken, Ticket,
+    Followed, Found, LinkTarget, PageContent, PageRect, ReplyToken, Ticket,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, SecretError, StoreError,

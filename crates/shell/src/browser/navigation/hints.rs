@@ -2,7 +2,7 @@
 //! over them, and typing one follows it. The page answers asynchronously, off the key.
 
 use objc2_foundation::{NSPoint, NSRect, NSSize};
-use quickie_application::{Followed, LinkTarget, PageRect, Ticket};
+use quickie_application::{Followed, LinkTarget, PageContent, PageRect, Ticket};
 use quickie_domain_browsing::{Focus, JarChoice, TabId};
 use quickie_domain_commands::{Key, KeyStroke, Modifiers};
 use quickie_ui_widgets::HintKey;
@@ -20,7 +20,12 @@ impl Browser {
         };
         self.close_overlays();
         self.hide_navigation();
-        let ticket = self.browsing.borrow_mut().engine_mut().link_targets(tab);
+        let ticket = self
+            .browsing
+            .borrow_mut()
+            .engine_mut()
+            .link_targets(tab)
+            .ok();
         self.navigation
             .targets_asked
             .set(ticket.map(|ticket| (ticket, window, background)));
@@ -98,7 +103,8 @@ impl Browser {
             .browsing
             .borrow_mut()
             .engine_mut()
-            .follow_link(tab, index, background);
+            .follow_link(tab, index, background)
+            .ok();
         self.navigation
             .following
             .set(ticket.map(|ticket| (ticket, window)));

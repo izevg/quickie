@@ -1,6 +1,6 @@
 //! The agent use cases against in-memory fakes; no request leaves the process.
 
-mod answer;
+mod ask;
 mod fakes;
 mod local;
 mod settings;

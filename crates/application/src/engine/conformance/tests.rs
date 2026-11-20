@@ -9,7 +9,7 @@ use url::Url;
 use super::{Driven, Event, Group, Harness, MemoryEngine, Outcome, PageSource, Report, run};
 use crate::{
     Answer, AskKind, BlockerRules, ContentBlockerPort, DownloadToken, EngineError, EngineEvent,
-    EnginePort, FindStep, PageRect, Permission, ReplyToken, Ticket,
+    EnginePort, PageRect, Permission, ReplyToken,
 };
 
 /// The reference engine, driven as an adapter would drive its own.
@@ -67,31 +67,6 @@ impl Harness for Memory {
         Ok(engine.answer(token, answer))
     }
 
-    fn find(
-        &mut self,
-        engine: &mut MemoryEngine,
-        tab: TabId,
-        query: &str,
-        step: FindStep,
-    ) -> Driven<()> {
-        engine.find(tab, query, step);
-        Ok(())
-    }
-
-    fn link_targets(&mut self, engine: &mut MemoryEngine, tab: TabId) -> Driven<Option<Ticket>> {
-        Ok(engine.link_targets(tab))
-    }
-
-    fn follow_link(
-        &mut self,
-        engine: &mut MemoryEngine,
-        tab: TabId,
-        index: usize,
-        background: bool,
-    ) -> Driven<Option<Ticket>> {
-        Ok(engine.follow_link(tab, index, background))
-    }
-
     fn click(
         &mut self,
         engine: &mut MemoryEngine,
@@ -101,10 +76,6 @@ impl Harness for Memory {
     ) -> Driven<Result<(), String>> {
         engine.click(tab, at, command);
         Ok(Ok(()))
-    }
-
-    fn page_text(&mut self, engine: &mut MemoryEngine, tab: TabId) -> Driven<Option<Ticket>> {
-        Ok(engine.page_text(tab))
     }
 
     fn downloads_into(&mut self, engine: &mut MemoryEngine) -> Driven<Result<PathBuf, String>> {

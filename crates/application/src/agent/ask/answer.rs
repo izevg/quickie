@@ -56,7 +56,7 @@ pub struct Asking {
 }
 
 impl Asking {
-    pub(super) fn new(endpoint: LlmEndpoint, prompt: Prompt) -> Self {
+    pub(in crate::agent) fn new(endpoint: LlmEndpoint, prompt: Prompt) -> Self {
         Self { endpoint, prompt }
     }
 
@@ -115,7 +115,7 @@ impl Asking {
 }
 
 /// The endpoint's key from the Keychain, `None` for an endpoint without one.
-pub(super) fn key_of(
+pub(in crate::agent) fn key_of(
     endpoint: &LlmEndpoint,
     secrets: &impl SecretStore,
 ) -> Result<Option<ApiKey>, AskError> {

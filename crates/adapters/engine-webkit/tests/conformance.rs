@@ -29,8 +29,7 @@ use quickie_application::conformance::{
     self, Driven, Event, Group, Harness, PageSource, Resource, SITE, WINDOW,
 };
 use quickie_application::{
-    Answer, BlockerRules, ContentBlockerPort, DownloadToken, EngineError, FindStep, PageRect,
-    ReplyToken, Ticket,
+    Answer, BlockerRules, ContentBlockerPort, DownloadToken, EngineError, PageRect, ReplyToken,
 };
 use quickie_domain_browsing::TabId;
 use quickie_engine_webkit::{BlockerStatus, WebKitContentBlocker, WebKitEngine};
@@ -200,31 +199,6 @@ impl Harness for WebKit {
         Ok(engine.answer(token, answer))
     }
 
-    fn find(
-        &mut self,
-        engine: &mut WebKitEngine,
-        tab: TabId,
-        query: &str,
-        step: FindStep,
-    ) -> Driven<()> {
-        engine.find(tab, query, step);
-        Ok(())
-    }
-
-    fn link_targets(&mut self, engine: &mut WebKitEngine, tab: TabId) -> Driven<Option<Ticket>> {
-        Ok(engine.link_targets(tab))
-    }
-
-    fn follow_link(
-        &mut self,
-        engine: &mut WebKitEngine,
-        tab: TabId,
-        index: usize,
-        background: bool,
-    ) -> Driven<Option<Ticket>> {
-        Ok(engine.follow_link(tab, index, background))
-    }
-
     fn click(
         &mut self,
         engine: &mut WebKitEngine,
@@ -267,10 +241,6 @@ impl Harness for WebKit {
             }
         }
         Ok(Ok(()))
-    }
-
-    fn page_text(&mut self, engine: &mut WebKitEngine, tab: TabId) -> Driven<Option<Ticket>> {
-        Ok(engine.page_text(tab))
     }
 
     fn downloads_into(&mut self, engine: &mut WebKitEngine) -> Driven<Result<PathBuf, String>> {

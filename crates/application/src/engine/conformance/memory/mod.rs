@@ -19,7 +19,7 @@ use super::{Act, Control, Resource};
 use crate::{
     Answer, Ask, AskKind, BlockerError, BlockerRules, ContentBlockerPort, Dialog, DownloadEvent,
     DownloadToken, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found,
-    LinkTarget, Navigation, PageRect, Permission, ReplyToken, Ticket,
+    LinkTarget, Navigation, PageContent, PageRect, Permission, ReplyToken, Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -106,35 +106,10 @@ impl MemoryEngine {
         true
     }
 
-    /// Selects a match of `query` in a tab's page; [`EngineEvent::Found`] brings the matches.
-    pub fn find(&mut self, tab: TabId, query: &str, step: FindStep) {
-        if let Some(page) = self.pages.get_mut(&tab) {
-            let matches = page.find(query, step);
-            self.events.push(EngineEvent::Found(Found {
-                tab,
-                query: query.to_owned(),
-                matches,
-            }));
-        }
-    }
-
-    /// The links and buttons of a tab's page, top to bottom, come as [`EngineEvent::Targets`]
-    /// with the ticket returned; `None` when the tab has no page.
-    pub fn link_targets(&mut self, tab: TabId) -> Option<Ticket> {
-        let targets = targets(self.pages.get(&tab)?);
-        let ticket = self.ticket();
-        self.events.push(EngineEvent::Targets {
-            tab,
-            ticket,
-            targets,
-        });
-        Some(ticket)
-    }
-
     /// The user clicks the link or button of a tab's page whose frame, as
-    /// [`Self::link_targets`] gave it, is `at`, holding `⌘` when `command`: a link opens in a
-    /// background tab with `⌘`, in a new tab when it asks for a new window, and in its page
-    /// otherwise; a button does what it does.
+    /// [`PageContent::link_targets`] gave it, is `at`, holding `⌘` when `command`: a link opens
+    /// in a background tab with `⌘`, in a new tab when it asks for a new window, and in its
+    /// page otherwise; a button does what it does.
     pub fn click(&mut self, tab: TabId, at: PageRect, command: bool) {
         let index = self
             .pages
@@ -143,50 +118,6 @@ impl MemoryEngine {
         if let Some(index) = index {
             self.press(tab, index, command);
         }
-    }
-
-    /// Follows the `index`th link or button of a tab's page: a link opens in the background
-    /// when `background`, in a new tab when it asks for a new window, and in its page
-    /// otherwise; a button is clicked. [`EngineEvent::Followed`] with the ticket returned
-    /// says what is left to do; `None` when the tab has no page.
-    pub fn follow_link(&mut self, tab: TabId, index: usize, background: bool) -> Option<Ticket> {
-        let page = self.pages.get_mut(&tab)?;
-        let followed = match controls(page).get(index).copied() {
-            Some(Control::Link { to, .. }) if background => {
-                Followed::Background(at(&self.base, to))
-            }
-            Some(Control::Link { to, blank: true }) => Followed::NewTab(at(&self.base, to)),
-            Some(Control::Link { to, blank: false }) => {
-                page.go(at(&self.base, to));
-                Followed::Done
-            }
-            Some(Control::Button(act)) => {
-                page.acts.push_front(act);
-                Followed::Done
-            }
-            None => Followed::Done,
-        };
-        let ticket = self.ticket();
-        self.events.push(EngineEvent::Followed {
-            tab,
-            ticket,
-            followed,
-        });
-        Some(ticket)
-    }
-
-    /// The text of a tab's page comes as [`EngineEvent::Text`] with the ticket returned;
-    /// `None` when the tab has no page.
-    pub fn page_text(&mut self, tab: TabId) -> Option<Ticket> {
-        let page = self.pages.get(&tab)?;
-        let text = page
-            .shown
-            .as_ref()
-            .map_or("", |(_, shown)| shown.text)
-            .to_owned();
-        let ticket = self.ticket();
-        self.events.push(EngineEvent::Text { tab, ticket, text });
-        Some(ticket)
     }
 
     /// Saves downloads into `folder` from now on; until then, every download is refused.
@@ -490,6 +421,77 @@ impl EnginePort for MemoryEngine {
     fn destroy_jar(&mut self, jar: JarId) -> Result<(), EngineError> {
         self.cookies.remove(&Jar::Throwaway(jar));
         Ok(())
+    }
+}
+
+/// Its pages' content is their description: the text they show and their controls, one row
+/// each.
+impl PageContent for MemoryEngine {
+    fn find(&mut self, tab: TabId, query: &str, step: FindStep) -> Result<(), EngineError> {
+        let matches = self.page(tab)?.find(query, step);
+        self.events.push(EngineEvent::Found(Found {
+            tab,
+            query: query.to_owned(),
+            matches,
+        }));
+        Ok(())
+    }
+
+    fn read_text(&mut self, tab: TabId, max_chars: usize) -> Result<Ticket, EngineError> {
+        let text = self
+            .page(tab)?
+            .shown
+            .as_ref()
+            .map_or("", |(_, shown)| shown.text)
+            .chars()
+            .take(max_chars)
+            .collect();
+        let ticket = self.ticket();
+        self.events.push(EngineEvent::Text { tab, ticket, text });
+        Ok(ticket)
+    }
+
+    fn link_targets(&mut self, tab: TabId) -> Result<Ticket, EngineError> {
+        let targets = targets(self.page(tab)?);
+        let ticket = self.ticket();
+        self.events.push(EngineEvent::Targets {
+            tab,
+            ticket,
+            targets,
+        });
+        Ok(ticket)
+    }
+
+    /// A link opens in the background when `background`, in a new tab when it asks for a new
+    /// window, and in its page otherwise; a button is clicked.
+    fn follow_link(
+        &mut self,
+        tab: TabId,
+        index: usize,
+        background: bool,
+    ) -> Result<Ticket, EngineError> {
+        let base = self.base.clone();
+        let page = self.page(tab)?;
+        let followed = match controls(page).get(index).copied() {
+            Some(Control::Link { to, .. }) if background => Followed::Background(at(&base, to)),
+            Some(Control::Link { to, blank: true }) => Followed::NewTab(at(&base, to)),
+            Some(Control::Link { to, blank: false }) => {
+                page.go(at(&base, to));
+                Followed::Done
+            }
+            Some(Control::Button(act)) => {
+                page.acts.push_front(act);
+                Followed::Done
+            }
+            None => Followed::Done,
+        };
+        let ticket = self.ticket();
+        self.events.push(EngineEvent::Followed {
+            tab,
+            ticket,
+            followed,
+        });
+        Ok(ticket)
     }
 }
 

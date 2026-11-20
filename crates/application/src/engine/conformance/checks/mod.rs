@@ -11,7 +11,7 @@ use quickie_domain_browsing::{Focus, Jar, Profile, TabId};
 use url::Url;
 
 use super::{Event, Group, Harness, NotDriven, Outcome, Page};
-use crate::{EngineEvent, EnginePort, LinkTarget};
+use crate::{EngineEvent, EnginePort, LinkTarget, PageContent};
 
 /// Why a check failed.
 type Checked = Result<(), String>;
@@ -149,9 +149,9 @@ impl<H: Harness> Run<'_, H> {
     /// Asks for tab `serial`'s link targets and waits for the answer to that request.
     fn targets(&mut self, serial: u64) -> Result<Vec<LinkTarget>, String> {
         let ticket = self
-            .harness
-            .link_targets(&mut self.engine, tab(serial))?
-            .ok_or_else(|| format!("{} has no page", tab(serial)))?;
+            .engine
+            .link_targets(tab(serial))
+            .map_err(|error| format!("asking for the link targets failed: {error}"))?;
         let answer = self.take(0, "the link targets", |event| {
             matches!(event, EngineEvent::Targets { ticket: answered, .. } if *answered == ticket)
         })?;

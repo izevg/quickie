@@ -1,6 +1,6 @@
-//! Asking and answering. `⏎` on a `?` row reads the page (its rendered text, from a script in
-//! Quickie's isolated content world), the agent use case assembles the prompt on the main
-//! thread, and a worker thread streams the answer. Its events collect in an inbox, and the main
+//! Asking and answering. `⏎` on a `?` row reads the pages (the application's [`PageReader`]
+//! asks the engine for their text and collects it as it comes), the agent use case assembles
+//! the prompt on the main thread, and a worker thread streams the answer. Its events collect in an inbox, and the main
 //! thread takes them at most once a frame: however fast tokens come, the panel does one edit
 //! per frame, of the line still coming in.
 
@@ -10,9 +10,11 @@ use std::time::Duration;
 
 use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
 use objc2::MainThreadMarker;
-use quickie_application::{AnswerEvent, Asking, FindStep, StopSignal, Ticket};
-use quickie_domain_agents::{PageScope, PageText, Question, Request, Skill, SkillId};
-use quickie_domain_browsing::{Focus, JarChoice, TabId, WindowId};
+use quickie_application::{
+    AnswerEvent, Asking, FindStep, PageContent, PageReader, StopSignal, Ticket,
+};
+use quickie_domain_agents::{PageText, Question, Request, Skill, SkillId};
+use quickie_domain_browsing::{Focus, JarChoice};
 use quickie_engine_webkit::UrlSessionHttp;
 use quickie_llm::OpenAiClient;
 use quickie_ui_shared::Trigger;
@@ -36,20 +38,11 @@ struct Inbox {
 
 type Shared = Arc<MainThreadBound<std::rc::Weak<Browser>>>;
 
-/// The pages an ask reads, in the order the prompt lists them, until every text is in.
+/// The pages an ask reads, until every text is in, and what to ask about them then.
 pub(super) struct Reading {
     generation: u64,
     request: Request,
-    pages: Vec<ReadPage>,
-}
-
-/// One page of a [`Reading`].
-struct ReadPage {
-    url: Url,
-    title: String,
-    /// The engine's request for its text, while it is on its way.
-    ticket: Option<Ticket>,
-    text: Option<String>,
+    pages: PageReader,
 }
 
 impl Browser {
@@ -78,8 +71,13 @@ impl Browser {
             return;
         };
         self.cancel_answer();
-        let pages = self.pages_to_read(window, request.scope());
-        let Some(&(first, _, _)) = pages.first() else {
+        let tabs = {
+            let browsing = self.browsing.borrow();
+            PageReader::tabs(browsing.session(), window, request.scope(), |tab| {
+                browsing.has_page(tab)
+            })
+        };
+        let Some(first) = tabs.first().map(|tab| tab.id) else {
             self.toast("There is no page to read here yet");
             return;
         };
@@ -97,49 +95,7 @@ impl Browser {
             model: agent_wording::model_chip(&endpoint),
         });
         self.open_panel(Trigger::Keyboard);
-        self.read_pages(generation, request, pages);
-    }
-
-    /// The tabs a request reads, the active one first, with their address and title: the
-    /// active tab alone, or the window's open tabs that have a page, up to the scope's most.
-    fn pages_to_read(&self, window: WindowId, scope: PageScope) -> Vec<(TabId, Url, String)> {
-        let candidates: Vec<(TabId, Url, String)> = {
-            let browsing = self.browsing.borrow();
-            let session = browsing.session();
-            let active = session.active(window);
-            let mut tabs: Vec<_> = session
-                .tabs(window)
-                .map_or_else(|_| Vec::new(), |tabs| tabs.cloned().collect());
-            tabs.sort_by_key(|tab| Some(tab.id) != active);
-            tabs.into_iter()
-                .filter(|tab| scope == PageScope::OpenTabs || Some(tab.id) == active)
-                .map(|tab| (tab.id, tab.url, tab.title))
-                .collect()
-        };
-        let mut browsing = self.browsing.borrow_mut();
-        let engine = browsing.engine_mut();
-        candidates
-            .into_iter()
-            .filter(|(tab, _, _)| engine.view(*tab).is_some())
-            .take(scope.max_pages())
-            .collect()
-    }
-
-    /// Asks the engine for each page's text; [`Self::page_read`] collects them as they come.
-    /// A tab without a page reads as empty at once.
-    fn read_pages(&self, generation: u64, request: Request, pages: Vec<(TabId, Url, String)>) {
-        let pages = pages
-            .into_iter()
-            .map(|(tab, url, title)| {
-                let ticket = self.browsing.borrow_mut().engine_mut().page_text(tab);
-                ReadPage {
-                    url,
-                    title,
-                    ticket,
-                    text: ticket.map_or_else(|| Some(String::new()), |_| None),
-                }
-            })
-            .collect();
+        let pages = PageReader::start(self.browsing.borrow_mut().engine_mut(), &tabs);
         *self.agent_ui.reading.borrow_mut() = Some(Reading {
             generation,
             request,
@@ -153,29 +109,24 @@ impl Browser {
     ///
     /// [`EngineEvent::Text`]: quickie_application::EngineEvent::Text
     pub(in crate::browser) fn page_read(&self, ticket: Ticket, text: String) {
-        {
-            let mut reading = self.agent_ui.reading.borrow_mut();
-            let Some(page) = reading.as_mut().and_then(|reading| {
-                reading
-                    .pages
-                    .iter_mut()
-                    .find(|page| page.ticket == Some(ticket))
-            }) else {
-                return;
-            };
-            page.ticket = None;
-            page.text = Some(text);
+        let read = self
+            .agent_ui
+            .reading
+            .borrow_mut()
+            .as_mut()
+            .is_some_and(|reading| reading.pages.text_read(ticket, text));
+        if read {
+            self.pages_ready();
         }
-        self.pages_ready();
     }
 
     /// Hands the read on once every page's text is in.
     fn pages_ready(&self) {
         let reading = {
             let mut reading = self.agent_ui.reading.borrow_mut();
-            if reading
+            if !reading
                 .as_ref()
-                .is_some_and(|reading| reading.pages.iter().any(|page| page.text.is_none()))
+                .is_some_and(|reading| reading.pages.is_complete())
             {
                 return;
             }
@@ -184,11 +135,7 @@ impl Browser {
         let Some(reading) = reading else {
             return;
         };
-        let pages: Vec<PageText> = reading
-            .pages
-            .into_iter()
-            .map(|page| PageText::new(page.url, page.title, page.text.unwrap_or_default()))
-            .collect();
+        let pages = reading.pages.into_pages();
         self.pages_read(reading.generation, &reading.request, &pages);
     }
 
@@ -321,7 +268,9 @@ impl Browser {
         if !shown && let Some(window) = self.run(|browsing| browsing.activate(tab)) {
             self.settle(window);
         }
-        self.browsing
+        // A page that is gone has no quote to show; the chip stays, and nothing marks.
+        let _ = self
+            .browsing
             .borrow_mut()
             .engine_mut()
             .find(tab, anchor, FindStep::Refine);
@@ -331,10 +280,8 @@ impl Browser {
     /// The marks a citation left in its page go.
     pub(super) fn clear_citation(&self) {
         if let Some(tab) = self.agent_ui.cited.take() {
-            self.browsing
-                .borrow_mut()
-                .engine_mut()
-                .find(tab, "", FindStep::Refine);
+            // A tab whose page is gone has no marks left to clear.
+            let _ = self.browsing.borrow_mut().engine_mut().clear_find(tab);
         }
     }
 
