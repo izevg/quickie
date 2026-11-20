@@ -10,6 +10,7 @@
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
 //! - [`popovers`]: the downloads and the shields popovers.
 //! - [`windows`]: new and closed windows, and the pages pages open or close.
+//! - [`system`]: links other apps open, the default browser, the profile in Finder.
 
 mod commands;
 mod keys;
@@ -17,6 +18,7 @@ mod navigation;
 mod page;
 mod palette;
 mod popovers;
+mod system;
 mod windows;
 
 use std::cell::{Cell, RefCell};
@@ -29,12 +31,13 @@ use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSApplication, NSWindow};
 use quickie_application::{AppError, PaletteItem};
 use quickie_domain_browsing::{Session, TabId, WindowId};
-use quickie_domain_commands::{Catalog, KeyStroke, Keymap, Modifiers};
+use quickie_domain_commands::{Catalog, CommandId, KeyStroke, Keymap, Modifiers};
 use quickie_store::PendingWrites;
 use quickie_ui_widgets::{AddressOverlay, CommandPalette, TabSwitcher, ToastStack};
 use url::Url;
 
 pub use keys::install_shortcuts;
+pub use system::launch_urls;
 
 use crate::input::cycle::CycleHold;
 use crate::window::{browser_window, set_title};
@@ -55,6 +58,8 @@ pub struct Services {
     pub notices: Vec<String>,
     /// Where downloads are saved.
     pub downloads_folder: PathBuf,
+    /// The profile folder: the stores and the content rules.
+    pub profile: PathBuf,
 }
 
 pub struct Browser {
@@ -84,6 +89,8 @@ pub struct Browser {
     home: Url,
     /// Startup problems, told by [`Self::show`].
     notices: RefCell<Vec<String>>,
+    /// The profile folder, shown in Finder on request.
+    profile: PathBuf,
     this: Weak<Self>,
     mtm: MainThreadMarker,
 }
@@ -134,6 +141,7 @@ impl Browser {
             pending: Cell::new(None),
             home,
             notices: RefCell::new(notices),
+            profile: services.profile,
             this: this.clone(),
             mtm,
         });
@@ -174,6 +182,15 @@ impl Browser {
         let notices = std::mem::take(&mut *self.notices.borrow_mut());
         for notice in notices {
             self.toast(&notice);
+        }
+    }
+
+    /// Runs the command `id` as a key would: a menu item asked. An id the catalog does not
+    /// know does nothing.
+    pub fn run_command(&self, id: &str) {
+        if let Ok(id) = CommandId::try_from(id) {
+            self.dispatch(&id, None);
+            self.drain();
         }
     }
 

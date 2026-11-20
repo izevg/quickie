@@ -6,8 +6,12 @@
 //! §3, P0). Run it from the repository root with:
 //!
 //! ```sh
-//! mise exec -- cargo run -p quickie
+//! mise exec -- cargo run -p quickie [-- <url or file>…]
+//! mise run bundle && open target/debug/Quickie.app   # the app bundle, for LaunchServices
 //! ```
+//!
+//! As a bundle it opens the links and files other apps hand it (`application:openURLs:`), and
+//! the `App` commands ask macOS to make it the default browser or show the profile in Finder.
 //!
 //! The session, the history, the bookmarks, and the user's key bindings live in
 //! `~/Library/Application Support/Quickie/shell.sqlite`. Every key is a command of the keymap
@@ -22,12 +26,14 @@
 
 #![expect(
     unsafe_code,
-    reason = "AppKit through objc2: windows, menus, timers, the key monitor, the quit \
-              notification, and the pasteboard"
+    reason = "AppKit through objc2: windows, menus, the app delegate, timers, the key monitor, \
+              the quit notification, the pasteboard, and the default browser request"
 )]
 
 mod browser;
+mod delegate;
 mod input;
+mod menu;
 mod window;
 
 use std::path::PathBuf;
@@ -36,14 +42,13 @@ use std::ptr::NonNull;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use block2::RcBlock;
+use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::runtime::{NSObjectProtocol, ProtocolObject, Sel};
-use objc2::{MainThreadMarker, MainThreadOnly, sel};
+use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification, NSMenu,
-    NSMenuItem,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSString};
+use objc2_foundation::{NSNotification, NSNotificationCenter};
 use quickie_application::{Browsing, Clock, Library, LoadedKeymap, Shields, load_keymap};
 use quickie_domain_browsing::Timestamp;
 use quickie_domain_commands::{Catalog, Keymap};
@@ -51,7 +56,8 @@ use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use quickie_store::{PendingWrites, WriteBehindStore};
 use url::Url;
 
-use browser::{Browser, Services, install_shortcuts};
+use browser::{Browser, Services, install_shortcuts, launch_urls};
+use delegate::AppDelegate;
 
 /// The browsing use cases as the app composes them.
 pub type App = Browsing<WebKitEngine, WriteBehindStore, SystemClock>;
@@ -104,15 +110,21 @@ fn main() -> ExitCode {
     };
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-    app.setMainMenu(Some(&main_menu(mtm)));
 
     let (browser, pending) = match start(mtm) {
         Ok(started) => started,
         Err(reason) => return fail(&reason),
     };
+    // The application holds its delegate weakly: this binding keeps it for the app's lifetime.
+    let delegate = AppDelegate::new(&browser, mtm);
+    app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+    menu::install(&app, &delegate, &Catalog::builtin(), mtm);
     let _flush_on_quit = flush_on_quit(pending);
     let _monitor = install_shortcuts(&browser);
     browser.show();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    browser.open_urls(launch_urls(&args, &cwd));
     app.activate();
     app.run();
     ExitCode::SUCCESS
@@ -160,6 +172,7 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         writes: writes.clone(),
         notices,
         downloads_folder,
+        profile: support_dir()?,
     };
     Ok((Browser::new(services, home, mtm), writes))
 }
@@ -241,58 +254,4 @@ fn home_dir() -> Result<PathBuf, String> {
 fn fail(reason: &str) -> ExitCode {
     eprintln!("quickie: cannot start: {reason}");
     ExitCode::FAILURE
-}
-
-/// The menu bar: the app menu, and the Edit menu that gives text fields and pages their
-/// standard editing keys.
-fn main_menu(mtm: MainThreadMarker) -> Retained<NSMenu> {
-    let bar = NSMenu::new(mtm);
-    let app = submenu(mtm, "Quickie", &[("Quit Quickie", sel!(terminate:), "q")]);
-    let edit = submenu(
-        mtm,
-        "Edit",
-        &[
-            ("Undo", sel!(undo:), "z"),
-            ("Redo", sel!(redo:), "Z"),
-            ("Cut", sel!(cut:), "x"),
-            ("Copy", sel!(copy:), "c"),
-            ("Paste", sel!(paste:), "v"),
-            ("Select All", sel!(selectAll:), "a"),
-        ],
-    );
-    bar.addItem(&app);
-    bar.addItem(&edit);
-    bar
-}
-
-fn submenu(
-    mtm: MainThreadMarker,
-    title: &str,
-    items: &[(&str, Sel, &str)],
-) -> Retained<NSMenuItem> {
-    let title = NSString::from_str(title);
-    let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &title);
-    for &(name, action, key) in items {
-        menu.addItem(&item(mtm, name, Some(action), key));
-    }
-    let holder = item(mtm, "", None, "");
-    holder.setSubmenu(Some(&menu));
-    holder
-}
-
-fn item(
-    mtm: MainThreadMarker,
-    title: &str,
-    action: Option<Sel>,
-    key: &str,
-) -> Retained<NSMenuItem> {
-    // SAFETY: the actions are standard responder-chain selectors that take a sender.
-    unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            NSMenuItem::alloc(mtm),
-            &NSString::from_str(title),
-            action,
-            &NSString::from_str(key),
-        )
-    }
 }
