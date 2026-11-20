@@ -12,6 +12,7 @@ use quickie_ui_shared::stories::{self, Story};
 
 mod agent;
 mod fixtures;
+mod hints;
 mod navigation;
 mod surfaces;
 
@@ -19,7 +20,7 @@ fn main() -> ExitCode {
     let all: Vec<Story> = navigation::GROUPS
         .into_iter()
         .chain(surfaces::GROUPS)
-        .chain([agent::STORIES])
+        .chain([hints::STORIES, agent::STORIES])
         .flatten()
         .copied()
         .collect();
