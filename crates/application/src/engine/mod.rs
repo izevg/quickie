@@ -15,6 +15,7 @@ mod queue;
 mod tests;
 
 use quickie_domain_browsing::TabId;
+use quickie_domain_settings::ZoomLevel;
 
 pub use event::{
     Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, FindStep, Followed,
@@ -96,4 +97,14 @@ pub trait PageContent {
         index: usize,
         background: bool,
     ) -> Result<Ticket, EngineError>;
+}
+
+/// How large a tab's page is drawn, in the domain's own zoom levels. Each engine maps a level
+/// to its own unit (a page zoom factor, a zoom level's logarithm); which page gets which level
+/// is the [`Zoom`](crate::Zoom) use case's choice.
+pub trait PageZoom {
+    /// Draws the tab's page at `level` from now on, its next navigations included, until it is
+    /// set again: text and layout scale, as Safari's zoom does. A tab without a page is left
+    /// alone.
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel);
 }

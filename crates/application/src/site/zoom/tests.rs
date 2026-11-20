@@ -1,11 +1,11 @@
-use quickie_domain_browsing::{Jar, JarId};
+use quickie_domain_browsing::{Focus, Jar, JarChoice, JarId, Profile, Session, TabId};
 use quickie_domain_settings::{
     CorruptZooms, Site, SiteError, SiteZooms, SiteZoomsSnapshot, ZoomLevel, ZoomStep,
 };
 use url::Url;
 
 use super::Zoom;
-use crate::{AppError, StoreError, ZoomRepo};
+use crate::{AppError, PageZoom, StoreError, ZoomRepo};
 
 /// Keeps what was saved last, like a store would; counts saves, and fails on request.
 #[derive(Debug, Default)]
@@ -217,6 +217,91 @@ fn each_throwaway_jar_zooms_on_its_own_and_forgets_with_its_jar() {
     zoom.forget_jar(JarId::new(1));
 
     assert_eq!(zoom.level(&page, THROWAWAY), ZoomLevel::DEFAULT);
+}
+
+/// Records the zoom each page was set to, in order.
+#[derive(Debug, Default)]
+struct FakePages {
+    zoomed: Vec<(TabId, ZoomLevel)>,
+}
+
+impl PageZoom for FakePages {
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel) {
+        self.zoomed.push((tab, level));
+    }
+}
+
+/// Two windows: a main and a throwaway page of `example.com`, a page of `example.org`, and the
+/// start page; the main jar zoomed `example.com` in, the throwaway jar out. Gives the tabs in
+/// that order.
+fn browsing_two_windows(zoom: &mut Zoom<FakeZoomRepo>) -> (Session, [TabId; 4]) {
+    let mut session = Session::new(Profile::Main);
+    let first = session.open_window();
+    let second = session.open_window();
+    let mut open = |window, at: &str, jar| {
+        session
+            .open(window, url(at), jar, Focus::Foreground)
+            .unwrap()
+    };
+    let main = open(first, "https://example.com/a", JarChoice::Main);
+    let other = open(first, "https://example.org/", JarChoice::Main);
+    let throwaway = open(second, "https://docs.example.com/", JarChoice::NewThrowaway);
+    let start = open(second, "quickie://start/", JarChoice::Main);
+    let jar = session.tab(throwaway).unwrap().jar;
+    zoom.step(&url("https://example.com/"), Jar::Main, ZoomStep::In)
+        .unwrap();
+    zoom.step(&url("https://example.com/"), jar, ZoomStep::Out)
+        .unwrap();
+    (session, [main, other, throwaway, start])
+}
+
+fn sorted(mut zoomed: Vec<(TabId, ZoomLevel)>) -> Vec<(TabId, ZoomLevel)> {
+    zoomed.sort();
+    zoomed
+}
+
+#[test]
+fn showing_puts_every_open_page_at_its_site_s_zoom_in_its_jar() {
+    let mut zoom = fresh();
+    let (session, [main, other, throwaway, start]) = browsing_two_windows(&mut zoom);
+    let mut pages = FakePages::default();
+
+    zoom.show(&session, None, &mut pages);
+
+    assert_eq!(
+        sorted(pages.zoomed),
+        sorted(vec![
+            (main, level(115)),
+            (other, ZoomLevel::DEFAULT),
+            (throwaway, level(85)),
+            (start, ZoomLevel::DEFAULT),
+        ])
+    );
+}
+
+#[test]
+fn showing_only_some_tabs_leaves_the_others_alone() {
+    let mut zoom = fresh();
+    let (session, [main, _, throwaway, _]) = browsing_two_windows(&mut zoom);
+    let mut pages = FakePages::default();
+
+    zoom.show(&session, Some(&[throwaway, main]), &mut pages);
+
+    assert_eq!(
+        sorted(pages.zoomed),
+        sorted(vec![(main, level(115)), (throwaway, level(85))])
+    );
+}
+
+#[test]
+fn showing_no_tabs_zooms_nothing() {
+    let mut zoom = fresh();
+    let (session, _) = browsing_two_windows(&mut zoom);
+    let mut pages = FakePages::default();
+
+    zoom.show(&session, Some(&[]), &mut pages);
+
+    assert_eq!(pages.zoomed, []);
 }
 
 #[test]

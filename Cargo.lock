@@ -962,6 +962,7 @@ dependencies = [
  "cxx",
  "quickie-application",
  "quickie-domain-browsing",
+ "quickie-domain-settings",
  "url",
 ]
 

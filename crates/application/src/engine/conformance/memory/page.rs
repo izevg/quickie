@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 
 use quickie_domain_browsing::{FindMatches, Jar};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use crate::FindStep;
@@ -25,6 +26,8 @@ pub struct MemoryPage {
     pub(super) asked: Option<(crate::ReplyToken, Act)>,
     /// The selected match of the last find, counted from 1.
     found: usize,
+    /// How large it is drawn, across its navigations.
+    pub(super) zoom: ZoomLevel,
 }
 
 impl MemoryPage {
@@ -39,6 +42,7 @@ impl MemoryPage {
             acts: VecDeque::new(),
             asked: None,
             found: 0,
+            zoom: ZoomLevel::DEFAULT,
         }
     }
 

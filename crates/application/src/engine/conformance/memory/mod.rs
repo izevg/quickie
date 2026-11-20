@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use quickie_domain_browsing::{Focus, Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use quickie_domain_shields::Site;
 use url::Url;
 
@@ -19,7 +20,7 @@ use super::{Act, Control, Resource};
 use crate::{
     Answer, Ask, AskKind, BlockerError, BlockerRules, ContentBlockerPort, Dialog, DownloadEvent,
     DownloadToken, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found,
-    LinkTarget, Navigation, PageContent, PageRect, Permission, ReplyToken, Ticket,
+    LinkTarget, Navigation, PageContent, PageRect, PageZoom, Permission, ReplyToken, Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -258,6 +259,10 @@ impl MemoryEngine {
                     });
                 self.events.titled(tab, format!("scripts:{ran}"));
             }
+            Act::ShowWidth => {
+                let width = (WIDTH / page.zoom.factor()).round();
+                self.events.titled(tab, format!("width:{width}"));
+            }
         }
     }
 
@@ -340,6 +345,9 @@ impl MemoryEngine {
         }
     }
 }
+
+/// How wide every page view is, in points.
+const WIDTH: f64 = 1000.0;
 
 /// The URL of the suite's resource at `path` under `base`.
 fn at(base: &Url, path: &str) -> Url {
@@ -492,6 +500,16 @@ impl PageContent for MemoryEngine {
             followed,
         });
         Ok(ticket)
+    }
+}
+
+/// A page keeps its zoom across its navigations; its viewport is as many CSS pixels narrower as
+/// the zoom is larger.
+impl PageZoom for MemoryEngine {
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel) {
+        if let Some(page) = self.pages.get_mut(&tab) {
+            page.zoom = level;
+        }
     }
 }
 

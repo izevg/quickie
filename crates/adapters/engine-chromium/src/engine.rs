@@ -11,9 +11,10 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{
-    EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageContent, Ticket,
+    EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageContent, PageZoom, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use inbox::Inbox;
@@ -277,6 +278,11 @@ impl PageContent for ChromiumEngine {
     fn follow_link(&mut self, tab: TabId, _: usize, _: bool) -> Result<Ticket, EngineError> {
         self.unsupported(tab, "follow a link target in")
     }
+}
+
+/// The bridge cannot zoom pages yet: every page stays at actual size.
+impl PageZoom for ChromiumEngine {
+    fn set_zoom(&mut self, _tab: TabId, _level: ZoomLevel) {}
 }
 
 /// An engine error naming what failed and why.

@@ -27,7 +27,7 @@ pub use engine::{
     Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, EngineEvent,
     EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
     ExtensionPackages, FindStep, Followed, Found, LinkTarget, PackageSource, PageContent, PageRect,
-    ReplyToken, Ticket, Unpacked, WindowTabs,
+    PageZoom, ReplyToken, Ticket, Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,

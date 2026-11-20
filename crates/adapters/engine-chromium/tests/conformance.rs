@@ -43,7 +43,8 @@ impl Harness for Chromium {
             | Group::Text
             | Group::Downloads
             | Group::Blocker
-            | Group::Crash => Some(PARKED),
+            | Group::Crash
+            | Group::Zoom => Some(PARKED),
         }
     }
 

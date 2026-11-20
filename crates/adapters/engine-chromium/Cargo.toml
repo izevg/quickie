@@ -15,6 +15,7 @@ chromium = []
 cxx.workspace = true
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
+quickie-domain-settings.workspace = true
 url.workspace = true
 
 [dev-dependencies]

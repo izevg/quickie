@@ -5,13 +5,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use quickie_domain_browsing::{FindMatches, Jar};
+use quickie_domain_settings::ZoomLevel;
 use quickie_domain_shields::{ContentHash, FilterListId, Site};
 
 use super::{Case, Checked, Run, ensure, same, tab};
 use crate::conformance::{Group, Harness, site};
 use crate::{
     BlockerRules, DownloadEvent, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep,
-    Followed, Found, ListRules, Navigation, PageContent, Ticket,
+    Followed, Found, ListRules, Navigation, PageContent, PageZoom, Ticket,
 };
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
@@ -79,6 +80,16 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             Group::Crash,
             "a_crashed_page_is_reported_and_reloads",
             crashed,
+        ),
+        case(
+            Group::Zoom,
+            "a_zoomed_page_lays_out_larger_across_navigations",
+            zoomed,
+        ),
+        case(
+            Group::Zoom,
+            "zooming_a_tab_without_a_page_changes_nothing",
+            zoomed_without_a_page,
         ),
     ]
 }
@@ -501,6 +512,83 @@ fn unshielded<H: Harness>(run: &mut Run<'_, H>) -> Checked {
         .map_err(|error| format!("reloading failed: {error}"))?;
 
     run.wait_title(1, EVERY_SCRIPT)
+}
+
+/// Waits for tab `serial`'s page, from `mark` on, to say how wide its viewport is.
+fn width<H: Harness>(run: &mut Run<'_, H>, mark: usize, serial: u64) -> Result<f64, String> {
+    let event = run.take(mark, &format!("{}'s width", tab(serial)), |event| {
+        measured(event, serial).is_some()
+    })?;
+    let width = measured(&event, serial).unwrap_or_default();
+    width
+        .parse()
+        .map_err(|_| format!("{width:?} is not a width"))
+}
+
+/// The width tab `serial`'s page says it is, when `event` is it saying so.
+fn measured<P>(event: &EngineEvent<P>, serial: u64) -> Option<&str> {
+    match event {
+        EngineEvent::Committed {
+            tab: about, title, ..
+        }
+        | EngineEvent::Titled {
+            tab: about, title, ..
+        } if *about == tab(serial) => title.strip_prefix("width:"),
+        _ => None,
+    }
+}
+
+/// Navigates tab 1 as `navigation` says and waits for the measured page's width.
+fn remeasure<H: Harness>(run: &mut Run<'_, H>, navigation: &Navigation) -> Result<f64, String> {
+    let mark = run.events.len();
+    run.engine
+        .navigate(tab(1), navigation)
+        .map_err(|error| format!("navigating failed: {error}"))?;
+    width(run, mark, 1)
+}
+
+/// Fails unless `got` is `want`, to a pixel's rounding.
+fn about_as_wide(what: &str, got: f64, want: f64) -> Checked {
+    ensure((got - want).abs() <= 1.0, || {
+        format!("{what}: expected {want} CSS pixels wide, the page was {got}")
+    })
+}
+
+fn zoomed<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let twice = ZoomLevel::from_percent(200).ok_or("200 % is no zoom level")?;
+    run.create(1, "measured", Jar::Main)?;
+    let actual = width(run, 0, 1)?;
+
+    run.engine.set_zoom(tab(1), twice);
+    let zoomed = remeasure(run, &Navigation::Reload)?;
+    about_as_wide("at 200 %", zoomed, actual / 2.0)?;
+
+    remeasure_elsewhere(run)?;
+    let back = remeasure(run, &Navigation::Load(run.url("measured")))?;
+    about_as_wide("at 200 % after going elsewhere", back, actual / 2.0)?;
+
+    run.engine.set_zoom(tab(1), ZoomLevel::DEFAULT);
+    let reset = remeasure(run, &Navigation::Reload)?;
+    about_as_wide("back at 100 %", reset, actual)
+}
+
+/// Takes tab 1 to another page and waits until it shows.
+fn remeasure_elsewhere<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.engine
+        .navigate(tab(1), &Navigation::Load(run.url("other")))
+        .map_err(|error| format!("loading another page failed: {error}"))?;
+    run.wait_visit(1, "other", "Other")
+}
+
+fn zoomed_without_a_page<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let twice = ZoomLevel::from_percent(200).ok_or("200 % is no zoom level")?;
+    run.engine.set_zoom(tab(1), twice);
+    run.create(1, "measured", Jar::Main)?;
+    run.create(2, "measured", Jar::Main)?;
+
+    let first = width(run, 0, 1)?;
+    let second = width(run, 0, 2)?;
+    about_as_wide("a page zoomed before it existed", first, second)
 }
 
 fn crashed<H: Harness>(run: &mut Run<'_, H>) -> Checked {

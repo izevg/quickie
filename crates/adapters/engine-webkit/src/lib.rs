@@ -35,8 +35,7 @@
 //!
 //! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from the
 //! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it.
-//! Page zoom ([`WebKitEngine::set_zoom`]) and printing ([`WebKitEngine::print`]) are the
-//! view's own.
+//! Page zoom ([`PageZoom`]) and printing ([`WebKitEngine::print`]) are the view's own.
 //!
 //! Web extensions ([`WebKitExtensions`], from [`WebKitEngine::web_extensions`]) run in the
 //! main jar's pages through one `WKWebExtensionController`, on macOS 15.4 and later; never in
@@ -71,9 +70,10 @@ use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
     Answer, Capabilities, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found,
-    Navigation, PageContent, ReplyToken, Ticket,
+    Navigation, PageContent, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use downloads::DownloadCenter;
@@ -381,14 +381,6 @@ impl WebKitEngine {
         self.pages.get(&tab).map(WebPage::zoom)
     }
 
-    /// Zooms a tab's page by `factor` (`WKWebView.pageZoom`): text and layout scale, as
-    /// Safari's zoom does. The page keeps it across navigations until it is set again.
-    pub fn set_zoom(&self, tab: TabId, factor: f64) {
-        if let Some(page) = self.pages.get(&tab) {
-            page.set_zoom(factor);
-        }
-    }
-
     /// Whether Web Inspector may attach to a tab's page: every page, popups included, is
     /// inspectable on macOS 13.3 and later.
     #[must_use]
@@ -648,6 +640,16 @@ impl PageContent for WebKitEngine {
             );
         });
         Ok(ticket)
+    }
+}
+
+/// A level is `WKWebView.pageZoom` at its factor: text and layout scale, as Safari's zoom does,
+/// and the view keeps it across navigations.
+impl PageZoom for WebKitEngine {
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel) {
+        if let Some(page) = self.pages.get(&tab) {
+            page.set_zoom(level.factor());
+        }
     }
 }
 

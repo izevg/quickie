@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use super::{Memory, failed};
@@ -15,7 +16,7 @@ use crate::conformance::{
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, EngineError,
     EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageContent, PageRect,
-    ReplyToken, Ticket,
+    PageZoom, ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -43,6 +44,10 @@ enum Fault {
     KeepsFind,
     /// Reading a page's text ignores the most asked for.
     UncutText,
+    /// Zooming does nothing.
+    IgnoresZoom,
+    /// A zoom set before its tab has a page waits for the page.
+    ZoomsAhead,
 }
 
 /// The reference engine with a fault.
@@ -58,6 +63,21 @@ struct Broken {
     later: Vec<EngineEvent<MemoryPage>>,
     /// Events held back until the engine turns again.
     next_turn: Vec<EngineEvent<MemoryPage>>,
+    /// Zooms set for tabs without a page yet.
+    ahead: Vec<(TabId, ZoomLevel)>,
+}
+
+impl PageZoom for Broken {
+    fn set_zoom(&mut self, tab: TabId, level: ZoomLevel) {
+        match self.fault {
+            Fault::IgnoresZoom => {}
+            Fault::ZoomsAhead => {
+                self.ahead.push((tab, level));
+                self.engine.set_zoom(tab, level);
+            }
+            _ => self.engine.set_zoom(tab, level),
+        }
+    }
 }
 
 impl EnginePort for Broken {
@@ -71,6 +91,9 @@ impl EnginePort for Broken {
         let created = self.engine.create(tab, url, jar);
         if let (Fault::WakesInsideCalls, Some(wake)) = (self.fault, &self.wake) {
             wake();
+        }
+        for (_, level) in self.ahead.iter().filter(|(ahead, _)| *ahead == tab) {
+            self.engine.set_zoom(tab, *level);
         }
         created
     }
@@ -151,6 +174,7 @@ impl Harness for Faulty {
             closed: Vec::new(),
             later: Vec::new(),
             next_turn: Vec::new(),
+            ahead: Vec::new(),
         }
     }
 
@@ -500,6 +524,26 @@ fn a_followed_button_that_names_a_link_fails() {
     })));
 
     assert_eq!(failed(&report), ["following_a_button_clicks_it"]);
+}
+
+#[test]
+fn a_zoom_that_does_nothing_fails() {
+    let report = run(&mut Faulty(Fault::IgnoresZoom));
+
+    assert_eq!(
+        failed(&report),
+        ["a_zoomed_page_lays_out_larger_across_navigations"]
+    );
+}
+
+#[test]
+fn a_zoom_that_waits_for_its_page_fails() {
+    let report = run(&mut Faulty(Fault::ZoomsAhead));
+
+    assert_eq!(
+        failed(&report),
+        ["zooming_a_tab_without_a_page_changes_nothing"]
+    );
 }
 
 #[test]

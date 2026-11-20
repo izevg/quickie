@@ -7,8 +7,9 @@
 //! The checks are grouped by what an engine can do ([`Group`]). An engine that cannot do a group
 //! says so, with why, in [`Harness::unsupported`]; nothing is skipped silently. A group the
 //! harness does not declare runs, and a page feature it needs that the harness does not drive
-//! fails it. A feature that is a port ([`PageContent`]: find, link hints, text) is called on the
-//! engine itself, and an engine that answers it with an error fails the group the same way.
+//! fails it. A feature that is a port ([`PageContent`]: find, link hints, text; [`PageZoom`]) is
+//! called on the engine itself, and an engine that answers it with an error fails the group the
+//! same way.
 //!
 //! [`MemoryEngine`] is the reference: an engine whose pages live in memory and do what the suite's
 //! pages say, in turns of its own loop. It passes every group, which also keeps the suite honest.
@@ -28,7 +29,7 @@ use url::Url;
 
 use crate::{
     Answer, BlockerRules, DownloadToken, EngineError, EngineEvent, EnginePort, PageContent,
-    PageRect, ReplyToken,
+    PageRect, PageZoom, ReplyToken,
 };
 
 pub use memory::{MemoryEngine, MemoryPage};
@@ -75,11 +76,13 @@ pub enum Group {
     Blocker,
     /// A page whose renderer died is reported and reloads.
     Crash,
+    /// A zoomed page lays out larger, and stays zoomed across its navigations.
+    Zoom,
 }
 
 impl Group {
     /// Every group, in the order the suite runs them.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Core,
         Self::Events,
         Self::Opened,
@@ -92,6 +95,7 @@ impl Group {
         Self::Downloads,
         Self::Blocker,
         Self::Crash,
+        Self::Zoom,
     ];
 }
 
@@ -122,7 +126,7 @@ pub trait PageSource {
 /// mapped to the engine's own call. A feature the harness cannot drive answers [`NotDriven`].
 pub trait Harness: PageSource {
     /// The engine under test.
-    type Engine: EnginePort<Page: fmt::Debug> + PageContent;
+    type Engine: EnginePort<Page: fmt::Debug> + PageContent + PageZoom;
 
     /// Why the engine does not do `group`, or `None` when it does and the group runs.
     fn unsupported(&self, group: Group) -> Option<&'static str>;
