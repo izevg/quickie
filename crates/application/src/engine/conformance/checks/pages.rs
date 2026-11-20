@@ -1,13 +1,13 @@
 //! What pages do to the browser: open pages and close themselves (opened), keep cookies in their
-//! jar (jars), and ask the user (dialogs, permissions).
+//! jar (jars), ask the user (dialogs, permissions), and go full screen.
 
 use quickie_domain_browsing::{Focus, Jar, JarId};
 
 use super::{Case, Checked, Run, about, ensure, same, tab};
 use crate::conformance::{Group, Harness, WINDOW};
 use crate::{
-    Answer, Ask, AskKind, Dialog, EngineEvent, EnginePort, Navigation, PageAsks, PageContent,
-    Permission,
+    Answer, Ask, AskKind, Dialog, EngineEvent, EnginePort, Fullscreen, Navigation, PageAsks,
+    PageContent, Permission,
 };
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
@@ -69,6 +69,31 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             Group::Permissions,
             "a_camera_request_waits_for_its_answer",
             camera_waits,
+        ),
+        case(
+            Group::Fullscreen,
+            "a_clicked_page_fills_its_view_in_full_screen",
+            fullscreen_fills,
+        ),
+        case(
+            Group::Fullscreen,
+            "the_browser_takes_a_page_out_of_full_screen",
+            fullscreen_taken_out,
+        ),
+        case(
+            Group::Fullscreen,
+            "a_page_leaves_full_screen_by_itself",
+            fullscreen_left_by_page,
+        ),
+        case(
+            Group::Fullscreen,
+            "a_page_that_navigates_leaves_full_screen",
+            fullscreen_left_by_navigation,
+        ),
+        case(
+            Group::Fullscreen,
+            "a_page_goes_full_screen_only_on_a_click",
+            fullscreen_needs_a_click,
         ),
     ]
 }
@@ -339,4 +364,100 @@ fn camera_waits<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     answer(run, &ask, &Answer::Decline)?;
 
     run.wait_title(1, "camera:denied")
+}
+
+/// Waits from `mark` on until tab 1 reports full screen `state`, and takes the report out.
+fn fullscreen_state<H: Harness>(run: &mut Run<'_, H>, mark: usize, state: Fullscreen) -> Checked {
+    run.take(
+        mark,
+        &format!("{} in full screen {state:?}", tab(1)),
+        |event| {
+            matches!(event, EngineEvent::Fullscreen { tab: about, state: now }
+            if *about == tab(1) && *now == state)
+        },
+    )
+    .map(|_| ())
+}
+
+/// Opens the page at `path` in tab 1, shown in the window, and clicks its button as the user
+/// does: the page asks for full screen and fills its view.
+fn enter_fullscreen<H: Harness>(run: &mut Run<'_, H>, path: &str) -> Checked {
+    run.create(1, path, Jar::Main)?;
+    run.wait_visit(1, path, "Full screen")?;
+    run.engine
+        .show(WINDOW, tab(1))
+        .map_err(|error| format!("showing failed: {error}"))?;
+    let button = run
+        .targets(1)?
+        .first()
+        .ok_or("the page lost its button")?
+        .frame;
+    let mark = run.events.len();
+
+    run.harness
+        .click(&mut run.engine, tab(1), button, false)??;
+
+    fullscreen_state(run, mark, Fullscreen::InWindow)?;
+    run.wait_title(1, "fullscreen:filled")
+}
+
+/// No full-screen report of tab 1 from `mark` on.
+fn no_fullscreen<H: Harness>(run: &Run<'_, H>, mark: usize, what: &str) -> Checked {
+    let reported = run.events.iter().skip(mark).find(
+        |event| matches!(event, EngineEvent::Fullscreen { tab: about, .. } if *about == tab(1)),
+    );
+    ensure(reported.is_none(), || format!("{what}, yet {reported:?}"))
+}
+
+fn fullscreen_fills<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    enter_fullscreen(run, "fullscreen")?;
+
+    let mark = run.events.len();
+    run.idle();
+    no_fullscreen(run, mark, "the page stays full screen")
+}
+
+fn fullscreen_taken_out<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    enter_fullscreen(run, "fullscreen")?;
+    let mark = run.events.len();
+
+    run.engine.exit_fullscreen(tab(1));
+
+    fullscreen_state(run, mark, Fullscreen::Left)?;
+    run.wait_title(1, "fullscreen:none")
+}
+
+fn fullscreen_left_by_page<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let mark = run.events.len();
+
+    enter_fullscreen(run, "fullscreen-brief")?;
+
+    fullscreen_state(run, mark, Fullscreen::Left)?;
+    run.wait_title(1, "fullscreen:none")
+}
+
+fn fullscreen_left_by_navigation<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    enter_fullscreen(run, "fullscreen")?;
+    let mark = run.events.len();
+    let other = run.url("other");
+
+    run.engine
+        .navigate(tab(1), &Navigation::Load(other))
+        .map_err(|error| format!("navigating failed: {error}"))?;
+
+    fullscreen_state(run, mark, Fullscreen::Left)?;
+    run.wait_visit(1, "other", "Other")
+}
+
+fn fullscreen_needs_a_click<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "fullscreen-unasked", Jar::Main)?;
+    run.engine
+        .show(WINDOW, tab(1))
+        .map_err(|error| format!("showing failed: {error}"))?;
+    run.wait_title(1, "fullscreen:denied")?;
+
+    run.engine.exit_fullscreen(tab(1));
+
+    run.idle();
+    no_fullscreen(run, 0, "the page went full screen on its own")
 }

@@ -106,6 +106,14 @@ impl ToastStack {
         self.after(motion::TOAST_HOLD, move |stack| stack.dismiss(id));
     }
 
+    /// Takes every toast away at once, as when a page goes full screen.
+    pub fn clear(&self) {
+        let shown: Vec<u64> = self.toasts.borrow().iter().map(|toast| toast.id).collect();
+        for id in shown {
+            self.remove(id);
+        }
+    }
+
     /// The texts on screen, oldest first, leaving ones excluded.
     #[must_use]
     pub fn texts(&self) -> Vec<String> {

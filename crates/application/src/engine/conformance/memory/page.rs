@@ -30,6 +30,10 @@ pub struct MemoryPage {
     pub(super) zoom: ZoomLevel,
     /// A text field of the page it shows has focus.
     pub(super) field_focused: bool,
+    /// The user just clicked it: its next act may do what only a click allows.
+    pub(super) activated: bool,
+    /// Its text fills its view, full screen.
+    pub(super) fullscreen: bool,
 }
 
 impl MemoryPage {
@@ -46,6 +50,8 @@ impl MemoryPage {
             found: 0,
             zoom: ZoomLevel::DEFAULT,
             field_focused: false,
+            activated: false,
+            fullscreen: false,
         }
     }
 
@@ -77,13 +83,15 @@ impl MemoryPage {
         }
     }
 
-    /// Starts showing `page`, at `url`: its scripts start over, nothing is found, and no field
-    /// has focus.
-    pub(super) fn show(&mut self, url: Url, page: TestPage) {
+    /// Starts showing `page`, at `url`: its scripts start over, nothing is found, no field has
+    /// focus, and nothing is full screen. True when the page it showed was full screen.
+    pub(super) fn show(&mut self, url: Url, page: TestPage) -> bool {
         self.acts = page.on_load.iter().copied().collect();
         self.shown = Some((url, page));
         self.found = 0;
         self.field_focused = false;
+        self.activated = false;
+        std::mem::take(&mut self.fullscreen)
     }
 
     /// Selects a match of `query` in its text as `step` says, wrapping at the ends; matching
