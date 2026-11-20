@@ -1,5 +1,6 @@
 //! The command palette: each edit re-queries the palette use case synchronously (it answers
-//! from memory within a frame), and choosing a row runs its [`Target`].
+//! from memory within a frame), and choosing a row runs its [`Target`]. A `?` row asks the
+//! agent: nothing goes to the endpoint while the user types, only on `⏎`.
 
 use quickie_application::{Navigation, PaletteItem, Sources, Target};
 use url::Url;
@@ -114,6 +115,14 @@ impl Browser {
                 }
             }
             Target::Url(url) | Target::Search(url) => self.go(url, new_tab),
+            Target::Skill(id) => {
+                self.command_palette.hide();
+                self.ask_skill(&id);
+            }
+            Target::Ask(question) => {
+                self.command_palette.hide();
+                self.ask_question(question);
+            }
         }
     }
 

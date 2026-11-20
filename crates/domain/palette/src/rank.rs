@@ -108,7 +108,13 @@ const fn boost(kind: Kind) -> u32 {
     match kind {
         Kind::OpenTab => 40,
         Kind::Bookmark => 20,
-        Kind::History | Kind::Command | Kind::Heading | Kind::Tag | Kind::SearchShortcut => 0,
+        Kind::History
+        | Kind::Command
+        | Kind::Heading
+        | Kind::Tag
+        | Kind::SearchShortcut
+        | Kind::Skill
+        | Kind::Question => 0,
     }
 }
 

@@ -36,7 +36,9 @@ const NOT_FOUND: i32 = -25_300;
 const MAX_DELETE_ROUNDS: usize = 4;
 
 /// The application's `SecretStore` on one Keychain: the user's login Keychain in the product,
-/// or one of its own.
+/// or one of its own. A clone uses the same Keychain, so a worker thread can read the key the
+/// main thread saved.
+#[derive(Clone)]
 pub struct KeychainSecrets {
     /// The Keychain to use; `None` for the user's login Keychain.
     keychain: Option<SecKeychain>,

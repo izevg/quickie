@@ -1,5 +1,5 @@
-//! The palette query: what the user typed, answered from the open tabs, the library, and the
-//! command catalog.
+//! The palette query: what the user typed, answered from the open tabs, the library, the
+//! command catalog, and the agent's skills.
 //!
 //! The answer is computed whole, synchronously, from data already in memory: ranking ten
 //! thousand candidates fits the palette's first-frame budget (`docs/architecture.md`, §5).
@@ -9,15 +9,22 @@ mod offers;
 #[cfg(test)]
 mod tests;
 
+use quickie_domain_agents::{Question, Skill};
 use quickie_domain_browsing::Session;
 use quickie_domain_commands::{Catalog, Keymap};
 use quickie_domain_library::{Bookmarks, History, SearchShortcuts};
-use quickie_domain_palette::{Mode, Query, rank};
+use quickie_domain_palette::{Kind, Mode, Query, rank};
 
 pub use item::{PaletteItem, Target};
 use offers::Offers;
 
 use crate::Clock;
+
+/// The start of the row that asks the agent the typed question.
+const ASK_TITLE: &str = "Ask about this page: ";
+
+/// What the row that asks the agent says it does.
+const ASK_DETAIL: &str = "The agent reads this page and answers; nothing is sent before ⏎";
 
 /// What the palette draws its candidates from, borrowed for one query.
 #[derive(Clone, Copy, Debug)]
@@ -38,19 +45,25 @@ pub struct Sources<'a> {
 #[derive(Debug)]
 pub struct Palette<C> {
     catalog: Catalog,
+    skills: Vec<Skill>,
     clock: C,
 }
 
 impl<C: Clock> Palette<C> {
-    /// A palette over the commands of `catalog`, ranking by frecency at the `clock`'s now.
+    /// A palette over the commands of `catalog` and the built-in skills, ranking by frecency
+    /// at the `clock`'s now.
     #[must_use]
     pub fn new(catalog: Catalog, clock: C) -> Self {
-        Self { catalog, clock }
+        Self {
+            catalog,
+            skills: Skill::builtin(),
+            clock,
+        }
     }
 
     /// The best `limit` answers to the palette input `text`, best first. The first character
-    /// picks the mode (`>` commands, `#` tags, `!` keyword searches, none for tabs, bookmarks,
-    /// and history); only that mode's candidates are gathered.
+    /// picks the mode (`>` commands, `#` tags, `!` keyword searches, `?` the agent, none for
+    /// tabs, bookmarks, and history); only that mode's candidates are gathered.
     #[must_use]
     pub fn query(&self, text: &str, limit: usize, sources: &Sources<'_>) -> Vec<PaletteItem> {
         let query = Query::parse(text);
@@ -62,11 +75,35 @@ impl<C: Clock> Palette<C> {
                 let terms = query.keyword_search().map_or("", |search| search.terms);
                 Offers::shortcuts(sources.shortcuts, terms)
             }
-            // TODO: `?` goes to the agent (phase P4), which answers in its own panel, not in
-            // a list. `@` lists the current page's headings, which only the engine can read.
-            Mode::Agent | Mode::Headings => return Vec::new(),
+            Mode::Agent => return self.agent(&query, limit),
+            // TODO: `@` lists the current page's headings, which only the engine can read.
+            Mode::Headings => return Vec::new(),
         };
-        rank(&query, &offers.candidates, self.clock.now(), limit)
+        self.ranked(&query, &offers, limit)
+    }
+
+    /// `?`: the skills the text matches (all of them for no text), then the row that asks the
+    /// text itself as a question, which nothing ranks above or leaves out.
+    fn agent(&self, query: &Query, limit: usize) -> Vec<PaletteItem> {
+        let question = Question::try_from(query.text()).ok();
+        let room = limit.saturating_sub(usize::from(question.is_some()));
+        let mut items = self.ranked(query, &Offers::skills(&self.skills), room);
+        if let Some(question) = question.filter(|_| limit > 0) {
+            items.push(PaletteItem {
+                title: format!("{ASK_TITLE}{}", question.as_str()),
+                target: Target::Ask(question),
+                kind: Kind::Question,
+                detail: ASK_DETAIL.to_owned(),
+                glyphs: Vec::new(),
+                title_matches: Vec::new(),
+                detail_matches: Vec::new(),
+            });
+        }
+        items
+    }
+
+    fn ranked(&self, query: &Query, offers: &Offers, limit: usize) -> Vec<PaletteItem> {
+        rank(query, &offers.candidates, self.clock.now(), limit)
             .into_iter()
             .filter_map(|ranked| offers.item(ranked))
             .collect()

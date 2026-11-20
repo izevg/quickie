@@ -45,6 +45,14 @@ pub mod overlay {
     pub const POPOVER_WIDTH: CGFloat = 360.0;
     /// E3 sheets: permission requests and page dialogs.
     pub const SHEET_WIDTH: CGFloat = 440.0;
+    /// The agent's answer panel at its widest. It docks at the right and takes at most
+    /// [`ANSWER_PANEL_SHARE`] of the window, so a cited passage stays in view beside it.
+    pub const ANSWER_PANEL_WIDTH: CGFloat = 760.0;
+    pub const ANSWER_PANEL_SHARE: CGFloat = 0.4;
+    /// The answer panel at its tallest.
+    pub const ANSWER_PANEL_MAX_HEIGHT: CGFloat = 640.0;
+    /// The agent settings, a popover with fields.
+    pub const SETTINGS_WIDTH: CGFloat = 440.0;
     /// One tab in the `⌃⇥` switcher strip (titles only, until thumbnails).
     pub const SWITCHER_CELL_WIDTH: CGFloat = 200.0;
     /// Palettes sit this fraction of the window height below its top edge.

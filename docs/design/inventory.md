@@ -98,7 +98,7 @@ the slices inside a group still never use each other.
 | `feedback` | `toast_stack`, `fullscreen_notice` |
 | `sheets` | `permission_sheet`, `dialog_sheet` (a page's `alert`, `confirm`, `prompt`), `agent_approval_sheet` |
 | `popovers` | `shields_popover`, `downloads_popover` |
-| `agent` | `agent_frame` (2 px border + badge), `agent_answer_panel` (streaming, citations, empty state) |
+| `agent` | `agent_frame` (2 px border + badge), `agent_answer_panel` (streaming, citations, empty state), `agent_settings` (endpoint, model, key) |
 
 ## screens and app
 
@@ -114,6 +114,10 @@ the slices inside a group still never use each other.
 - `download_row` and `filter_list_row` live inside their popover slices
   (`widgets/popovers/downloads_popover`, `shields_popover`) until an `entities` crate exists.
   `toggle_row` is in `shared/form`; sizes and ages read through `shared/format`.
+- `agent_badge`, `model_chip` (a line of the panel's header), and `citation_chip` (the panel's
+  source buttons) live in `widgets/agent` for the same reason. The answer panel docks at the
+  right of the window instead of under the palette as in the mockup, so a passage a citation
+  scrolls to stays in view beside the answer.
 
 - The mockups' window chrome, sample pages, and API names (`LiquidGlassWindow`,
   `.windowChromePresentation`, a Metal compositor) are invented by the generator: reference for

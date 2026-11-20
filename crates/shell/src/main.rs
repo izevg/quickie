@@ -1,6 +1,6 @@
-//! Quickie, the composition root: wires the `WebKit` engine, the `SQLite` store, and the clock
-//! to the browsing, library, and palette use cases and the keymap, puts them on screen, and
-//! runs the app.
+//! Quickie, the composition root: wires the `WebKit` engine, the `SQLite` store, the Keychain,
+//! the LLM client, and the clock to the browsing, library, palette, shields, and agent use cases
+//! and the keymap, puts them on screen, and runs the app.
 //!
 //! For now this is the development app on the `engine-webkit` adapter (`docs/architecture.md`
 //! §3, P0). Run it from the repository root with:
@@ -21,8 +21,10 @@
 //! a window, `⌘⇧T` reopens, `⌃⇥` /
 //! `⌃⇧⇥` switch in most-recently-used order, `⌘1` … `⌘9` go to a pinned slot and `⌥⌘1` …
 //! `⌥⌘9` pin there, `⌘D` bookmarks, `⇧⌘C` / `⌥⌘C` copy the URL / a Markdown link, `⌘J`
-//! shows the downloads (saved to `~/Downloads`), `⌥⌘S` the site's shields. `⌘Q` quits.
-//! Launching opens no network connection; the start page is served from memory.
+//! shows the downloads (saved to `~/Downloads`), `⌥⌘S` the site's shields, `?` in the palette
+//! asks the agent about the page and `⌘.` stops it. `⌘Q` quits.
+//! Launching opens no network connection; the start page is served from memory, and the agent
+//! contacts its endpoint only when asked.
 
 #![expect(
     unsafe_code,
@@ -49,11 +51,12 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter};
-use quickie_application::{Browsing, Clock, Library, LoadedKeymap, Shields, load_keymap};
+use quickie_application::{Agent, Browsing, Clock, Library, LoadedKeymap, Shields, load_keymap};
 use quickie_domain_browsing::Timestamp;
 use quickie_domain_commands::{Catalog, Keymap, Platform};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use quickie_store::{PendingWrites, WriteBehindStore};
+use quickie_system::{KeychainSecrets, SystemEntropy};
 use url::Url;
 
 use browser::{Browser, Services, install_shortcuts, launch_urls};
@@ -73,6 +76,10 @@ pub type Guard = Shields<WriteBehindStore, SystemClock, WebKitContentBlocker>;
 
 /// The desktop whose key conventions the keymap follows, chosen here once for the whole app.
 pub const PLATFORM: Platform = Platform::MacOs;
+
+/// The agent use cases as the app composes them: the endpoint in the store, its key in the
+/// login Keychain, each request's fence marker from the system's generator.
+pub type Agents = Agent<WriteBehindStore, KeychainSecrets, SystemEntropy>;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
@@ -164,11 +171,19 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     browsing
         .engine_mut()
         .set_download_directory(downloads_folder.clone());
-    let writes = vec![pending, library_pending, shields_pending];
+    // The agent too. It contacts its endpoint only when asked (docs/privacy.md).
+    let agent_store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let agent_pending = agent_store.pending();
+    let secrets = KeychainSecrets::login();
+    let agent = Agent::start(agent_store, secrets.clone(), SystemEntropy)
+        .map_err(|error| error.to_string())?;
+    let writes = vec![pending, library_pending, shields_pending, agent_pending];
     let services = Services {
         browsing,
         library,
         shields,
+        agent,
+        secrets,
         palette: Palette::new(catalog.clone(), SystemClock),
         catalog,
         keymap,

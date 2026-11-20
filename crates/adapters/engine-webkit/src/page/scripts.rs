@@ -5,7 +5,8 @@
 //! nothing to the page's own world. The scripts only read the DOM and listen; the one that
 //! follows a link hint focuses or clicks the element the user picked.
 //!
-//! Here: the world and the focus reports. [`hints`]: the link-hint scripts and their answers.
+//! Here: the world, the focus reports, and the page text the agent reads. [`hints`]: the
+//! link-hint scripts and their answers.
 
 pub(crate) mod hints;
 
@@ -26,6 +27,16 @@ pub(crate) fn world(mtm: MainThreadMarker) -> Retained<WKContentWorld> {
     // SAFETY: a named world is created on first use and shared while it lives.
     unsafe { WKContentWorld::worldWithName(&NSString::from_str("quickie"), mtm) }
 }
+
+/// Reads the main frame's rendered text, as the user sees it (`innerText`: no hidden elements,
+/// no markup, no script or style text), for the agent to answer about. Capped at 200,000
+/// characters; the agent's token budget cuts it much shorter anyway. Runs in Quickie's world,
+/// so the page cannot replace `innerText` or see that it was read.
+pub(crate) const TEXT_SCRIPT: &str = r"(() => {
+  const root = document.body || document.documentElement;
+  const text = root ? root.innerText : '';
+  return String(text || '').slice(0, 200000);
+})()";
 
 /// The name the focus script posts under.
 pub(crate) const FOCUS_HANDLER: &str = "quickieFocus";

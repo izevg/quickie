@@ -38,10 +38,10 @@ fn one_of_each_kind() -> Vec<Candidate<u32>> {
 }
 
 #[test]
-fn an_agent_question_ranks_nothing() {
+fn an_agent_query_ranks_skills_only() {
     let ranked = rank(&Query::parse("?same"), &one_of_each_kind(), NOW, 10);
 
-    assert_eq!(ranked, []);
+    assert_eq!(keys(&ranked), [8]);
 }
 
 #[test]
