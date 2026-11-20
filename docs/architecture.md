@@ -5,8 +5,9 @@
 >
 > **Engine decision (2026-11-20): our own WebKit, not Chromium.** See "Decision: our own WebKit" in
 > §4.1. Sections that still describe the Chromium build (§1 rows Engine/Build/boundary, §3, §4.3,
-> §4.4, §6 `engine/`, §7) describe the parked Chromium path; they are rewritten as the WebKit fork
-> lands, and the Chromium scaffold stays in the tree as reference until then.
+> §4.4, §7) describe the parked Chromium path; they are rewritten as the WebKit fork lands (§6
+> already shows `engine/webkit/`), and the Chromium scaffold stays under `engine/chromium/` as
+> reference until then.
 
 ## 0. Principles
 
@@ -440,13 +441,12 @@ quickie/
 │  ├─ ui/           shared  entities  features  widgets  screens  app
 │  └─ shell/        composition root; also the dev binary on engine-webkit
 ├─ engine/
-│  ├─ README.md         fetch, apply, build; what is verified and what is not (see below)
-│  ├─ chromium.pin      Chromium version (Extended Stable) + ungoogled-chromium revision
-│  ├─ gclient.template
-│  ├─ patches/          our patches only, grouped by meaning (series + one directory per area)
-│  ├─ overrides/        Chromium file overrides instead of patches (BrowserWindow factory, ...)
-│  ├─ quickie/          //quickie: bridge, browser_window, keyboard, swipe, shields, net_bridge, privacy, agent_bridge
-│  └─ scripts/          sync, apply, rebase, build, sign, notarize (+ gn args)
+│  ├─ README.md         the engine: how the WebKit fork is pinned, built on CI, and consumed
+│  ├─ webkit/           active: our WebKit fork
+│  │  ├─ webkit.pin     fork URL, branch, commit, date checked
+│  │  └─ scripts/       sync (shallow, blobless, sparse), build (build-webkit), package
+│  └─ chromium/         parked reference: chromium.pin, gclient.template, patches/, overrides/,
+│                       quickie/ (//quickie), scripts/; its own README.md
 ├─ tools/
 │  ├─ xtask/          structure, layer and commit-message checks; the development app bundle
 │  ├─ quickie-mcp/    stdio-to-socket bridge for external agents
@@ -455,11 +455,11 @@ quickie/
 └─ services/          optional, self-hosted: update-feed, filter-mirror, component-proxy
 ```
 
-Not tracked, under `.build/`: the Chromium checkout, the fetched ungoogled-chromium patch series,
-vendored crates, build output.
+Not tracked, under `.build/`: the WebKit checkout and its build output (on CI only), the parked
+Chromium checkout and ungoogled-chromium series, vendored crates.
 
-How to fetch, patch and build the engine, and what the P1 scaffold has not yet confirmed on a real
-build: [engine/README.md](../engine/README.md).
+How the WebKit fork is pinned, built and handed to `engine-webkit`:
+[engine/README.md](../engine/README.md). The CI workflow is `.github/workflows/webkit.yml`.
 
 ## 7. Infrastructure
 
