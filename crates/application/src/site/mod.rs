@@ -5,5 +5,7 @@
 mod prompts;
 mod zoom;
 
-pub use prompts::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts};
+pub use prompts::{
+    DialogAnswer, DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Waiting,
+};
 pub use zoom::Zoom;

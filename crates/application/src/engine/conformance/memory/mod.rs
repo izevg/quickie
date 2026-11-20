@@ -20,7 +20,8 @@ use super::{Act, Control, Resource};
 use crate::{
     Answer, Ask, AskKind, BlockerError, BlockerRules, ContentBlockerPort, Dialog, DownloadEvent,
     DownloadToken, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found,
-    LinkTarget, Navigation, PageContent, PageRect, PageZoom, Permission, ReplyToken, Ticket,
+    LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageZoom, Permission, ReplyToken,
+    Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -81,30 +82,6 @@ impl MemoryEngine {
     /// Moves the events that wait to the end of `into`, oldest first.
     pub fn drain(&mut self, into: &mut Vec<EngineEvent<MemoryPage>>) {
         self.events.drain_into(into);
-    }
-
-    /// Answers an ask; false when its page no longer waits.
-    pub fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
-        let Some((&tab, page)) = self
-            .pages
-            .iter_mut()
-            .find(|(_, page)| page.asked.is_some_and(|(asked, _)| asked == token))
-        else {
-            return false;
-        };
-        let accepted = matches!(answer, Answer::Accept(_));
-        let title = match page.asked.take().map(|(_, act)| act) {
-            Some(Act::Confirm(_)) => format!("confirm:{accepted}"),
-            Some(Act::Prompt(_, default)) => match answer {
-                Answer::Accept(text) => format!("prompt:{}", text.as_deref().unwrap_or(default)),
-                Answer::Decline => "prompt:null".to_owned(),
-            },
-            Some(Act::Camera) if accepted => "camera:allowed".to_owned(),
-            Some(Act::Camera) => "camera:denied".to_owned(),
-            _ => return true,
-        };
-        self.events.titled(tab, title);
-        true
     }
 
     /// The user clicks the link or button of a tab's page whose frame, as
@@ -500,6 +477,33 @@ impl PageContent for MemoryEngine {
             followed,
         });
         Ok(ticket)
+    }
+}
+
+/// The page that waits hears the answer and goes on: a confirm, a prompt, or a camera request
+/// puts it in its title.
+impl PageAsks for MemoryEngine {
+    fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
+        let Some((&tab, page)) = self
+            .pages
+            .iter_mut()
+            .find(|(_, page)| page.asked.is_some_and(|(asked, _)| asked == token))
+        else {
+            return false;
+        };
+        let accepted = matches!(answer, Answer::Accept(_));
+        let title = match page.asked.take().map(|(_, act)| act) {
+            Some(Act::Confirm(_)) => format!("confirm:{accepted}"),
+            Some(Act::Prompt(_, default)) => match answer {
+                Answer::Accept(text) => format!("prompt:{}", text.as_deref().unwrap_or(default)),
+                Answer::Decline => "prompt:null".to_owned(),
+            },
+            Some(Act::Camera) if accepted => "camera:allowed".to_owned(),
+            Some(Act::Camera) => "camera:denied".to_owned(),
+            _ => return true,
+        };
+        self.events.titled(tab, title);
+        true
     }
 }
 

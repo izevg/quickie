@@ -108,3 +108,12 @@ pub trait PageZoom {
     /// alone.
     fn set_zoom(&mut self, tab: TabId, level: ZoomLevel);
 }
+
+/// Answers to what pages asked ([`EngineEvent::Asked`]): a dialog's OK or Cancel and its text,
+/// a device request's allow or deny. Which answer a page gets, and whether the user is asked at
+/// all, is the [`Prompts`](crate::Prompts) use case's choice.
+pub trait PageAsks {
+    /// Hands `answer` to the page that waits on `token`, which goes on at once; false when no
+    /// page waits on it any more (it was answered, or its tab closed).
+    fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool;
+}

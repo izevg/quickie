@@ -28,9 +28,7 @@ use objc2_foundation::{NSDate, NSObjectProtocol, NSPoint, NSRect, NSRunLoop, NSS
 use quickie_application::conformance::{
     self, Driven, Event, Group, Harness, PageSource, Resource, SITE, WINDOW,
 };
-use quickie_application::{
-    Answer, BlockerRules, ContentBlockerPort, DownloadToken, EngineError, PageRect, ReplyToken,
-};
+use quickie_application::{BlockerRules, ContentBlockerPort, DownloadToken, EngineError, PageRect};
 use quickie_domain_browsing::TabId;
 use quickie_engine_webkit::{BlockerStatus, WebKitContentBlocker, WebKitEngine};
 use tempfile::TempDir;
@@ -189,15 +187,6 @@ impl Harness for WebKit {
 
     fn drain(engine: &mut WebKitEngine, into: &mut Vec<Event<Self>>) {
         engine.drain(into);
-    }
-
-    fn answer(
-        &mut self,
-        engine: &mut WebKitEngine,
-        token: ReplyToken,
-        answer: &Answer,
-    ) -> Driven<bool> {
-        Ok(engine.answer(token, answer))
     }
 
     fn click(

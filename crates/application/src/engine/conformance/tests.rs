@@ -9,7 +9,7 @@ use url::Url;
 use super::{Driven, Event, Group, Harness, MemoryEngine, Outcome, PageSource, Report, run};
 use crate::{
     Answer, AskKind, BlockerRules, ContentBlockerPort, DownloadToken, EngineError, EngineEvent,
-    EnginePort, PageRect, Permission, ReplyToken,
+    EnginePort, PageAsks, PageRect, Permission,
 };
 
 /// The reference engine, driven as an adapter would drive its own.
@@ -56,15 +56,6 @@ impl Harness for Memory {
 
     fn drain(engine: &mut MemoryEngine, into: &mut Vec<Event<Self>>) {
         engine.drain(into);
-    }
-
-    fn answer(
-        &mut self,
-        engine: &mut MemoryEngine,
-        token: ReplyToken,
-        answer: &Answer,
-    ) -> Driven<bool> {
-        Ok(engine.answer(token, answer))
     }
 
     fn click(

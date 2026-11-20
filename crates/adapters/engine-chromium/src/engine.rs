@@ -11,7 +11,8 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{
-    EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageContent, PageZoom, Ticket,
+    Answer, EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageAsks, PageContent,
+    PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -277,6 +278,13 @@ impl PageContent for ChromiumEngine {
 
     fn follow_link(&mut self, tab: TabId, _: usize, _: bool) -> Result<Ticket, EngineError> {
         self.unsupported(tab, "follow a link target in")
+    }
+}
+
+/// The bridge reports no asks yet, so no page ever waits for an answer.
+impl PageAsks for ChromiumEngine {
+    fn answer(&mut self, _token: ReplyToken, _answer: &Answer) -> bool {
+        false
     }
 }
 

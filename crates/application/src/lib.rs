@@ -26,8 +26,8 @@ pub use engine::conformance;
 pub use engine::{
     Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, EngineEvent,
     EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
-    ExtensionPackages, FindStep, Followed, Found, LinkTarget, PackageSource, PageContent, PageRect,
-    PageZoom, ReplyToken, Ticket, Unpacked, WindowTabs,
+    ExtensionPackages, FindStep, Followed, Found, LinkTarget, PackageSource, PageAsks, PageContent,
+    PageRect, PageZoom, ReplyToken, Ticket, Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,
@@ -52,4 +52,6 @@ pub use settings::keymap::{
     keymap_lines, load_keymap, rebind, reset_binding,
 };
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};
-pub use site::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Zoom};
+pub use site::{
+    DialogAnswer, DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Waiting, Zoom,
+};

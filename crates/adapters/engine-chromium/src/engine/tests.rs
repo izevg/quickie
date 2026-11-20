@@ -8,9 +8,11 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{
-    EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageContent,
+    Answer, EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageAsks, PageContent,
+    PageZoom, ReplyToken,
 };
 use quickie_domain_browsing::{Focus, Jar, JarId, Profile, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use super::{ChromiumEngine, PageHandle};
@@ -701,6 +703,18 @@ fn page_content_of_a_tab_without_a_page_fails_as_such() {
     let read = engine.read_text(tab(7), 100);
 
     assert_eq!(read, Err(EngineError("no page for main tab#7".to_owned())));
+}
+
+#[test]
+fn no_page_waits_for_an_answer_and_zoom_leaves_pages_alone() {
+    let (mut engine, fake) = with_pages(&[7]);
+
+    let waited = engine.answer(ReplyToken::new(1), &Answer::Accept(None));
+    engine.set_zoom(tab(7), ZoomLevel::MAX);
+
+    assert!(!waited);
+    assert_eq!(fake.calls(), []);
+    assert_eq!(drained(&mut engine), []);
 }
 
 // ---- events --------------------------------------------------------------------------------

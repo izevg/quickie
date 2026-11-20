@@ -70,7 +70,7 @@ use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
     Answer, Capabilities, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found,
-    Navigation, PageContent, PageZoom, ReplyToken, Ticket,
+    Navigation, PageAsks, PageContent, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -424,11 +424,6 @@ impl WebKitEngine {
         Ok(())
     }
 
-    /// Answers an ask ([`EngineEvent::Asked`]); false when its page no longer waits.
-    pub fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
-        self.inbox.answer(token, answer)
-    }
-
     fn store(&mut self, jar: Jar) -> Retained<WKWebsiteDataStore> {
         let mtm = self.mtm;
         match jar {
@@ -640,6 +635,14 @@ impl PageContent for WebKitEngine {
             );
         });
         Ok(ticket)
+    }
+}
+
+/// The inbox holds what each waiting page's UI delegate handed `WebKit` to call back with; an
+/// answer calls it, and the page goes on.
+impl PageAsks for WebKitEngine {
+    fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
+        self.inbox.answer(token, answer)
     }
 }
 

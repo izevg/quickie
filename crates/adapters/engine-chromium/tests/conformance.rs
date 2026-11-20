@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use quickie_application::conformance::{
     self, Driven, Event, Group, Harness, NotDriven, Outcome, PageSource,
 };
-use quickie_application::{Answer, BlockerRules, DownloadToken, EngineError, PageRect, ReplyToken};
+use quickie_application::{BlockerRules, DownloadToken, EngineError, PageRect};
 use quickie_domain_browsing::TabId;
 use quickie_engine_chromium::ChromiumEngine;
 use url::Url;
@@ -72,10 +72,6 @@ impl Harness for Chromium {
     }
 
     // The bridge has none of the page features yet; its page content port fails each request.
-
-    fn answer(&mut self, _: &mut ChromiumEngine, _: ReplyToken, _: &Answer) -> Driven<bool> {
-        Err(NotDriven("answer"))
-    }
 
     fn click(
         &mut self,

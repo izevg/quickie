@@ -15,8 +15,8 @@ use crate::conformance::{
 };
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, EngineError,
-    EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageContent, PageRect,
-    PageZoom, ReplyToken, Ticket,
+    EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageAsks, PageContent,
+    PageRect, PageZoom, ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -38,8 +38,10 @@ enum Fault {
     LateEnd,
     /// A cancelled download still reports progress.
     ReportsCancelled,
-    /// The harness cannot answer asks.
-    CannotAnswer,
+    /// The harness cannot click pages.
+    CannotClick,
+    /// Every answer is taken, whether a page waits for it or not.
+    TakesEveryAnswer,
     /// Clearing a find does nothing.
     KeepsFind,
     /// Reading a page's text ignores the most asked for.
@@ -65,6 +67,13 @@ struct Broken {
     next_turn: Vec<EngineEvent<MemoryPage>>,
     /// Zooms set for tabs without a page yet.
     ahead: Vec<(TabId, ZoomLevel)>,
+}
+
+impl PageAsks for Broken {
+    fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
+        let waited = self.engine.answer(token, answer);
+        waited || matches!(self.fault, Fault::TakesEveryAnswer)
+    }
 }
 
 impl PageZoom for Broken {
@@ -224,13 +233,6 @@ impl Harness for Faulty {
         }
     }
 
-    fn answer(&mut self, engine: &mut Broken, token: ReplyToken, answer: &Answer) -> Driven<bool> {
-        match self.0 {
-            Fault::CannotAnswer => Err(NotDriven("answer")),
-            _ => Memory.answer(&mut engine.engine, token, answer),
-        }
-    }
-
     fn click(
         &mut self,
         engine: &mut Broken,
@@ -238,7 +240,10 @@ impl Harness for Faulty {
         at: PageRect,
         command: bool,
     ) -> Driven<Result<(), String>> {
-        Memory.click(&mut engine.engine, tab, at, command)
+        match self.0 {
+            Fault::CannotClick => Err(NotDriven("click")),
+            _ => Memory.click(&mut engine.engine, tab, at, command),
+        }
     }
 
     fn downloads_into(&mut self, engine: &mut Broken) -> Driven<Result<PathBuf, String>> {
@@ -548,28 +553,32 @@ fn a_zoom_that_waits_for_its_page_fails() {
 
 #[test]
 fn a_feature_the_harness_cannot_drive_fails_its_group_and_says_so() {
-    let report = run(&mut Faulty(Fault::CannotAnswer));
+    let report = run(&mut Faulty(Fault::CannotClick));
 
-    let alert = report
+    let clicked = report
         .verdicts()
         .iter()
-        .find(|verdict| verdict.case == "an_alert_waits_for_its_answer")
+        .find(|verdict| verdict.case == "a_command_click_opens_in_the_background")
         .map(|verdict| verdict.outcome.clone());
     assert_eq!(
-        alert,
+        clicked,
         Some(Outcome::Failed(
-            "the harness cannot drive `answer`: drive it or declare the group unsupported"
+            "the harness cannot drive `click`: drive it or declare the group unsupported"
                 .to_owned()
         ))
     );
+    assert_eq!(failed(&report), ["a_command_click_opens_in_the_background"]);
+}
+
+#[test]
+fn an_answer_nobody_waits_for_that_is_taken_fails() {
+    let report = run(&mut Faulty(Fault::TakesEveryAnswer));
+
     assert_eq!(
         failed(&report),
         [
             "an_alert_waits_for_its_answer",
-            "a_confirm_hears_ok_or_cancel",
-            "a_prompt_hears_the_text",
-            "closing_a_tab_declines_what_its_page_asked",
-            "a_camera_request_waits_for_its_answer"
+            "closing_a_tab_declines_what_its_page_asked"
         ]
     );
 }
