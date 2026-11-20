@@ -1,17 +1,19 @@
-//! The browser window: content first. The page fills the window edge to edge under a
-//! transparent, hidden titlebar with the traffic lights hidden; overlays float above it.
+//! The browser window: content first. The page fills the window edge to edge, the top where a
+//! titlebar would be included: the titlebar is transparent and untitled, and the system's
+//! close, minimize, and full-screen buttons float over the page's top-left corner, as in
+//! Safari's compact layout. Overlays float above the page.
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSBackingStoreType, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
-    NSWindowTitleVisibility,
+    NSBackingStoreType, NSView, NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 pub const APP_NAME: &str = "Quickie";
 
-/// A new, hidden browser window whose content view hosts the pages and overlays.
+/// A new, hidden browser window whose content view, the whole window, hosts the pages and
+/// overlays.
 pub fn browser_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     let style = NSWindowStyleMask::Titled
         | NSWindowStyleMask::Closable
@@ -36,20 +38,11 @@ pub fn browser_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
     window.setTitlebarAppearsTransparent(true);
     window.setMinSize(NSSize::new(480.0, 320.0));
-    for button in [
-        NSWindowButton::CloseButton,
-        NSWindowButton::MiniaturizeButton,
-        NSWindowButton::ZoomButton,
-    ] {
-        if let Some(button) = window.standardWindowButton(button) {
-            button.setHidden(true);
-        }
-    }
     window
 }
 
-/// Names the window after its page, for the Window menu and Mission Control; the title bar
-/// itself stays hidden.
+/// Names the window after its page, for the Window menu and Mission Control; the title itself
+/// is never drawn.
 pub fn set_title(window: &NSWindow, title: &str) {
     let title = if title.is_empty() { APP_NAME } else { title };
     window.setTitle(&NSString::from_str(title));

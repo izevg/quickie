@@ -28,6 +28,7 @@ pub use agent::agent_settings::{
 pub use agent::answer_panel::wording::{self as agent_wording, Activity};
 pub use agent::answer_panel::{AgentAnswerPanel, AnswerHeader, PanelRequest};
 pub use feedback::fullscreen_notice::FullscreenNotice;
+pub use feedback::key_log::KeyLogPanel;
 pub use feedback::toast_stack::ToastStack;
 pub use hints::link_hints_layer::{HintKey, LinkHintsLayer};
 pub use page::find_bar::{FindBar, FindRequest};

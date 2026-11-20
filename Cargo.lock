@@ -693,6 +693,7 @@ dependencies = [
  "quickie-llm",
  "quickie-store",
  "quickie-system",
+ "quickie-ui-screens",
  "quickie-ui-shared",
  "quickie-ui-widgets",
  "url",
@@ -839,6 +840,7 @@ dependencies = [
  "quickie-domain-settings",
  "quickie-domain-shields",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "url",
 ]
@@ -851,6 +853,18 @@ dependencies = [
  "quickie-domain-agents",
  "security-framework",
  "tempfile",
+]
+
+[[package]]
+name = "quickie-ui-screens"
+version = "0.0.0"
+dependencies = [
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "quickie-domain-shields",
+ "quickie-ui-shared",
 ]
 
 [[package]]

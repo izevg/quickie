@@ -1,5 +1,6 @@
 //! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
-//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`] and [`ZoomRepo`].
+//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`] and [`ZoomRepo`]. The user's
+//! own `keybindings.json` is a [`KeymapRepo`] too: [`KeybindingsFile`].
 //!
 //! A save replaces one aggregate inside one transaction, so a crash mid-save leaves the previous
 //! version intact. Even with write-ahead logging a save takes milliseconds, more than a frame,
@@ -16,6 +17,7 @@ mod shields;
 mod tests;
 mod write_behind;
 
+pub use settings::keymap::KeybindingsFile;
 pub use write_behind::{PendingWrites, SETTLE, WriteBehindStore};
 
 use std::path::Path;

@@ -57,12 +57,13 @@ impl Browser {
     fn answer(&self, text: &str) -> Vec<PaletteItem> {
         let browsing = self.browsing.borrow();
         let library = self.library.borrow();
+        let keymap = self.keymap.borrow();
         let sources = Sources {
             session: browsing.session(),
             history: library.history(),
             bookmarks: library.bookmarks(),
             shortcuts: library.shortcuts(),
-            keymap: &self.keymap,
+            keymap: &keymap,
         };
         self.palette.query(text, ANSWERS, &sources)
     }

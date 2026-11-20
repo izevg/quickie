@@ -1,12 +1,13 @@
-//! The agent settings: an E2 popover at the top right with the endpoint's address, its model
-//! (typed, or picked from the list the endpoint gives), and its API key.
+//! The agent settings: the endpoint's address, its model (typed, or picked from the list the
+//! endpoint gives), and its API key, as a plain form the Settings window shows in its Agent
+//! pane. `⏎` saves.
 //!
-//! The key field is write-only: it is empty whenever the popover opens, its placeholder says
+//! The key field is write-only: it is empty whenever the form loads, its placeholder says
 //! whether the Keychain holds a key, and the browser clears it as soon as the key is saved. The
-//! popover contacts nothing: listing models and detecting a local LLM are buttons, and the
+//! form contacts nothing: listing models and detecting a local LLM are buttons, and the
 //! browser does them only on the click. What went wrong is said in plain words, as text.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use objc2::rc::Retained;
@@ -14,13 +15,14 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSBezelStyle, NSButton, NSColor, NSComboBox, NSLineBreakMode, NSSecureTextField, NSTextField,
-    NSTextFieldBezelStyle, NSTextInputClient, NSTextView, NSView, NSWindow,
+    NSTextFieldBezelStyle, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
-use quickie_ui_shared::tokens::{TextRole, color, overlay, space};
-use quickie_ui_shared::{Elevation, GlassSurface, Scrim, Trigger, hint_bar, motion};
+use quickie_ui_shared::tokens::{TextRole, color, space};
 
+/// The form's width: the Settings window's pane less its margins.
+pub const WIDTH: CGFloat = 492.0;
 /// A field's height.
 const FIELD_HEIGHT: CGFloat = 24.0;
 /// The width of the labels before the fields.
@@ -170,9 +172,7 @@ impl Fields {
 }
 
 pub struct AgentSettings {
-    scrim: Option<Scrim>,
-    surface: GlassSurface,
-    title: Retained<NSTextField>,
+    view: Retained<NSView>,
     intro: Retained<NSTextField>,
     labels: [Retained<NSTextField>; 3],
     fields: Rc<Fields>,
@@ -181,9 +181,7 @@ pub struct AgentSettings {
     remove_key: Retained<NSButton>,
     save: Retained<NSButton>,
     status: Retained<NSTextField>,
-    hints: Retained<NSTextField>,
     target: Retained<SettingsTarget>,
-    open: Cell<bool>,
 }
 
 impl AgentSettings {
@@ -212,14 +210,12 @@ impl AgentSettings {
             (&fields.key, &fields.base),
         ];
         for (field, next) in order {
-            // SAFETY: the key view loop runs through the popover's own fields, which the
-            // popover keeps alive as long as the loop.
+            // SAFETY: the key view loop runs through the form's own fields, which the form
+            // keeps alive as long as the loop.
             unsafe { field.setNextKeyView(Some(next)) };
         }
         let reader = Rc::clone(&fields);
         *target.ivars().form.borrow_mut() = Some(Rc::new(move || reader.form()));
-        let title = label(TextRole::Title, &color::label(), mtm);
-        set(&title, "Agent");
         let intro = label(TextRole::RowDetail, &color::secondary_label(), mtm);
         intro.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
         intro.setMaximumNumberOfLines(0);
@@ -237,11 +233,10 @@ impl AgentSettings {
         status.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
         status.setMaximumNumberOfLines(3);
         let save = button("Save", sel!(save:), target_object, mtm);
-        save.setKeyEquivalent(&NSString::new());
+        // `⏎` in any field saves: Save is the window's default button.
+        save.setKeyEquivalent(&NSString::from_str("\r"));
         let settings = Self {
-            scrim: Scrim::new(Elevation::E2, mtm),
-            surface: GlassSurface::new(Elevation::E2, mtm),
-            title,
+            view: NSView::new(mtm),
             intro,
             labels,
             fields,
@@ -250,14 +245,11 @@ impl AgentSettings {
             remove_key: button("Remove Key", sel!(removeKey:), target_object, mtm),
             save,
             status,
-            hints: hint_bar(&[("⏎", "save"), ("⇥", "next field"), ("⎋", "close")], mtm),
             target,
-            open: Cell::new(false),
         };
-        let content = settings.surface.content_view();
+        let content = &settings.view;
         for view in [
-            &*settings.title as &NSView,
-            &settings.intro,
+            &*settings.intro as &NSView,
             &settings.fields.base,
             &settings.fields.model,
             &settings.fields.key,
@@ -266,13 +258,13 @@ impl AgentSettings {
             &settings.remove_key,
             &settings.save,
             &settings.status,
-            &settings.hints,
         ] {
             content.addSubview(view);
         }
         for view in &settings.labels {
             content.addSubview(view);
         }
+        settings.lay_out(WIDTH);
         settings
     }
 
@@ -281,15 +273,10 @@ impl AgentSettings {
         *self.target.ivars().handler.borrow_mut() = Some(Rc::new(handler));
     }
 
-    #[must_use]
-    pub fn is_open(&self) -> bool {
-        self.open.get()
-    }
-
-    /// The popover's surface, for a render.
+    /// The form, [`WIDTH`] wide, to put in the Settings window.
     #[must_use]
     pub fn view(&self) -> &NSView {
-        self.surface.view()
+        &self.view
     }
 
     /// What the fields hold now.
@@ -298,56 +285,17 @@ impl AgentSettings {
         self.fields.form()
     }
 
-    /// True while one of the fields has the keyboard.
-    #[must_use]
-    pub fn has_focus(&self) -> bool {
-        self.is_open() && self.editor().is_some()
-    }
-
-    /// True while an input method composes in a field: ⏎ then commits the composition.
-    #[must_use]
-    pub fn is_composing(&self) -> bool {
-        self.editor()
-            .and_then(|editor| editor.downcast::<NSTextView>().ok())
-            .is_some_and(|editor| editor.hasMarkedText())
-    }
-
-    /// Opens over `host` with the saved settings, the address field taking the keyboard.
-    pub fn show(
-        &self,
-        host: &NSView,
-        window: &NSWindow,
-        summary: &SettingsSummary,
-        trigger: Trigger,
-    ) {
+    /// Fills the form with the saved settings; the key field stays empty.
+    pub fn load(&self, summary: &SettingsSummary) {
         set(&self.fields.base, &summary.base);
         set(&self.fields.model, &summary.model);
         self.key_saved(summary.has_key);
         self.set_status("", Tone::Neutral);
-        self.lay_out(host);
-        if !self.is_open() {
-            if let Some(scrim) = &self.scrim {
-                scrim.view().setFrame(host.bounds());
-                host.addSubview(scrim.view());
-            }
-            host.addSubview(self.surface.view());
-            motion::show(self.surface.view(), motion::OVERLAY_ENTER, trigger);
-            self.open.set(true);
-        }
-        window.makeFirstResponder(Some(&self.fields.base));
     }
 
-    pub fn hide(&self) {
-        if !self.is_open() {
-            return;
-        }
+    /// The form went away: a key typed and not saved is forgotten.
+    pub fn forget_key(&self) {
         self.fields.key.setStringValue(&NSString::new());
-        motion::hide(self.surface.view(), motion::FADE_FAST, Trigger::Keyboard);
-        self.surface.view().removeFromSuperview();
-        if let Some(scrim) = &self.scrim {
-            scrim.view().removeFromSuperview();
-        }
-        self.open.set(false);
     }
 
     /// The key field empties, and says whether the Keychain holds a key.
@@ -402,67 +350,31 @@ impl AgentSettings {
         }
     }
 
-    fn editor(&self) -> Option<Retained<objc2_app_kit::NSText>> {
-        [
-            &*self.fields.base as &NSTextField,
-            &self.fields.model,
-            &self.fields.key,
-        ]
-        .into_iter()
-        .find_map(|field| field.currentEditor())
-    }
-
-    /// Sizes the popover and places everything, top down.
-    fn lay_out(&self, host: &NSView) {
-        let padding = space::PALETTE_PADDING;
-        let width = overlay::SETTINGS_WIDTH.min(host.bounds().size.width - space::XL * 2.0);
-        let inner = width - padding * 2.0;
-        let intro_height = wrapped_height(&self.intro, inner);
+    /// Sizes the form to `width` and places everything, top down.
+    fn lay_out(&self, width: CGFloat) {
+        let intro_height = wrapped_height(&self.intro, width);
         let status_height = 3.0 * TextRole::RowDetail.point_size().ceil() + space::SM;
-        let title_height = self.title.frame().size.height;
         let button_height = self.save.frame().size.height;
-        let hint_height = self.hints.frame().size.height;
-        let height = padding
-            + title_height
-            + space::XS
-            + intro_height
+        let height = intro_height
             + space::LG
             + (FIELD_HEIGHT + space::SM) * 3.0
             + space::SM
             + button_height
             + space::MD
-            + status_height
-            + space::SM
-            + hint_height
-            + padding;
-        self.surface
-            .place_top_right(host, NSSize::new(width, height));
+            + status_height;
+        self.view.setFrameSize(NSSize::new(width, height));
 
-        let mut top = height - padding;
-        frame(
-            &self.title,
-            padding,
-            top - title_height,
-            inner,
-            title_height,
-        );
-        top -= title_height + space::XS;
-        frame(
-            &self.intro,
-            padding,
-            top - intro_height,
-            inner,
-            intro_height,
-        );
+        let mut top = height;
+        frame(&self.intro, 0.0, top - intro_height, width, intro_height);
         top -= intro_height + space::LG;
-        let field_left = padding + LABEL_WIDTH + space::SM;
-        let field_width = inner - LABEL_WIDTH - space::SM;
+        let field_left = LABEL_WIDTH + space::SM;
+        let field_width = width - LABEL_WIDTH - space::SM;
         let fields: [&NSTextField; 3] = [&self.fields.base, &self.fields.model, &self.fields.key];
         for (label, field) in self.labels.iter().zip(fields) {
             let label_height = label.frame().size.height;
             frame(
                 label,
-                padding,
+                0.0,
                 top - FIELD_HEIGHT + ((FIELD_HEIGHT - label_height) / 2.0).round(),
                 LABEL_WIDTH,
                 label_height,
@@ -477,13 +389,13 @@ impl AgentSettings {
             top -= FIELD_HEIGHT + space::SM;
         }
         top -= space::SM;
-        let mut x = padding;
+        let mut x = 0.0;
         for button in [&self.detect, &self.list] {
             let size = button.frame().size;
             button.setFrameOrigin(NSPoint::new(x, top - size.height));
             x += size.width + space::SM;
         }
-        let mut right = width - padding;
+        let mut right = width;
         for button in [&self.save, &self.remove_key] {
             let size = button.frame().size;
             right -= size.width;
@@ -491,14 +403,7 @@ impl AgentSettings {
             right -= space::SM;
         }
         top -= button_height + space::MD;
-        frame(
-            &self.status,
-            padding,
-            top - status_height,
-            inner,
-            status_height,
-        );
-        frame(&self.hints, padding, padding, inner, hint_height);
+        frame(&self.status, 0.0, top - status_height, width, status_height);
     }
 }
 
@@ -546,7 +451,7 @@ fn button(
     button.setTitle(&NSString::from_str(title));
     button.setBezelStyle(NSBezelStyle::Push);
     button.setFont(Some(&TextRole::RowDetail.font()));
-    // SAFETY: the target is weak; the popover keeps it alive for as long as its buttons.
+    // SAFETY: the target is weak; the form keeps it alive for as long as its buttons.
     unsafe { button.setTarget(Some(target)) };
     // SAFETY: the target implements `action`, which takes the sender.
     unsafe { button.setAction(Some(action)) };

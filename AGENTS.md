@@ -129,8 +129,10 @@ tools/           xtask and other developer or test tools; no product dependencie
 
 These are requirements, not preferences. A change that breaks one is a bug.
 
-- **Content first.** In the idle state only the web page is on screen. UI appears only on an
-  explicit key, gesture, or click. No hover-revealed panels, ever.
+- **Content first.** In the idle state only the web page is on screen, edge to edge; the
+  system's window buttons float over its top-left corner in a transparent titlebar, with no bar
+  of their own. UI appears only on an explicit key, gesture, or click. No hover-revealed panels,
+  ever.
 - **Trackerless.** No telemetry, no phone-home. A fresh profile opens zero connections on its own;
   the egress test proves it (`docs/privacy.md`).
 - **Never lose a tab.** Session mutations are transactional; closing goes through the trash.
