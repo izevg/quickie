@@ -42,7 +42,7 @@ pub struct TabSwitcher {
     /// Says so when the filter keeps nothing.
     empty: Retained<NSTextField>,
     line: Retained<NSBox>,
-    hints: Retained<NSTextField>,
+    hints: Retained<NSView>,
     total: Retained<NSTextField>,
     /// The pool: cards for the tabs on screen, and spare ones hidden.
     cards: RefCell<Vec<Card>>,

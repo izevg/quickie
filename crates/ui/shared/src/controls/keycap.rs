@@ -1,16 +1,18 @@
 //! Keycaps: one glyph per chip, a chord as a group (`docs/design/mocks/components/keycap.html`).
-//! Default on glass; on a selected row the glyph takes the primary text color and the border
-//! the accent, to sit on the row's accent tint; in conflict both are red. The border is a
-//! [`Plate`]'s, so it follows light and dark.
+//! A cap is filled (`keycap-fill`), with a hairline border and a slightly darker bottom edge, the
+//! glyph in the label color, 20 pt tall with `radius-keycap` corners. On a selected row the
+//! border takes the accent, to sit on the row's accent tint; in conflict fill, border, and glyph
+//! are red; a pinned slot is a filled accent badge. Fill and border are a [`Plate`]'s, so they
+//! follow light, dark, and Increase Contrast.
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSColor, NSTextAlignment, NSTextField, NSView};
+use objc2_app_kit::{NSAccessibility, NSColor, NSTextAlignment, NSTextField, NSView};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::form::{Paint, Plate};
-use crate::tokens::{TextRole, color, radius, space};
+use crate::tokens::{TextRole, color, control, radius, space};
 
 /// How a keycap looks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,22 +23,33 @@ pub enum KeycapStyle {
     Selected,
     /// Keys that already run another command.
     Conflict,
+    /// A filled accent badge: the slot a tab is pinned to.
+    Accent,
 }
 
 impl KeycapStyle {
     fn text(self) -> Retained<NSColor> {
         match self {
-            Self::Plain => color::secondary_label(),
-            Self::Selected => color::selection_text(),
+            Self::Plain | Self::Selected => color::label(),
             Self::Conflict => color::destructive(),
+            Self::Accent => color::on_accent(),
         }
     }
 
-    fn border(self) -> Paint {
+    fn fill(self) -> Paint {
         match self {
-            Self::Plain => color::separator,
-            Self::Selected => color::accent_line,
-            Self::Conflict => color::destructive_line,
+            Self::Plain | Self::Selected => color::keycap_fill,
+            Self::Conflict => color::destructive_fill,
+            Self::Accent => color::accent_fill,
+        }
+    }
+
+    fn border(self) -> Option<Paint> {
+        match self {
+            Self::Plain => Some(color::separator),
+            Self::Selected => Some(color::accent_line),
+            Self::Conflict => Some(color::destructive_line),
+            Self::Accent => None,
         }
     }
 }
@@ -77,7 +90,8 @@ pub fn keycap_group(chord: &str, inverted: bool, mtm: MainThreadMarker) -> Retai
     keycap_group_styled(chord, style, mtm)
 }
 
-/// A chord as a row of caps in `style`, sized to fit.
+/// A chord as a row of caps in `style`, sized to fit. `VoiceOver` reads the chord as one
+/// element.
 #[must_use]
 pub fn keycap_group_styled(
     chord: &str,
@@ -101,27 +115,40 @@ pub fn keycap_group_styled(
         }
     }
     group.setFrameSize(NSSize::new((x - space::XS).max(0.0), height));
+    group.setAccessibilityElement(true);
+    group.setAccessibilityLabel(Some(&NSString::from_str(chord)));
     group
 }
 
-/// One cap: the glyph in SF Mono, a hairline border, `radius-keycap` corners.
-fn keycap(glyph: &str, style: KeycapStyle, mtm: MainThreadMarker) -> Retained<NSView> {
-    let label = NSTextField::labelWithString(&NSString::from_str(glyph), mtm);
+/// One cap with `text` on it, as wide as it needs: a key glyph, or a slot badge such as `⌘3`
+/// that reads as one cap.
+#[must_use]
+pub fn keycap(text: &str, style: KeycapStyle, mtm: MainThreadMarker) -> Retained<NSView> {
+    let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
     label.setFont(Some(&TextRole::Caption.mono_font()));
     label.setAlignment(NSTextAlignment::Center);
     label.setTextColor(Some(&style.text()));
     label.sizeToFit();
     let text_size = label.frame().size;
-    let height = (text_size.height + space::XS).ceil();
-    let width = (text_size.width + space::SM).max(height).ceil();
-    let cap = Plate::new(None, Some(style.border()), radius::KEYCAP, mtm);
+    let height = control::KEYCAP_HEIGHT;
+    let width = (text_size.width + space::MD).max(height).ceil();
+    let cap = Plate::new(Some(style.fill()), style.border(), radius::KEYCAP, mtm);
     cap.setFrame(NSRect::new(
         NSPoint::new(0.0, 0.0),
         NSSize::new(width, height),
     ));
-    // The plate is flipped: the label sits a hair above the middle, as it did unflipped.
+    if style != KeycapStyle::Accent {
+        // The bottom edge, a hairline inside the border that makes the cap read as a key.
+        let edge = Plate::new(Some(color::separator), None, 0.0, mtm);
+        edge.setFrame(NSRect::new(
+            NSPoint::new(radius::KEYCAP, height - 1.0),
+            NSSize::new(width - radius::KEYCAP * 2.0, 1.0),
+        ));
+        cap.addSubview(&edge);
+    }
+    // The plate is flipped: the glyph sits a hair above the middle, clear of the bottom edge.
     label.setFrame(NSRect::new(
-        NSPoint::new(0.0, ((height - text_size.height) / 2.0).ceil()),
+        NSPoint::new(0.0, ((height - text_size.height) / 2.0 - 0.5).floor()),
         NSSize::new(width, text_size.height),
     ));
     cap.addSubview(&label);

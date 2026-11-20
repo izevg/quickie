@@ -19,13 +19,11 @@ mod origin;
 mod rows;
 
 use std::cell::{Cell, RefCell};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::rc::{Rc, Weak};
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSAccessibility, NSAutoresizingMaskOptions, NSTextField, NSView, NSWindow};
+use objc2_app_kit::{NSAccessibility, NSAutoresizingMaskOptions, NSView, NSWindow};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use quickie_application::{AddressSuggestions, PaletteItem, Target};
 use quickie_ui_shared::tokens::{TextRole, overlay, space};
@@ -61,7 +59,7 @@ struct Inner {
     field: QueryField,
     origin: OriginLine,
     list: ListView,
-    hints: Retained<NSTextField>,
+    hints: Retained<NSView>,
     open: Cell<bool>,
     /// The page's URL as the overlay opened on it, which `⎋` brings back.
     original: RefCell<String>,
@@ -73,8 +71,9 @@ struct Inner {
     typed: RefCell<String>,
     /// Whether the last edit asks for a completion.
     completes: Cell<bool>,
-    /// The page's actions, shown until the user types.
+    /// The page's actions, shown until the user types, and their rows.
     actions: RefCell<Vec<PaletteItem>>,
+    action_rows: RefCell<Vec<ListRow>>,
     /// True while the list holds the actions rather than suggestions.
     listing_actions: Cell<bool>,
     /// The suggestions on screen.
@@ -119,6 +118,7 @@ impl AddressOverlay {
             typed: RefCell::new(String::new()),
             completes: Cell::new(false),
             actions: RefCell::new(Vec::new()),
+            action_rows: RefCell::new(Vec::new()),
             listing_actions: Cell::new(false),
             answer: RefCell::new(AddressSuggestions::default()),
             changed: RefCell::new(None),
@@ -179,9 +179,12 @@ impl AddressOverlay {
         inner.open.set(false);
     }
 
-    /// The page's actions, shown while the overlay shows the page.
-    pub fn set_actions(&self, actions: Vec<PaletteItem>) {
+    /// The page's actions, shown while the overlay shows the page, each as `row` draws it: the
+    /// actions are commands, so the caller hands in the palette's command row, and they look
+    /// the same in both.
+    pub fn set_actions(&self, actions: Vec<PaletteItem>, row: impl Fn(&PaletteItem) -> ListRow) {
         let inner = &self.inner;
+        inner.action_rows.replace(actions.iter().map(row).collect());
         inner.actions.replace(actions);
         if inner.listing_actions.get() {
             inner.list_actions();
@@ -334,8 +337,7 @@ impl Inner {
     }
 
     fn list_actions(&self) {
-        let rows = self.actions.borrow().iter().map(action_row).collect();
-        self.list.set_rows(rows);
+        self.list.set_rows(self.action_rows.borrow().clone());
     }
 
     /// The user edited the field: what they typed now, whether it may complete, and then the
@@ -403,11 +405,8 @@ impl Inner {
         let field_height = self.field.height();
         let hints_height = self.hints.frame().size.height;
         let shown = self.list.len().min(VISIBLE_ROWS);
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "at most `VISIBLE_ROWS` rows, exact in a float"
-        )]
-        let list_height = shown as f64 * self.list.row_height();
+        // Rows differ in height: a page is two lines, an action one.
+        let list_height = self.list.height_for(shown);
         let list_gap = if shown == 0 { 0.0 } else { space::MD };
         let height =
             padding * 2.0 + field_height + list_gap + list_height + space::MD + hints_height;
@@ -438,19 +437,6 @@ impl Inner {
         );
         self.field.view().setFrame(line);
         self.origin.layout(line);
-    }
-}
-
-/// The row of one of the page's actions: its name, its category, its first chord as keycaps.
-fn action_row(item: &PaletteItem) -> ListRow {
-    let mut hasher = DefaultHasher::new();
-    item.target.hash(&mut hasher);
-    ListRow {
-        key: hasher.finish(),
-        title: item.title.clone(),
-        detail: item.detail.clone(),
-        keycaps: item.glyphs.first().cloned(),
-        ..ListRow::default()
     }
 }
 

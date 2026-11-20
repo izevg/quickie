@@ -9,12 +9,13 @@ use objc2::rc::Retained;
 use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSColor, NSFont, NSFontAttributeName, NSFontWeightMedium, NSForegroundColorAttributeName,
-    NSImage, NSImageSymbolConfiguration, NSImageView,
+    NSImage, NSImageSymbolConfiguration, NSImageView, NSLineBreakMode, NSMutableParagraphStyle,
+    NSParagraphStyleAttributeName,
 };
 use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSRange, NSString};
 
-pub use hint_bar::hint_bar;
-pub use keycap::{KeycapStyle, keycap_group, keycap_group_styled};
+pub use hint_bar::{HintStrip, hint_bar, hint_bar_active};
+pub use keycap::{KeycapStyle, keycap, keycap_group, keycap_group_styled};
 pub use pill::{Pill, PillPart, PillTone};
 
 use crate::tokens::TextRole;
@@ -85,6 +86,21 @@ impl StyledText {
         unsafe {
             self.string
                 .addAttribute_value_range(color_key, color, range);
+        }
+    }
+
+    /// Breaks the text by `mode` when it does not fit: an attributed label follows its string's
+    /// paragraph style, not the label's own line break mode.
+    pub fn set_line_break(&self, mode: NSLineBreakMode) {
+        let style = NSMutableParagraphStyle::new();
+        style.setLineBreakMode(mode);
+        // SAFETY: an immutable `NSString` constant exported by AppKit.
+        let key = unsafe { NSParagraphStyleAttributeName };
+        // SAFETY: the paragraph style attribute takes an `NSParagraphStyle`, and the range is
+        // the whole string.
+        unsafe {
+            self.string
+                .addAttribute_value_range(key, &style, NSRange::new(0, self.length));
         }
     }
 

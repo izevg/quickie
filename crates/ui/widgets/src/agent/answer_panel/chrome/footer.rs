@@ -102,12 +102,8 @@ impl Footer {
                 note.sizeToFit();
                 note.into_super().into_super()
             }
-            FooterKind::Working => hint_bar(&[("⌘.", "stop"), ("⎋", "close")], mtm)
-                .into_super()
-                .into_super(),
-            FooterKind::Answered | FooterKind::Failed => {
-                hint_bar(&[("⎋", "close")], mtm).into_super().into_super()
-            }
+            FooterKind::Working => hint_bar(&[("⌘.", "stop"), ("⎋", "close")], mtm),
+            FooterKind::Answered | FooterKind::Failed => hint_bar(&[("⎋", "close")], mtm),
         };
         *self.split.borrow_mut() = buttons.len();
         let mut parts = buttons;

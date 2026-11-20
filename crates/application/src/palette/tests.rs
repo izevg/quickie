@@ -1,10 +1,10 @@
-use quickie_domain_browsing::{Focus, JarChoice, Profile, Session, TabId, Timestamp};
+use quickie_domain_browsing::{Focus, JarChoice, PinnedSlot, Profile, Session, TabId, Timestamp};
 use quickie_domain_commands::{Catalog, CommandId, Keymap, KeymapEntry, Platform};
 use quickie_domain_library::{Bookmarks, History, Keyword, SearchShortcuts, Tag, UrlTemplate};
 use quickie_domain_palette::Kind;
 use url::Url;
 
-use super::{Palette, PaletteIndex, PaletteItem, Sources, Target};
+use super::{PageFacts, Palette, PaletteIndex, PaletteItem, Sources, Target};
 use crate::ExtensionOffer;
 use crate::fakes::FakeClock;
 
@@ -217,7 +217,78 @@ mod going_to {
                 glyphs: Vec::new(),
                 title_matches: Vec::new(),
                 detail_matches: Vec::new(),
+                facts: PageFacts::default(),
             }]
+        );
+    }
+
+    #[test]
+    fn a_page_row_carries_what_history_knows() {
+        let mut world = World::new();
+        for at in [1_000, 3_000, 2_000] {
+            world
+                .history
+                .record_visit(&url("h"), "History", Timestamp::from_millis(at));
+        }
+
+        let items = world.query("", 10);
+
+        assert_eq!(
+            items[0].facts,
+            PageFacts {
+                visits: 3,
+                last_visit: Some(Timestamp::from_millis(3_000)),
+                slot: None,
+            }
+        );
+    }
+
+    #[test]
+    fn a_bookmark_and_a_tab_carry_the_history_of_their_page() {
+        let mut world = World::new();
+        world.visit("b", "Bookmark", 2);
+        world.visit("t", "Tab", 4);
+        world.bookmark("b", "Bookmark");
+        world.bookmark("never", "Never visited");
+        world.tab("t#part", "Tab");
+
+        let items = world.query("", 10);
+
+        let visits: Vec<(String, u64, Option<Timestamp>)> = items
+            .iter()
+            .map(|item| (item.title.clone(), item.facts.visits, item.facts.last_visit))
+            .collect();
+        assert_eq!(
+            visits,
+            [
+                ("Tab".to_owned(), 4, Some(NOW)),
+                ("Bookmark".to_owned(), 2, Some(NOW)),
+                ("Never visited".to_owned(), 0, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pinned_tab_carries_its_slot() {
+        let mut world = World::new();
+        let pinned = world.tab("p", "Pinned");
+        world.tab("q", "Loose");
+        let slot = PinnedSlot::try_from(3).unwrap();
+        world.session.pin(pinned, slot).unwrap();
+
+        let items = world.query("", 10);
+
+        let mut slots: Vec<(String, Option<PinnedSlot>)> = items
+            .iter()
+            .map(|item| (item.title.clone(), item.facts.slot))
+            .collect();
+        slots.sort();
+        assert_eq!(
+            slots,
+            [
+                ("Loose".to_owned(), None),
+                ("Pinned".to_owned(), Some(slot))
+            ]
         );
     }
 
@@ -579,6 +650,7 @@ mod searching {
                 glyphs: Vec::new(),
                 title_matches: vec![0, 1],
                 detail_matches: vec![8, 11],
+                facts: PageFacts::default(),
             }]
         );
     }

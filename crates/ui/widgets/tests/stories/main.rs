@@ -11,6 +11,7 @@ use std::process::ExitCode;
 use quickie_ui_shared::stories::{self, Story};
 
 mod agent;
+mod components;
 mod fixtures;
 mod hints;
 mod navigation;
@@ -20,7 +21,7 @@ fn main() -> ExitCode {
     let all: Vec<Story> = navigation::GROUPS
         .into_iter()
         .chain(surfaces::GROUPS)
-        .chain([hints::STORIES, agent::STORIES])
+        .chain([hints::STORIES, agent::STORIES, components::STORIES])
         .flatten()
         .copied()
         .collect();

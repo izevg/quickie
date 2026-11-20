@@ -134,7 +134,7 @@ pub struct DownloadsPopover {
     folder: Retained<NSTextField>,
     folder_glyph: Option<Retained<NSImageView>>,
     more: Retained<NSTextField>,
-    hints: Retained<NSTextField>,
+    hints: Retained<NSView>,
     rows: Vec<DownloadRow>,
     lines: Rc<RefCell<Vec<Line>>>,
     selected: Cell<Option<usize>>,

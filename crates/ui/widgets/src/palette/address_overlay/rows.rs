@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use quickie_application::{Suggestion, SuggestionKind};
-use quickie_ui_shared::ListRow;
+use quickie_ui_shared::{IconTint, ListRow, RowIcon};
 
 /// The row of `suggestion`. Equal targets make equal keys, so a row that stays in the answer
 /// stays in the table.
@@ -20,13 +20,30 @@ pub fn row(suggestion: &Suggestion) -> ListRow {
         detail: suggestion.url.clone(),
         detail_matches: suggestion.url_matches.clone(),
         detail_strong: suggestion.host.clone(),
-        keycaps: None,
-        badge: badge(suggestion.kind).map(str::to_owned),
+        icon: Some(icon(suggestion.kind)),
+        trailing: what(suggestion.kind).map(str::to_owned),
+        ..ListRow::default()
     }
 }
 
-/// What a page row says it is. A `Go to` or search row says so in its title.
-const fn badge(kind: SuggestionKind) -> Option<&'static str> {
+/// The glyph in a row's tile, the same the palette shows for each kind of page.
+fn icon(kind: SuggestionKind) -> RowIcon {
+    let (name, tint) = match kind {
+        SuggestionKind::GoTo => ("arrow.right.circle", IconTint::Accent),
+        SuggestionKind::Search => ("magnifyingglass", IconTint::Accent),
+        SuggestionKind::OpenTab => ("globe", IconTint::Secondary),
+        SuggestionKind::Bookmark => ("bookmark", IconTint::Secondary),
+        SuggestionKind::History => ("clock.arrow.circlepath", IconTint::Secondary),
+    };
+    RowIcon::Symbol {
+        name: name.to_owned(),
+        tint,
+    }
+}
+
+/// What a page row says it is, as a note on the right. A `Go to` or search row says so in its
+/// title.
+const fn what(kind: SuggestionKind) -> Option<&'static str> {
     match kind {
         SuggestionKind::OpenTab => Some("Switch to tab"),
         SuggestionKind::Bookmark => Some("Bookmark"),
@@ -38,6 +55,7 @@ const fn badge(kind: SuggestionKind) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use quickie_application::{Suggestion, SuggestionKind, Target};
+    use quickie_ui_shared::{IconTint, RowIcon};
     use url::Url;
 
     use super::row;
@@ -69,16 +87,45 @@ mod tests {
 
     #[test]
     fn a_page_says_what_it_is() {
-        let badge = |kind| row(&suggestion(kind, "https://github.com/")).badge;
+        let what = |kind| row(&suggestion(kind, "https://github.com/")).trailing;
 
         assert_eq!(
-            badge(SuggestionKind::OpenTab).as_deref(),
+            what(SuggestionKind::OpenTab).as_deref(),
             Some("Switch to tab")
         );
-        assert_eq!(badge(SuggestionKind::Bookmark).as_deref(), Some("Bookmark"));
-        assert_eq!(badge(SuggestionKind::History).as_deref(), Some("History"));
-        assert_eq!(badge(SuggestionKind::GoTo), None);
-        assert_eq!(badge(SuggestionKind::Search), None);
+        assert_eq!(what(SuggestionKind::Bookmark).as_deref(), Some("Bookmark"));
+        assert_eq!(what(SuggestionKind::History).as_deref(), Some("History"));
+        assert_eq!(what(SuggestionKind::GoTo), None);
+        assert_eq!(what(SuggestionKind::Search), None);
+    }
+
+    #[test]
+    fn each_kind_has_its_glyph() {
+        let glyph = |kind| match row(&suggestion(kind, "https://github.com/")).icon {
+            Some(RowIcon::Symbol { name, tint }) => (name, tint),
+            other => panic!("no symbol: {other:?}"),
+        };
+
+        assert_eq!(
+            glyph(SuggestionKind::GoTo),
+            ("arrow.right.circle".to_owned(), IconTint::Accent)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::Search),
+            ("magnifyingglass".to_owned(), IconTint::Accent)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::OpenTab),
+            ("globe".to_owned(), IconTint::Secondary)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::Bookmark),
+            ("bookmark".to_owned(), IconTint::Secondary)
+        );
+        assert_eq!(
+            glyph(SuggestionKind::History),
+            ("clock.arrow.circlepath".to_owned(), IconTint::Secondary)
+        );
     }
 
     #[test]

@@ -37,6 +37,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSSwitch",
   "NSTableColumn",
   "NSTableHeaderView",
+  "NSTableRowView",
   "NSTableView",
   "NSText",
   "NSTextField",
@@ -51,6 +52,7 @@ objc2-core-graphics = { workspace = true, features = ["CGColor", "CGPath"] }
 objc2-foundation = { workspace = true, features = [
   "NSArray",
   "NSAttributedString",
+  "NSData",
   "NSDictionary",
   "NSGeometry",
   "NSIndexSet",

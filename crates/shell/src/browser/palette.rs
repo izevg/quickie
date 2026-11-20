@@ -7,16 +7,14 @@
 //!
 //! [`Palette::open`]: quickie_application::Palette::open
 
-use quickie_application::{Navigation, PaletteIndex, Sources, Target};
+use quickie_application::{Clock, Navigation, PaletteIndex, Sources, Target};
 use quickie_domain_browsing::{Focus, JarChoice};
+use quickie_ui_widgets::palette::command_palette::ANSWERS;
 use url::Url;
 
 use super::Browser;
-use crate::Addons;
 use crate::input::keystroke::OverlayKey;
-
-/// How many answers a query asks for; the list shows eight and scrolls the rest.
-const ANSWERS: usize = 50;
+use crate::{Addons, SystemClock};
 
 /// Where a chosen page opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,7 +91,7 @@ impl Browser {
     fn requery(&self) {
         let text = self.command_palette.text();
         let items = self.with_index(|index| index.query(&text, ANSWERS));
-        self.command_palette.set_items(&items);
+        self.command_palette.set_items(&items, SystemClock.now());
         *self.results.borrow_mut() = items;
     }
 

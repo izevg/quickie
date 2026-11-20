@@ -117,4 +117,15 @@ impl QueryField {
     pub fn on_change(&self, changed: impl Fn() + 'static) {
         self.delegate.on_change(changed);
     }
+
+    /// Runs `erased` when `⌫` is pressed in the empty field; it returns true when it used the
+    /// key, which then counts as an edit.
+    pub fn on_erase_empty(&self, erased: impl Fn() -> bool + 'static) {
+        self.delegate.on_erase_empty(erased);
+    }
+
+    /// Runs `absorb` after every edit, before the edit is reported.
+    pub fn on_absorb(&self, absorb: impl Fn() + 'static) {
+        self.delegate.on_absorb(absorb);
+    }
 }

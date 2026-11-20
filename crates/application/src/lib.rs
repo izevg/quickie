@@ -34,8 +34,8 @@ pub use error::{
 };
 pub use library::{CorruptLibrary, Library};
 pub use palette::{
-    AddressSuggestions, InlineCompletion, Palette, PaletteIndex, PaletteItem, Sources, Suggestion,
-    SuggestionKind, Target,
+    AddressSuggestions, InlineCompletion, PageFacts, Palette, PaletteIndex, PaletteItem, Sources,
+    Suggestion, SuggestionKind, Target,
 };
 pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
