@@ -32,7 +32,7 @@ pub use error::{
 };
 pub use keymap::{LoadedKeymap, RejectedEntry, Rejection, load_keymap};
 pub use library::{CorruptLibrary, Library};
-pub use palette::{Palette, PaletteItem, Sources, Target};
+pub use palette::{Palette, PaletteIndex, PaletteItem, Sources, Target};
 pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
     Entropy, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapRepo,

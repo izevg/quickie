@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
 use quickie_domain_library::{
-    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+    BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
 use url::Url;
 
@@ -20,6 +20,8 @@ use crate::{
 pub struct FakeLibraryRepo {
     pub saved: LibrarySnapshot,
     pub saves: usize,
+    /// How many saves rewrote the whole history.
+    pub history_saves: usize,
     pub load_fails: bool,
     pub save_fails: bool,
 }
@@ -45,7 +47,32 @@ impl LibraryRepo for FakeLibraryRepo {
 
     fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError> {
         self.save()?;
+        self.history_saves += 1;
         self.saved.history = Some(history.clone());
+        Ok(())
+    }
+
+    fn upsert_entry(&mut self, entry: &HistoryEntry) -> Result<(), StoreError> {
+        self.save()?;
+        let history = self.saved.history.get_or_insert_with(|| HistorySnapshot {
+            entries: Vec::new(),
+        });
+        match history
+            .entries
+            .iter_mut()
+            .find(|saved| saved.url == entry.url)
+        {
+            Some(saved) => saved.clone_from(entry),
+            None => history.entries.push(entry.clone()),
+        }
+        Ok(())
+    }
+
+    fn remove_entries(&mut self, pages: &[Url]) -> Result<(), StoreError> {
+        self.save()?;
+        if let Some(history) = &mut self.saved.history {
+            history.entries.retain(|entry| !pages.contains(&entry.url));
+        }
         Ok(())
     }
 

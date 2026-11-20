@@ -153,16 +153,30 @@ fn fails_with(result: Result<LibrarySnapshot, StoreError>, words: &str) -> bool 
 
 #[test]
 fn a_corrupt_history_url_is_an_error_not_a_panic() {
-    let result = corrupt("UPDATE history SET url = 'not a url' WHERE position = 0");
+    let result = corrupt("UPDATE history SET url = 'not a url' WHERE title = 'Often'");
 
     assert!(fails_with(result, "bad URL"));
 }
 
 #[test]
 fn a_negative_visit_time_is_an_error() {
-    let result = corrupt("UPDATE history_visits SET visited_at = -3");
+    let result = corrupt("UPDATE history SET recent_visits = '5,-3'");
 
     assert!(fails_with(result, "negative number -3"));
+}
+
+#[test]
+fn a_garbled_visit_time_is_an_error() {
+    let result = corrupt("UPDATE history SET recent_visits = '5,x'");
+
+    assert!(fails_with(result, "bad visit time \"x\""));
+}
+
+#[test]
+fn a_negative_last_visit_is_an_error() {
+    let result = corrupt("UPDATE history SET last_visit = -2 WHERE title = 'Often'");
+
+    assert!(fails_with(result, "negative number -2"));
 }
 
 #[test]
@@ -212,15 +226,90 @@ fn a_negative_visit_count_is_an_error() {
 fn visits_outside_the_domain_rules_load_for_the_domain_to_judge() {
     let mut store = SqliteStore::in_memory().unwrap();
     saved(&mut store);
-    store.db.execute("DELETE FROM history_visits", []).unwrap();
+    store
+        .db
+        .execute("UPDATE history SET recent_visits = ''", [])
+        .unwrap();
 
     let loaded = store.load_library().unwrap().history.unwrap();
 
     assert!(History::restore(loaded).is_err());
 }
 
+#[test]
+fn an_entry_saves_over_its_page_alone() {
+    let mut store = SqliteStore::in_memory().unwrap();
+    saved(&mut store);
+    let mut history = history();
+    history.record_visit(&url("ru"), "Привет", at(7));
+
+    store
+        .upsert_entry(history.get(&url("ru")).unwrap())
+        .unwrap();
+
+    let loaded = store.load_library().unwrap().history.unwrap();
+    assert_eq!(loaded, history.snapshot());
+}
+
+#[test]
+fn an_entry_of_a_new_page_joins_a_history_never_saved() {
+    let mut store = SqliteStore::in_memory().unwrap();
+    let mut history = History::new();
+    history.record_visit(&url("new"), "New", at(1));
+
+    store
+        .upsert_entry(history.get(&url("new")).unwrap())
+        .unwrap();
+
+    let loaded = store.load_library().unwrap().history;
+    assert_eq!(loaded, Some(history.snapshot()));
+}
+
+#[test]
+fn history_loads_by_last_visit_whatever_order_it_was_written_in() {
+    let mut store = SqliteStore::in_memory().unwrap();
+    let history = history();
+
+    for entry in history.entries() {
+        store.upsert_entry(entry).unwrap();
+    }
+
+    let loaded = store.load_library().unwrap().history;
+    assert_eq!(loaded, Some(history.snapshot()));
+}
+
+#[test]
+fn removing_entries_leaves_the_other_pages() {
+    let mut store = SqliteStore::in_memory().unwrap();
+    saved(&mut store);
+    let mut history = history();
+    history.remove(&url("often"));
+    history.remove(&url("untitled?q=1"));
+
+    store
+        .remove_entries(&[url("often"), url("untitled?q=1"), url("never")])
+        .unwrap();
+
+    let loaded = store.load_library().unwrap().history;
+    assert_eq!(loaded, Some(history.snapshot()));
+}
+
+#[test]
+fn an_entry_that_does_not_fit_a_column_is_refused() {
+    let mut store = SqliteStore::in_memory().unwrap();
+    let mut history = History::new();
+    history.record_visit(&url("a"), "A", at(1));
+    let mut entry = history.get(&url("a")).unwrap().clone();
+    entry.visit_count = u64::MAX;
+
+    let result = store.upsert_entry(&entry);
+
+    assert!(matches!(result, Err(StoreError(message)) if message.contains("does not fit")));
+    assert_eq!(store.load_library().unwrap().history, None);
+}
+
 /// The clock of the test: a fixed time.
-struct Fixed(u64);
+pub(super) struct Fixed(pub(super) u64);
 
 impl Clock for Fixed {
     fn now(&self) -> Timestamp {

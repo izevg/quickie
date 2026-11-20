@@ -29,12 +29,13 @@ use quickie_application::{
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
-    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+    BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
 use quickie_domain_settings::SiteZoomsSnapshot;
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use rusqlite::Connection;
 use settings::{agent, keymap, zoom};
+use url::Url;
 
 /// The SQLite store.
 #[derive(Debug)]
@@ -94,6 +95,14 @@ impl LibraryRepo for SqliteStore {
 
     fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError> {
         library::save_history(&mut self.db, history)
+    }
+
+    fn upsert_entry(&mut self, entry: &HistoryEntry) -> Result<(), StoreError> {
+        library::upsert_history_entry(&mut self.db, entry)
+    }
+
+    fn remove_entries(&mut self, pages: &[Url]) -> Result<(), StoreError> {
+        library::remove_history_entries(&mut self.db, pages)
     }
 
     fn save_bookmarks(&mut self, bookmarks: &BookmarksSnapshot) -> Result<(), StoreError> {

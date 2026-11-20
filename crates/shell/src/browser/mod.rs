@@ -37,7 +37,7 @@ use std::rc::{Rc, Weak};
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSApplication, NSWindow};
-use quickie_application::{AppError, PaletteItem};
+use quickie_application::{AppError, PaletteIndex, PaletteItem};
 use quickie_domain_browsing::{Session, TabId, WindowId};
 use quickie_domain_commands::{Catalog, CommandId, Keymap, Modifiers};
 use quickie_store::{KeybindingsFile, PendingWrites};
@@ -116,6 +116,8 @@ pub struct Browser {
     crashed: RefCell<BTreeSet<TabId>>,
     /// The palette's answer on screen, in its order.
     results: RefCell<Vec<PaletteItem>>,
+    /// What the palette offers while it shows; `None` until the next edit gathers it afresh.
+    palette_index: RefCell<Option<PaletteIndex>>,
     cycle: RefCell<Option<CycleHold>>,
     /// The modifiers that hold the cycle open; releasing one commits it.
     cycle_modifiers: Cell<Modifiers>,
@@ -199,6 +201,7 @@ impl Browser {
             events: RefCell::new(Vec::new()),
             crashed: RefCell::new(BTreeSet::new()),
             results: RefCell::new(Vec::new()),
+            palette_index: RefCell::new(None),
             cycle: RefCell::new(None),
             cycle_modifiers: Cell::new(Modifiers::CONTROL),
             pending: Cell::new(PendingChord::default()),
@@ -349,6 +352,7 @@ impl Browser {
 
     /// Runs a browsing use case; a failure is told in a toast and yields `None`.
     fn run<T>(&self, command: impl FnOnce(&mut App) -> Result<T, AppError>) -> Option<T> {
+        self.palette_sources_changed();
         let outcome = command(&mut self.browsing.borrow_mut());
         outcome.map_err(|error| self.report(&error)).ok()
     }
