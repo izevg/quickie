@@ -573,8 +573,24 @@ mod activating {
 
         let window = browsing.commit_cycle(&cycle);
 
-        assert_eq!(window, Ok(w0()));
+        assert_eq!(window, Ok(Some(w0())));
         assert_eq!(browsing.session().active(w0()), Some(t(1)));
+    }
+
+    #[test]
+    fn a_cycle_filtered_to_nothing_switches_nowhere() {
+        let mut browsing = started();
+        open(&mut browsing, "a");
+        let active = browsing.session().active(w0());
+        let mut cycle = browsing.begin_cycle(w0(), Direction::Forward).unwrap();
+        cycle.narrow(&[]);
+        browsing.engine.calls.clear();
+
+        let window = browsing.commit_cycle(&cycle);
+
+        assert_eq!(window, Ok(None));
+        assert_eq!(browsing.session().active(w0()), active);
+        assert_eq!(browsing.engine.calls, Vec::new());
     }
 
     #[test]

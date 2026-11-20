@@ -12,6 +12,7 @@ mod diff;
 mod section;
 
 use std::cell::{Cell, RefCell};
+use std::ops::Range;
 use std::rc::Rc;
 
 use objc2::rc::Retained;
@@ -71,10 +72,14 @@ pub struct ListRow {
     pub key: u64,
     /// The main line.
     pub title: String,
-    /// Character positions of `title` to highlight, ascending. Nothing else is highlighted.
+    /// Character positions of `title` to highlight, ascending.
     pub title_matches: Vec<u32>,
     /// The second line, in SF Mono, middle-truncated: a page's address.
     pub detail: String,
+    /// Character positions of `detail` to highlight, ascending: an address the user typed into.
+    pub detail_matches: Vec<u32>,
+    /// Characters of `detail` set in semibold and the primary colour: a URL's host.
+    pub detail_strong: Range<u32>,
     /// A chord in glyphs (`⇧⌘P`), drawn as keycaps on the right.
     pub keycaps: Option<String>,
     /// Before the title: a symbol on a one-line row, the tile's picture on a two-line one.
@@ -83,7 +88,7 @@ pub struct ListRow {
     pub tag: Option<String>,
     /// A note after the title, when there is no tag: `5 min ago`.
     pub note: Option<String>,
-    /// A note on the right, before the keycaps: `Visited 6 times`.
+    /// A note on the right, before the keycaps: `Visited 6 times`, `Switch to tab`.
     pub trailing: Option<String>,
     /// A filled accent badge on the right: the slot a tab is pinned to, `⌘3`.
     pub badge: Option<String>,

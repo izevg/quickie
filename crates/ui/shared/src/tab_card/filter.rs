@@ -1,4 +1,4 @@
-//! Typing in the overview narrows the cards on screen: a card stays when every word typed
+//! Typing in the overview or the switcher narrows the cards: a card stays when every word typed
 //! appears in its title or host, ignoring case. It filters what is shown, nothing more; the
 //! tabs themselves are the browser's.
 
@@ -19,9 +19,29 @@ pub fn kept<'a>(cards: impl IntoIterator<Item = (&'a str, &'a str)>, query: &str
         .collect()
 }
 
+/// How the header counts the tabs: `6 tabs`, `1 tab`, or `2 of 6 tabs` while filtering.
+#[must_use]
+pub fn count(kept: usize, total: usize) -> String {
+    let noun = if total == 1 { "tab" } else { "tabs" };
+    if kept < total {
+        format!("{kept} of {total} {noun}")
+    } else {
+        format!("{total} {noun}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::kept;
+    use super::{count, kept};
+
+    #[test]
+    fn the_count_says_how_many_the_filter_keeps() {
+        assert_eq!(count(6, 6), "6 tabs");
+        assert_eq!(count(1, 1), "1 tab");
+        assert_eq!(count(2, 6), "2 of 6 tabs");
+        assert_eq!(count(0, 1), "0 of 1 tab");
+        assert_eq!(count(0, 0), "0 tabs");
+    }
 
     const CARDS: [(&str, &str); 4] = [
         ("Sovereign Attention", "theatlantic.com"),

@@ -4,7 +4,8 @@
 //! highlights, an uppercase SF Mono category tag that is never highlighted, keycaps on the
 //! right. A row with detail (a page) is two lines: a 24 pt tile with the favicon or a glyph, the
 //! title and a note (`5 min ago`), the address below in SF Mono, and on the right the slot badge,
-//! a trailing note (`Visited 6 times`), and keycaps. A selected row gets the accent tint with a
+//! a trailing note (`Visited 6 times`), and keycaps. An address may set its host apart in
+//! semibold and highlight what was typed. A selected row gets the accent tint with a
 //! hairline accent border, never glass, and keeps its primary text and accent highlights
 //! (`docs/design/system.md`, `selection-fill`).
 
@@ -165,18 +166,7 @@ impl Line<'_> {
             self.view.addSubview(&after);
         }
         if two_lines {
-            let tint = if self.selected {
-                color::accent()
-            } else {
-                color::secondary_label()
-            };
-            let detail = label(
-                &row.detail,
-                &TextRole::RowDetail.mono_font(),
-                &tint,
-                self.mtm,
-            );
-            detail.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
+            let detail = address(row, self.selected, self.mtm);
             detail.setFrame(NSRect::new(
                 NSPoint::new(left, space::SM),
                 NSSize::new(room, metrics.detail),
@@ -268,6 +258,38 @@ fn highlighted(
     styled.set_line_break(NSLineBreakMode::ByTruncatingTail);
     let field = NSTextField::labelWithAttributedString(styled.string(), mtm);
     field.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
+    field
+}
+
+/// The address line in SF Mono, middle-truncated, in the secondary colour (the accent on a
+/// selected row): its strong characters (a host) in semibold and the primary colour, its
+/// matches in the accent.
+fn address(row: &ListRow, selected: bool, mtm: MainThreadMarker) -> Retained<NSTextField> {
+    let role = TextRole::RowDetail;
+    let (regular, strong) = (role.mono_font(), role.strong_mono_font());
+    let (base, host_tint) = if selected {
+        (color::accent(), color::selection_text())
+    } else {
+        (color::secondary_label(), color::label())
+    };
+    let styled = StyledText::new(&row.detail, &regular, &base);
+    let host: Vec<u32> = row.detail_strong.clone().collect();
+    for range in char_ranges(&row.detail, &host) {
+        styled.style(range, &strong, &host_tint);
+    }
+    let highlight = color::accent();
+    let (in_host, elsewhere): (Vec<u32>, Vec<u32>) = row
+        .detail_matches
+        .iter()
+        .partition(|at| row.detail_strong.contains(at));
+    for (positions, font) in [(in_host, &strong), (elsewhere, &regular)] {
+        for range in char_ranges(&row.detail, &positions) {
+            styled.style(range, font, &highlight);
+        }
+    }
+    styled.set_line_break(NSLineBreakMode::ByTruncatingMiddle);
+    let field = NSTextField::labelWithAttributedString(styled.string(), mtm);
+    field.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
     field
 }
 

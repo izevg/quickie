@@ -182,9 +182,10 @@ cost nothing at run time.
   that does not carry `fn` by itself is the system's and passes untouched (Globe+F, Globe+⌃F);
   a press the page did not take comes back from `WebKit` through the monitor and passes again
   untouched; a press in another window (Settings, a system panel) is that window's, except
-  `⌘W`/`⌘,` in Settings and `⌘Q`; then an open `⌃⇥` cycle takes `⎋`, a sheet its keys, the
-  overview and link hints theirs, an overlay its fixed keys, and the keymap resolves the rest
-  in the current `when` context. A letter is the Latin letter the layout types (QWERTZ's `⌘Z`
+  `⌘W`/`⌘,` in Settings and `⌘Q`; then an open `⌃⇥` cycle takes `⎋` (and, once its switcher
+  shows, the letters that filter it and `W`, which closes the selected tab), a sheet its keys,
+  the overview and link hints theirs, an overlay its fixed keys, and the keymap resolves the
+  rest in the current `when` context. A letter is the Latin letter the layout types (QWERTZ's `⌘Z`
   is undo), else its US key position (a Russian `д` on the `L` key is `⌘L`). What the keymap
   does not bind goes on to the page, the field, and the menu bar (`⌘C`, `⌘H`, `⌘M`, `⌃⌘F`).
   State between presses never outlives the user's attention: a chord's first stroke waits 2 s

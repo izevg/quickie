@@ -1,15 +1,16 @@
 //! The tab overview: an E2 glass grid of the window's tabs in opening order, each a card with
-//! the page's last picture. A pinch in on the page opens it and the cards follow the fingers;
-//! the palette command and its key open it at once. Typing filters the cards, the arrows move
-//! the selection, a click or `⏎` switches; the browser decides what those do.
+//! the page's last picture, under a header that names it and counts the tabs. A pinch in on
+//! the page opens it and the cards follow the fingers; the palette command and its key open it
+//! at once. Typing filters the cards, the arrows move the selection, a click or `⏎` switches,
+//! the selected card's close button closes; the browser decides what those do.
+//!
+//! Only the rows on screen have cards, drawn from a pool that grows to the most ever shown.
 //!
 //! - [`grid`]: columns, card size, visible rows, arrow moves.
 //! - [`pinch`]: magnify deltas to progress, and how a release settles.
-//! - [`filter`]: which cards the typed words keep.
-//! - [`card`]: one tab's card.
+//!
+//! The cards and the filter are the switcher's too: [`quickie_ui_shared::tab_card`].
 
-pub mod card;
-pub mod filter;
 pub mod grid;
 pub mod pinch;
 
@@ -20,33 +21,23 @@ use std::rc::{Rc, Weak};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSClickGestureRecognizer, NSControlTextDidChangeNotification, NSFocusRingType,
-    NSGestureRecognizer, NSImage, NSLineBreakMode, NSTextAlignment, NSTextField, NSTextInputClient,
-    NSTextView, NSView, NSWindow,
+    NSGestureRecognizer, NSImage, NSLineBreakMode, NSTextField, NSTextInputClient, NSTextView,
+    NSView, NSWindow,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
 use quickie_ui_shared::tokens::{TextRole, color, overlay, space};
 use quickie_ui_shared::{Elevation, GlassSurface, Scrim, Trigger, hint_bar, motion};
 
-use card::Card;
 use grid::{Layout, Move, Room};
 use pinch::{Pinch, Step};
+use quickie_ui_shared::tab_card::{self as card, Badge, Card, Look, TabCard, filter};
 
-/// One tab as the overview shows it.
-#[derive(Clone, Debug, Default)]
-pub struct OverviewTab {
-    pub title: String,
-    pub host: String,
-    /// The pinned slot, `1` … `9`.
-    pub slot: Option<u8>,
-    /// The page's last picture; `None` for a tab not loaded or not drawn yet.
-    pub thumbnail: Option<Retained<NSImage>>,
-}
-
-/// What a click on a card runs, with the card's position in the tabs shown.
-type Activate = Rc<dyn Fn(usize)>;
+/// What a click on a card or on its close button runs, with the card's position in the tabs
+/// shown.
+type OnCard = Rc<dyn Fn(usize)>;
 
 const HINTS: [(&str, &str); 4] = [
     ("←→↑↓", "select"),
@@ -58,13 +49,16 @@ const HINTS: [(&str, &str); 4] = [
 pub struct TabOverview {
     scrim: Option<Scrim>,
     surface: GlassSurface,
+    heading: Retained<NSTextField>,
+    count: Badge,
     field: Retained<NSTextField>,
-    count: Retained<NSTextField>,
     hints: Retained<NSView>,
     grid: Retained<NSView>,
+    tabs: RefCell<Vec<TabCard>>,
+    /// The pool: cards for the rows on screen, and spare ones hidden.
     cards: RefCell<Vec<Card>>,
-    /// Title and host of each card, for the filter.
-    words: RefCell<Vec<(String, String)>>,
+    /// The tab each card of the pool shows, by position in `tabs`.
+    on_card: RefCell<Vec<Option<usize>>>,
     /// The cards the filter keeps, by position in the tabs shown.
     kept: RefCell<Vec<usize>>,
     /// The selection, as a position in `kept`.
@@ -76,7 +70,8 @@ pub struct TabOverview {
     /// Takes keys: shown, or following a pinch that has not settled closed.
     open: Cell<bool>,
     pinch: Cell<Option<Pinch>>,
-    activate: RefCell<Option<Activate>>,
+    activate: RefCell<Option<OnCard>>,
+    close: RefCell<Option<OnCard>>,
     _edits: Retained<ProtocolObject<dyn NSObjectProtocol>>,
     _click: Retained<ClickTarget>,
     mtm: MainThreadMarker,
@@ -86,14 +81,15 @@ impl TabOverview {
     #[must_use]
     pub fn new(mtm: MainThreadMarker) -> Rc<Self> {
         let surface = GlassSurface::new(Elevation::E2, mtm);
+        let heading = NSTextField::labelWithString(&NSString::from_str("Tab Overview"), mtm);
+        heading.setFont(Some(&card::weighted(TextRole::Title, true)));
+        heading.setTextColor(Some(&color::label()));
+        heading.sizeToFit();
+        let count = Badge::tinted(mtm);
         let field = filter_field(mtm);
-        let count = NSTextField::labelWithString(&NSString::new(), mtm);
-        count.setFont(Some(&TextRole::RowDetail.font()));
-        count.setTextColor(Some(&color::secondary_label()));
-        count.setAlignment(NSTextAlignment::Right);
         let hints = hint_bar(&HINTS, mtm);
         let grid = NSView::new(mtm);
-        for view in [&*field, &*count, &*grid, &*hints] {
+        for view in [&*heading, count.view(), &*field, &*grid, &*hints] {
             surface.content_view().addSubview(view);
         }
         Rc::new_cyclic(|this: &Weak<Self>| {
@@ -112,12 +108,14 @@ impl TabOverview {
             Self {
                 scrim: Scrim::new(Elevation::E2, mtm),
                 surface,
-                field,
+                heading,
                 count,
+                field,
                 hints,
                 grid,
+                tabs: RefCell::new(Vec::new()),
                 cards: RefCell::new(Vec::new()),
-                words: RefCell::new(Vec::new()),
+                on_card: RefCell::new(Vec::new()),
                 kept: RefCell::new(Vec::new()),
                 selected: Cell::new(0),
                 chosen: Cell::new(None),
@@ -125,6 +123,7 @@ impl TabOverview {
                 open: Cell::new(false),
                 pinch: Cell::new(None),
                 activate: RefCell::new(None),
+                close: RefCell::new(None),
                 _edits: edits,
                 _click: click,
                 mtm,
@@ -143,13 +142,18 @@ impl TabOverview {
         *self.activate.borrow_mut() = Some(Rc::new(activate));
     }
 
+    /// Runs `close` with the position of the card whose close button was clicked.
+    pub fn on_close(&self, close: impl Fn(usize) + 'static) {
+        *self.close.borrow_mut() = Some(Rc::new(close));
+    }
+
     /// Opens over `host` on `tabs` with `selected` chosen. During a pinch it appears where the
     /// fingers are; otherwise at once for the keyboard, or with `overlay-enter` for a click.
     pub fn show(
         &self,
         host: &NSView,
         window: &NSWindow,
-        tabs: &[OverviewTab],
+        tabs: Vec<TabCard>,
         selected: usize,
         trigger: Trigger,
     ) {
@@ -180,19 +184,9 @@ impl TabOverview {
     }
 
     /// Replaces the cards, as after a tab closed, keeping what is typed.
-    pub fn set_tabs(&self, tabs: &[OverviewTab], selected: usize) {
-        for card in self.cards.borrow_mut().drain(..) {
-            card.view().removeFromSuperview();
-        }
-        let cards: Vec<Card> = tabs.iter().map(|tab| Card::new(tab, self.mtm)).collect();
-        for card in &cards {
-            self.grid.addSubview(card.view());
-        }
-        *self.cards.borrow_mut() = cards;
-        *self.words.borrow_mut() = tabs
-            .iter()
-            .map(|tab| (tab.title.clone(), tab.host.clone()))
-            .collect();
+    pub fn set_tabs(&self, tabs: Vec<TabCard>, selected: usize) {
+        *self.tabs.borrow_mut() = tabs;
+        self.on_card.borrow_mut().fill(None);
         self.refilter(Some(selected));
     }
 
@@ -232,7 +226,13 @@ impl TabOverview {
 
     /// Shows a new picture of the tab at `index`.
     pub fn set_thumbnail(&self, index: usize, image: Option<&NSImage>) {
-        if let Some(card) = self.cards.borrow().get(index) {
+        if let Some(tab) = self.tabs.borrow_mut().get_mut(index) {
+            tab.thumbnail = image.map(Message::retain);
+        }
+        let on_card = self.on_card.borrow();
+        if let Some(slot) = on_card.iter().position(|&shown| shown == Some(index))
+            && let Some(card) = self.cards.borrow().get(slot)
+        {
             card.set_picture(image);
         }
     }
@@ -322,14 +322,14 @@ impl TabOverview {
     /// else on the tab last chosen, if it is kept; otherwise on the first card.
     fn refilter(&self, keep: Option<usize>) {
         let query = self.field.stringValue().to_string();
-        let kept = {
-            let words = self.words.borrow();
-            filter::kept(
-                words
-                    .iter()
-                    .map(|(title, host)| (title.as_str(), host.as_str())),
+        let (kept, total) = {
+            let tabs = self.tabs.borrow();
+            let kept = filter::kept(
+                tabs.iter()
+                    .map(|tab| (tab.title.as_str(), tab.host.as_str())),
                 &query,
-            )
+            );
+            (kept, tabs.len())
         };
         if keep.is_some() {
             self.chosen.set(keep);
@@ -339,13 +339,7 @@ impl TabOverview {
             .get()
             .and_then(|tab| kept.iter().position(|&kept| kept == tab))
             .unwrap_or(0);
-        let total = self.words.borrow().len();
-        let count = match (kept.len(), total) {
-            (shown, total) if shown < total => format!("{shown} of {total} tabs"),
-            (_, 1) => "1 tab".to_owned(),
-            (_, total) => format!("{total} tabs"),
-        };
-        self.count.setStringValue(&NSString::from_str(&count));
+        self.count.set_text(&filter::count(kept.len(), total));
         *self.kept.borrow_mut() = kept;
         self.selected.set(selected);
         self.relayout();
@@ -369,7 +363,8 @@ impl TabOverview {
             .frame()
             .size
             .height
-            .max(self.count.frame().size.height);
+            .max(self.heading.frame().size.height)
+            .max(self.count.view().frame().size.height);
         let hints = self.hints.frame().size.height;
         let chrome = padding * 2.0 + header + hints + space::MD * 2.0;
         let width = overlay::OVERVIEW_MAX_WIDTH.min(bounds.width - space::XL * 2.0);
@@ -409,33 +404,63 @@ impl TabOverview {
             ),
             grid_size,
         ));
-        let top = size.height - padding - header;
-        let count_width = self.count.frame().size.width.max(space::XL * 4.0);
-        self.count.setFrame(NSRect::new(
-            NSPoint::new(padding + inner - count_width, top),
-            NSSize::new(count_width, header),
-        ));
-        self.field.setFrame(NSRect::new(
-            NSPoint::new(padding, top),
-            NSSize::new(inner - count_width - space::MD, header),
-        ));
-        let cards = self.cards.borrow();
+        self.lay_out_header(size.height - padding - header, padding, inner, header);
         let selected = kept.get(self.selected.get()).copied();
-        for card in cards.iter() {
-            card.view().setHidden(true);
-        }
-        for (position, &index) in kept.iter().enumerate() {
-            let Some(card) = cards.get(index) else {
+        let columns = layout.columns.max(1);
+        let first = (rows.start * columns).min(kept.len());
+        let last = (rows.end * columns).min(kept.len());
+        self.fit_pool(last - first);
+        let cards = self.cards.borrow();
+        let tabs = self.tabs.borrow();
+        let mut on_card = self.on_card.borrow_mut();
+        for (slot, card) in cards.iter().enumerate() {
+            let Some(&index) = kept.get(first + slot).filter(|_| first + slot < last) else {
+                card.view().setHidden(true);
+                on_card[slot] = None;
                 continue;
             };
-            let row = position / layout.columns.max(1);
-            if !rows.contains(&row) {
-                continue;
+            if on_card[slot] != Some(index)
+                && let Some(tab) = tabs.get(index)
+            {
+                card.show(tab);
+                on_card[slot] = Some(index);
             }
-            let origin = layout.origin(position, rows.start, grid_size.height, room.gap);
-            card.set_frame(NSRect::new(origin, layout.card));
+            let origin = layout.origin(first + slot, rows.start, grid_size.height, room.gap);
             card.set_selected(Some(index) == selected);
+            card.set_frame(NSRect::new(origin, layout.card));
             card.view().setHidden(false);
+        }
+    }
+
+    /// The heading and its count on the left of the header row at `y`, the filter field in
+    /// the rest of it.
+    fn lay_out_header(&self, y: f64, left: f64, width: f64, height: f64) {
+        let middle = |item: f64| y + ((height - item) / 2.0).floor();
+        let heading = self.heading.frame().size;
+        self.heading
+            .setFrameOrigin(NSPoint::new(left, middle(heading.height)));
+        let count = self.count.view().frame().size;
+        let count_x = left + heading.width + space::SM;
+        self.count
+            .view()
+            .setFrameOrigin(NSPoint::new(count_x, middle(count.height)));
+        let field_x = count_x + count.width + space::LG;
+        let field = self.field.frame().size;
+        self.field.setFrame(NSRect::new(
+            NSPoint::new(field_x, middle(field.height)),
+            NSSize::new((left + width - field_x).max(0.0), field.height),
+        ));
+    }
+
+    /// Grows the pool to at least `count` cards; spare ones stay for the next time.
+    fn fit_pool(&self, count: usize) {
+        let mut cards = self.cards.borrow_mut();
+        while cards.len() < count {
+            let card = Card::new(Look::Grid, self.mtm);
+            card.view().setHidden(true);
+            self.grid.addSubview(card.view());
+            cards.push(card);
+            self.on_card.borrow_mut().push(None);
         }
     }
 
@@ -444,6 +469,21 @@ impl TabOverview {
         let Some((layout, first_row)) = self.layout.get() else {
             return;
         };
+        let closing = {
+            let cards = self.cards.borrow();
+            let on_card = self.on_card.borrow();
+            cards
+                .iter()
+                .zip(on_card.iter())
+                .find_map(|(card, &index)| index.filter(|_| card.closes_at(point)))
+        };
+        if let Some(index) = closing {
+            let close = self.close.borrow().clone();
+            if let Some(close) = close {
+                close(index);
+            }
+            return;
+        }
         let kept = self.kept.borrow().clone();
         let height = self.grid.frame().size.height;
         let Some(position) = layout.hit(point, kept.len(), first_row, height, space::LG) else {

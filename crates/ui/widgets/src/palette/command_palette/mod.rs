@@ -10,7 +10,6 @@
 //! as the palette use case reads it; typing a prefix into the empty field moves it to the
 //! prompt, and `⌫` in the empty field takes it away.
 
-mod field;
 mod rows;
 mod symbols;
 
@@ -19,24 +18,22 @@ use std::rc::Rc;
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{
-    NSAccessibility, NSAutoresizingMaskOptions, NSFocusRingType, NSFont, NSImageView,
-    NSLineBreakMode, NSTextAlignment, NSTextField, NSTextInputClient, NSTextView, NSView, NSWindow,
+    NSAccessibility, NSAutoresizingMaskOptions, NSFont, NSImageView, NSLineBreakMode,
+    NSTextAlignment, NSTextField, NSView, NSWindow,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSPoint, NSRange, NSRect, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use quickie_application::PaletteItem;
 use quickie_domain_browsing::Timestamp;
 use quickie_domain_palette::{Mode, Query};
 use quickie_ui_shared::tokens::{TextRole, color, overlay, space};
 use quickie_ui_shared::{
-    Elevation, GlassSurface, HintStrip, KeycapStyle, ListSection, ListView, Plate, Scrim, Trigger,
-    keycap, motion, symbol,
+    Elevation, GlassSurface, HintStrip, KeycapStyle, ListSection, ListView, Plate, QueryField,
+    Scrim, Trigger, keycap, motion, symbol,
 };
 use url::Url;
 
-use field::FieldDelegate;
 pub use rows::{Favicon, Group, groups, nothing_found, row};
 
 /// At most this many rows show at once; the rest scroll.
@@ -63,20 +60,20 @@ struct Input {
     prefix: Cell<Option<char>>,
     glyph: Retained<NSTextField>,
     search: Option<Retained<NSImageView>>,
-    field: Retained<NSTextField>,
+    field: QueryField,
     strip: HintStrip,
 }
 
 impl Input {
     /// Prefix and query, as the palette use case reads them.
     fn text(&self) -> String {
-        let query = self.field.stringValue().to_string();
+        let query = self.field.text();
         self.prefix
             .get()
             .map_or(query.clone(), |prefix| format!("{prefix}{query}"))
     }
 
-    /// Splits `text` into the prompt's prefix and the field's query.
+    /// Splits `text` into the prompt's prefix and the field's query, the caret after it.
     fn set_text(&self, text: &str) {
         let mut chars = text.chars();
         let prefix = chars.next().filter(|&c| Mode::from_prefix(c).is_some());
@@ -85,7 +82,7 @@ impl Input {
         } else {
             text
         };
-        self.field.setStringValue(&NSString::from_str(query));
+        self.field.set_text(query);
         self.set_prefix(prefix);
     }
 
@@ -95,7 +92,7 @@ impl Input {
         if self.prefix.get().is_some() {
             return false;
         }
-        let text = self.field.stringValue().to_string();
+        let text = self.field.text();
         if text.chars().next().and_then(Mode::from_prefix).is_none() {
             return false;
         }
@@ -123,6 +120,7 @@ impl Input {
             search.setHidden(prefix.is_some());
         }
         self.field
+            .view()
             .setPlaceholderString(Some(&NSString::from_str(placeholder(mode))));
         self.strip
             .set_active(prefix.and_then(|p| HINTS.iter().position(|(key, _)| key.starts_with(p))));
@@ -147,7 +145,6 @@ pub struct CommandPalette {
     input: Rc<Input>,
     escape: Retained<NSView>,
     rule: Retained<Plate>,
-    delegate: Retained<FieldDelegate>,
     list: ListView,
     empty: Retained<NSTextField>,
     /// The position in the last answer of each row, in list order.
@@ -160,20 +157,10 @@ impl CommandPalette {
     #[must_use]
     pub fn new(mtm: MainThreadMarker) -> Self {
         let surface = GlassSurface::new(Elevation::E2, mtm);
-        let field = NSTextField::new(mtm);
-        field.setFont(Some(&TextRole::PaletteInput.font()));
-        field.setTextColor(Some(&color::label()));
-        field.setBezeled(false);
-        field.setBordered(false);
-        field.setDrawsBackground(false);
-        field.setFocusRingType(NSFocusRingType::None);
-        field.setUsesSingleLineMode(true);
-        field.setAccessibilityLabel(Some(&NSString::from_str("Palette query")));
-        if let Some(cell) = field.cell() {
-            cell.setScrollable(true);
-            cell.setWraps(false);
-        }
-        field.sizeToFit();
+        let field = QueryField::new(&TextRole::PaletteInput.font(), placeholder(Mode::GoTo), mtm);
+        field
+            .view()
+            .setAccessibilityLabel(Some(&NSString::from_str("Palette query")));
         let glyph = NSTextField::labelWithString(&NSString::from_str(">"), mtm);
         glyph.setFont(Some(&prompt_font()));
         glyph.setTextColor(Some(&color::accent()));
@@ -192,14 +179,6 @@ impl CommandPalette {
             strip: HintStrip::new(&HINTS, &SELECT, mtm),
         });
         input.set_prefix(None);
-        let delegate = FieldDelegate::new(mtm);
-        // SAFETY: the field holds its delegate weakly; the palette keeps it alive as long as
-        // the field.
-        unsafe {
-            input
-                .field
-                .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-        }
         let escape = keycap("⎋ esc", KeycapStyle::Plain, mtm);
         escape.setAccessibilityLabel(Some(&NSString::from_str("Escape closes")));
         let rule = Plate::new(Some(color::separator), None, 0.0, mtm);
@@ -211,7 +190,7 @@ impl CommandPalette {
         let list = ListView::new(mtm);
         let content = surface.content_view();
         for view in [
-            &*input.field as &NSView,
+            input.field.view() as &NSView,
             &input.glyph,
             &escape,
             &rule,
@@ -224,32 +203,30 @@ impl CommandPalette {
         if let Some(search) = &input.search {
             content.addSubview(search);
         }
-        let palette = Self {
+        let weak = Rc::downgrade(&input);
+        input
+            .field
+            .on_erase_empty(move || weak.upgrade().is_some_and(|input| input.erase()));
+        let weak = Rc::downgrade(&input);
+        input.field.on_absorb(move || {
+            if let Some(input) = weak.upgrade()
+                && input.absorb()
+            {
+                input.field.caret_to_end();
+            }
+        });
+        Self {
             scrim: Scrim::new(Elevation::E2, mtm),
             surface,
             input,
             escape,
             rule,
-            delegate,
             list,
             empty,
             order: Rc::new(RefCell::new(Vec::new())),
             favicon: RefCell::new(Rc::new(|_: &Url| None)),
             open: Cell::new(false),
-        };
-        let input = Rc::downgrade(&palette.input);
-        palette
-            .delegate
-            .on_erase_empty(move || input.upgrade().is_some_and(|input| input.erase()));
-        let input = Rc::downgrade(&palette.input);
-        palette.delegate.on_absorb(move || {
-            if let Some(input) = input.upgrade()
-                && input.absorb()
-            {
-                caret_to_end(&input.field);
-            }
-        });
-        palette
+        }
     }
 
     #[must_use]
@@ -275,8 +252,8 @@ impl CommandPalette {
             self.open.set(true);
         }
         self.layout(host);
-        window.makeFirstResponder(Some(&self.input.field));
-        caret_to_end(&self.input.field);
+        window.makeFirstResponder(Some(self.input.field.view()));
+        self.input.field.caret_to_end();
     }
 
     pub fn hide(&self) {
@@ -305,7 +282,6 @@ impl CommandPalette {
     /// caller answers the new query.
     pub fn set_text(&self, text: &str) {
         self.input.set_text(text);
-        caret_to_end(&self.input.field);
     }
 
     /// Where row pictures come from: the favicon kept for a page's site, if any.
@@ -369,16 +345,12 @@ impl CommandPalette {
     /// True while an input method is composing in the field: ⏎ then commits the composition.
     #[must_use]
     pub fn is_composing(&self) -> bool {
-        self.input
-            .field
-            .currentEditor()
-            .and_then(|editor| editor.downcast::<NSTextView>().ok())
-            .is_some_and(|editor| editor.hasMarkedText())
+        self.input.field.is_composing()
     }
 
     /// Runs `changed` after each edit in the field.
     pub fn on_change(&self, changed: impl Fn() + 'static) {
-        self.delegate.on_change(changed);
+        self.input.field.on_change(changed);
     }
 
     /// Runs `activate` with the position, in the last answer, of a clicked row.
@@ -399,7 +371,7 @@ impl CommandPalette {
         let bounds = host.bounds();
         let width = overlay::PALETTE_WIDTH.min(bounds.size.width - space::XL * 2.0);
         let padding = space::PALETTE_PADDING;
-        let field_height = self.input.field.frame().size.height;
+        let field_height = self.input.field.height();
         let input_height = field_height + space::LG * 2.0;
         let strip = HintStrip::HEIGHT;
         let top = bounds.size.height * (1.0 - overlay::PALETTE_TOP);
@@ -466,20 +438,13 @@ impl CommandPalette {
         self.escape
             .setFrameOrigin(NSPoint::new(width - padding - escape.width, middle(escape)));
         let field_x = padding + prompt_width + space::MD;
-        self.input.field.setFrame(NSRect::new(
+        self.input.field.view().setFrame(NSRect::new(
             NSPoint::new(field_x, row_bottom + space::LG),
             NSSize::new(
                 (width - padding - escape.width - space::MD - field_x).max(0.0),
                 field_height,
             ),
         ));
-    }
-}
-
-fn caret_to_end(field: &NSTextField) {
-    if let Some(editor) = field.currentEditor() {
-        let end = field.stringValue().length();
-        editor.setSelectedRange(NSRange::new(end, 0));
     }
 }
 

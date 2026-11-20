@@ -6,8 +6,8 @@
 
 #![expect(
     unsafe_code,
-    reason = "AppKit through objc2: field selection and superviews, the palette field's \
-              delegate, the find bar's buttons and edits, Core Animation transactions, the \
+    reason = "AppKit through objc2: field selection and superviews, the address URL's \
+              paragraph style, the find bar's buttons and edits, Core Animation transactions, the \
               toast and chip timers, the overview's click target and edit observer, layer \
               contents, and the answer's text storage and link delegate"
 )]
@@ -42,7 +42,7 @@ pub use popovers::shields_popover::{ShieldsPopover, ShieldsRequest, ShieldsSumma
 pub use sheets::dialog_sheet::{DialogChoice, DialogKind, DialogRequest, DialogSheet};
 pub use sheets::extension_sheet::{ExtensionRequest, ExtensionSheet, Moment, describe};
 pub use sheets::permission_sheet::PermissionSheet;
+pub use tabs::tab_overview::TabOverview;
 pub use tabs::tab_overview::grid::Move;
 pub use tabs::tab_overview::pinch::Step as PinchStep;
-pub use tabs::tab_overview::{OverviewTab, TabOverview};
 pub use tabs::tab_switcher::TabSwitcher;

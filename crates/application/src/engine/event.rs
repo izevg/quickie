@@ -65,6 +65,9 @@ pub enum EngineEvent<P> {
     },
     /// A new picture of the page can be read.
     Pictured { tab: TabId },
+    /// The content blocker kept `requests` of the page's loads from happening, since the last
+    /// report; they belong to the page the tab committed last.
+    Blocked { tab: TabId, requests: u32 },
     /// A download moved on.
     Download(DownloadEvent),
 }

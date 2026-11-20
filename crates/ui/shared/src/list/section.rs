@@ -37,7 +37,8 @@ pub(super) enum Entry {
         /// The first header has no hairline above it.
         first: bool,
     },
-    Row(ListRow),
+    /// Boxed: a row is far larger than a header.
+    Row(Box<ListRow>),
 }
 
 impl Entry {
@@ -56,7 +57,7 @@ impl Entry {
     pub(super) fn row(&self) -> Option<&ListRow> {
         match self {
             Self::Header { .. } => None,
-            Self::Row(row) => Some(row),
+            Self::Row(row) => Some(row.as_ref()),
         }
     }
 }
@@ -77,7 +78,12 @@ pub(super) fn entries(sections: Vec<ListSection>) -> Vec<Entry> {
                 first,
             });
         }
-        entries.extend(section.rows.into_iter().map(Entry::Row));
+        entries.extend(
+            section
+                .rows
+                .into_iter()
+                .map(|row| Entry::Row(Box::new(row))),
+        );
     }
     entries
 }

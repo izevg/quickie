@@ -64,12 +64,19 @@ impl NavigationOverlays {
 }
 
 impl Browser {
-    /// Hands the overview's clicks to the browser.
+    /// Hands the overview's clicks to the browser: on a card, and on its close button.
     pub(super) fn wire_navigation(&self) {
         let this = self.this.clone();
         self.navigation.overview.on_activate(move |index| {
             if let Some(browser) = this.upgrade() {
                 browser.switch_from_overview(index, Trigger::Pointer);
+                browser.drain();
+            }
+        });
+        let this = self.this.clone();
+        self.navigation.overview.on_close(move |index| {
+            if let Some(browser) = this.upgrade() {
+                browser.close_from_overview(index);
                 browser.drain();
             }
         });

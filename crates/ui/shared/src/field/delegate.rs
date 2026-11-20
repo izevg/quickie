@@ -1,5 +1,5 @@
-//! The palette's query field reports each edit, so the answer follows every keystroke, and a
-//! `⌫` in the empty field, which leaves the mode the prompt shows.
+//! The query field's delegate reports each edit, so an answer follows every keystroke, and a
+//! `⌫` in the empty field, which the palette uses to leave the mode its prompt shows.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -25,7 +25,7 @@ define_class!(
     // `Drop`.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[name = "QuickiePaletteFieldDelegate"]
+    #[name = "QuickieQueryFieldDelegate"]
     #[ivars = Ivars]
     pub struct FieldDelegate;
 

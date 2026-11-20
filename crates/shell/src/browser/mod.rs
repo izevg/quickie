@@ -9,6 +9,7 @@
 //! - [`commands`]: the dispatcher, from a command id to the use case that does it; page zoom,
 //!   printing, and saving a page as a PDF.
 //! - [`palette`]: the command palette's query and what choosing a row does.
+//! - [`address`]: the address overlay's suggestions and where choosing one goes.
 //! - [`page`]: find in page, the origin chip, the load progress line, the sheets of what pages
 //!   ask, and the full-screen notice.
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
@@ -18,6 +19,7 @@
 //!   Settings window, and web extensions.
 //! - [`agent`]: asking the agent about the page, its answer panel, badge, and settings.
 
+mod address;
 mod agent;
 mod commands;
 mod events;
@@ -106,6 +108,9 @@ pub struct Browser {
     settings: OnceCell<SettingsScreen>,
     /// How the last filter list fetch went, for the Settings window.
     lists_status: RefCell<String>,
+    /// The user changed the lists: once their rules are compiled, open pages are offered a
+    /// reload.
+    rules_wanted: Cell<bool>,
     downloads_folder: PathBuf,
     writes: Vec<PendingWrites>,
     windows: RefCell<BTreeMap<WindowId, Retained<NSWindow>>>,
@@ -203,6 +208,7 @@ impl Browser {
             keymap_problems: RefCell::new(services.keymap_problems),
             settings: OnceCell::new(),
             lists_status: RefCell::new(String::new()),
+            rules_wanted: Cell::new(false),
             downloads_folder: services.downloads_folder.clone(),
             writes: services.writes,
             windows: RefCell::new(BTreeMap::new()),
@@ -235,10 +241,7 @@ impl Browser {
         browser.wire_navigation();
         browser.wire_popovers();
         browser.wire_agent();
-        // Only lists the user enabled and that never arrived, or stale ones when the user keeps
-        // lists fresh: nothing on a fresh profile.
-        let due = browser.shields.borrow().due_fetches();
-        browser.fetch_lists(due);
+        browser.wire_shields();
         let weak = Rc::downgrade(&browser);
         browser
             .browsing
