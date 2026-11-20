@@ -1,8 +1,13 @@
 //! Filter lists in Adblock Plus syntax → `WebKit` content rule lists (Safari content-blocker
 //! JSON), by `adblock`'s converter. Pure and slow: it runs on a worker thread.
+//!
+//! Only the network rules are converted. The cosmetic rules are the cosmetic module's: as
+//! `css-display-none` rules they would be cancelled on every first-party page by the exception
+//! that lets top-level documents load (an `ignore-previous-rules` drops every earlier action of
+//! the load it matches), and they would take most of the 150 000 rules a list may hold.
 
 use adblock::content_blocking::{CbAction, CbRule, CbTrigger, CbType};
-use adblock::lists::{FilterSet, ParseOptions};
+use adblock::lists::{FilterSet, ParseOptions, RuleTypes};
 use quickie_application::BlockerRules;
 use quickie_domain_shields::ContentHash;
 
@@ -22,7 +27,7 @@ pub(crate) fn fingerprint(rules: &BlockerRules) -> String {
         .iter()
         .map(|list| format!("{}={}", list.list, list.hash));
     let sites = rules.unshielded.iter().map(ToString::to_string);
-    let text: Vec<String> = [format!("v1 {MAX_RULES}")]
+    let text: Vec<String> = [format!("v2 network {MAX_RULES}")]
         .into_iter()
         .chain(lists)
         .chain([String::from("|")])
@@ -31,34 +36,84 @@ pub(crate) fn fingerprint(rules: &BlockerRules) -> String {
     ContentHash::of(text.join(" ").as_bytes()).to_string()
 }
 
-/// The identifier of rule list `index` of `count` with this fingerprint.
-pub(crate) fn identifier(fingerprint: &str, index: usize, count: usize) -> String {
-    format!("{PREFIX}{fingerprint}-{index}-{count}")
+/// One compiled rule list of a set: which of how many, how many rules it holds, and when it
+/// was compiled (seconds since 1970). The store keeps all of it in the list's identifier, so a
+/// later launch that finds the list knows what it holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Part {
+    pub(crate) index: usize,
+    pub(crate) count: usize,
+    pub(crate) rules: usize,
+    pub(crate) compiled: u64,
 }
 
-/// How many rule lists the store already holds, compiled, for this fingerprint: `Some` only when
-/// every one of them is there.
-pub(crate) fn cached(identifiers: &[String], fingerprint: &str) -> Option<usize> {
-    let mine = format!("{PREFIX}{fingerprint}-");
-    let count: usize = identifiers
+/// The identifier of `part` of the rule lists with this fingerprint.
+pub(crate) fn identifier(fingerprint: &str, part: Part) -> String {
+    let Part {
+        index,
+        count,
+        rules,
+        compiled,
+    } = part;
+    format!("{PREFIX}{fingerprint}-{index}-{count}-{rules}-{compiled}")
+}
+
+/// The part an identifier names, when it is one of this fingerprint's.
+fn part_of(identifier: &str, fingerprint: &str) -> Option<Part> {
+    let rest = identifier
+        .strip_prefix(PREFIX)?
+        .strip_prefix(fingerprint)?
+        .strip_prefix('-')?;
+    let numbers: Vec<&str> = rest.split('-').collect();
+    let [index, count, rules, compiled] = numbers.as_slice() else {
+        return None;
+    };
+    let part = Part {
+        index: index.parse().ok()?,
+        count: count.parse().ok()?,
+        rules: rules.parse().ok()?,
+        compiled: compiled.parse().ok()?,
+    };
+    (part.index < part.count).then_some(part)
+}
+
+/// The rule lists the store already holds, compiled, for this fingerprint, in order: `Some`
+/// only when every one of a set is there.
+pub(crate) fn cached(identifiers: &[String], fingerprint: &str) -> Option<Vec<Part>> {
+    let parts: Vec<Part> = identifiers
         .iter()
-        .find_map(|id| id.strip_prefix(&mine)?.rsplit_once('-')?.1.parse().ok())?;
+        .filter_map(|id| part_of(id, fingerprint))
+        .collect();
+    let count = parts.first()?.count;
     (0..count)
-        .all(|index| identifiers.contains(&identifier(fingerprint, index, count)))
-        .then_some(count)
+        .map(|index| {
+            parts
+                .iter()
+                .find(|part| part.index == index && part.count == count)
+                .copied()
+        })
+        .collect()
 }
 
 /// The rule lists `rules` compile to, as JSON documents of at most `max_rules` rules each
-/// ([`MAX_RULES`] for `WebKit`); none when there is nothing to block.
+/// ([`MAX_RULES`] for `WebKit`), each with its number of rules; none when there is nothing to
+/// block.
 ///
 /// `ignore-previous-rules` only reaches back within its own rule list, so every document ends
 /// with all of the lists' exceptions, and then one exception per unshielded site: a site with
 /// shields off loads everything on its pages and their subframes.
-pub(crate) fn encode(rules: &BlockerRules, max_rules: usize) -> Result<Vec<String>, String> {
+pub(crate) fn encode(
+    rules: &BlockerRules,
+    max_rules: usize,
+) -> Result<Vec<(String, usize)>, String> {
     let mut filters = FilterSet::new(true);
     for list in &rules.lists {
         let text = String::from_utf8_lossy(&list.body).into_owned();
-        filters.add_filter_list(text, ParseOptions::default());
+        let options = ParseOptions {
+            rule_types: RuleTypes::NetworkOnly,
+            ..ParseOptions::default()
+        };
+        filters.add_filter_list(text, options);
     }
     let (converted, _) = filters
         .into_content_blocking()
@@ -84,7 +139,9 @@ pub(crate) fn encode(rules: &BlockerRules, max_rules: usize) -> Result<Vec<Strin
         .chunks(room)
         .map(|chunk| {
             let document: Vec<&CbRule> = chunk.iter().chain(&tail).collect();
-            serde_json::to_string(&document).map_err(|error| error.to_string())
+            serde_json::to_string(&document)
+                .map(|json| (json, document.len()))
+                .map_err(|error| error.to_string())
         })
         .collect()
 }
@@ -112,7 +169,7 @@ mod tests {
     use quickie_domain_shields::{ContentHash, FilterListId, Site};
     use serde_json::Value;
 
-    use super::{MAX_RULES, cached, encode, fingerprint, identifier};
+    use super::{MAX_RULES, Part, cached, encode, fingerprint, identifier};
 
     fn list(id: FilterListId, text: &str) -> ListRules {
         ListRules {
@@ -136,7 +193,7 @@ mod tests {
         encode(rules, MAX_RULES)
             .unwrap()
             .iter()
-            .map(|json| serde_json::from_str(json).unwrap())
+            .map(|(json, _)| serde_json::from_str(json).unwrap())
             .collect()
     }
 
@@ -193,7 +250,7 @@ mod tests {
 
         let parts: Vec<Vec<Value>> = encoded
             .iter()
-            .map(|json| serde_json::from_str(json).unwrap())
+            .map(|(json, _)| serde_json::from_str(json).unwrap())
             .collect();
         let shapes: Vec<Vec<&str>> = parts
             .iter()
@@ -266,9 +323,53 @@ mod tests {
         assert_ne!(fingerprint(&base), other_sites);
     }
 
+    // Without a domain resolver, `adblock` panicked on the first `$to=` rule while parsing, and
+    // the worker thread that converted every list died with it.
     #[test]
-    fn identifiers_carry_the_fingerprint_index_and_count() {
-        assert_eq!(identifier("ab", 1, 3), "quickie-shields-ab-1-3");
+    fn a_ublock_to_option_converts() {
+        let encoded = encode(&rules("||cdn.test^$script,to=ads.test\n", &[]), MAX_RULES);
+
+        assert!(encoded.is_ok());
+    }
+
+    #[test]
+    fn cosmetic_rules_are_left_to_the_cosmetic_filters() {
+        let encoded = documents(&rules(
+            "##.ad\nexample.com##.banner\n||tracker.test^\n",
+            &[],
+        ));
+
+        let actions: Vec<&str> = encoded[0].iter().map(action).collect();
+        assert!(!actions.contains(&"css-display-none"), "{actions:?}");
+        assert!(actions.contains(&"block"));
+    }
+
+    #[test]
+    fn each_document_counts_its_rules() {
+        let encoded = encode(&rules("||a.test^\n||b.test^\n", &[]), MAX_RULES).unwrap();
+
+        let [(json, count)] = encoded.as_slice() else {
+            panic!("one document expected");
+        };
+        let parsed: Vec<Value> = serde_json::from_str(json).unwrap();
+        assert_eq!(*count, parsed.len());
+    }
+
+    fn part(index: usize, count: usize) -> Part {
+        Part {
+            index,
+            count,
+            rules: 10 + index,
+            compiled: 1_700_000_000,
+        }
+    }
+
+    #[test]
+    fn identifiers_carry_the_fingerprint_and_the_part() {
+        assert_eq!(
+            identifier("ab", part(1, 3)),
+            "quickie-shields-ab-1-3-11-1700000000"
+        );
     }
 
     fn ids(names: &[&str]) -> Vec<String> {
@@ -276,24 +377,30 @@ mod tests {
     }
 
     #[test]
-    fn a_complete_set_of_compiled_lists_is_reused() {
+    fn a_complete_set_of_compiled_lists_is_reused_in_order() {
         let stored = ids(&[
             "someone-else",
-            "quickie-shields-ab-1-2",
-            "quickie-shields-cd-0-1",
-            "quickie-shields-ab-0-2",
+            &identifier("ab", part(1, 2)),
+            &identifier("cd", part(0, 1)),
+            &identifier("ab", part(0, 2)),
         ]);
 
-        assert_eq!(cached(&stored, "ab"), Some(2));
-        assert_eq!(cached(&stored, "cd"), Some(1));
+        assert_eq!(cached(&stored, "ab"), Some(vec![part(0, 2), part(1, 2)]));
+        assert_eq!(cached(&stored, "cd"), Some(vec![part(0, 1)]));
     }
 
     #[test]
     fn a_partial_set_or_none_is_compiled_again() {
-        let stored = ids(&["quickie-shields-ab-1-2", "quickie-shields-abc-0-1"]);
+        let stored = ids(&[
+            &identifier("ab", part(1, 2)),
+            &identifier("abc", part(0, 1)),
+        ]);
 
         assert_eq!(cached(&stored, "ab"), None);
         assert_eq!(cached(&stored, "zz"), None);
         assert_eq!(cached(&ids(&["quickie-shields-ab-x"]), "ab"), None);
+        assert_eq!(cached(&ids(&["quickie-shields-ab-0-1-2"]), "ab"), None);
+        assert_eq!(cached(&ids(&["quickie-shields-ab-1-1-2-3"]), "ab"), None);
+        assert_eq!(cached(&ids(&["someone-ab-0-1-2-3"]), "ab"), None);
     }
 }

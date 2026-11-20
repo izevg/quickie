@@ -238,7 +238,10 @@ impl<R: ShieldsRepo, C: Clock, B: ContentBlockerPort> Shields<R, C, B> {
             match body {
                 Err(error) => refreshed.failed.push((list, error)),
                 Ok(body) => {
-                    if next.record_fetch(list, now, ContentHash::of(&body)) {
+                    // Content the store lost (discarded as corrupt at start) is new again, even
+                    // when its hash is the one recorded: without it the list blocks nothing.
+                    let new = next.record_fetch(list, now, ContentHash::of(&body));
+                    if new || !self.bodies.contains_key(&list) {
                         refreshed.updated.push(list);
                         new_bodies.push((list, Arc::<[u8]>::from(body)));
                     } else {
@@ -247,7 +250,7 @@ impl<R: ShieldsRepo, C: Clock, B: ContentBlockerPort> Shields<R, C, B> {
                 }
             }
         }
-        if next == self.lists {
+        if next == self.lists && new_bodies.is_empty() {
             return Ok(refreshed);
         }
         for (list, body) in &new_bodies {

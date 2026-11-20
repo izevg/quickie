@@ -50,6 +50,7 @@ const STORIES: &[Story] = &[
     settings("general", "general-default", LIGHT, general_default),
     settings("shields", "shields", LIGHT_DARK, shields),
     settings("shields", "shields-fetching", LIGHT, shields_fetching),
+    settings("shields", "shields-no-lists", LIGHT_DARK, shields_no_lists),
     settings(
         "extensions",
         "extensions",
@@ -205,6 +206,7 @@ fn shields_state(status: &str) -> ShieldsState {
         keep_fresh: true,
         site_keys: "⌥⌘S".to_owned(),
         status: status.to_owned(),
+        rules: "Rules active: 81,203 rules in 1 list, compiled 2 h ago".to_owned(),
     }
 }
 
@@ -237,6 +239,27 @@ fn general_default(scene: &mut Scene) {
 fn shields(scene: &mut Scene) {
     open(scene, None);
     go(scene, Pane::Shields, "Privacy & Shields");
+}
+
+/// No list on: the card says so, and its one button asks to turn them on.
+fn shields_no_lists(scene: &mut Scene) {
+    let settings = open(scene, None);
+    let mut state = shields_state("");
+    for list in &mut state.lists {
+        list.enabled = false;
+    }
+    state.rules = String::new();
+    settings.screen.set_shields(&state);
+    go(scene, Pane::Shields, "Privacy & Shields");
+    match scene.view_labelled("Enable") {
+        Some(button) => scene.click(&button),
+        None => scene.check(false, "the Enable button is labelled"),
+    }
+    scene.check_eq(
+        settings.actions.borrow().clone(),
+        vec![SettingsAction::EnableLists],
+        "Enable asks to turn the lists on",
+    );
 }
 
 fn shields_fetching(scene: &mut Scene) {

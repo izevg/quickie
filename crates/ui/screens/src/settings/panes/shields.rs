@@ -1,5 +1,8 @@
-//! Privacy & Shields: a card that says whether protection is on and where the per-site
-//! switches live (on the page, not here); the filter lists, each a row with when it last
+//! Privacy & Shields: a card that says whether protection is on, what the content blocker made
+//! of the lists (measured: rules active, compiling, or why it failed), and where the per-site
+//! switches live (on the page, not here), or, with no list on, says so next to the one button
+//! that enables them (nothing is fetched before it is clicked); the filter lists, each a row
+//! with when it last
 //! arrived, a button that fetches it now, and its switch (`docs/design/inventory.md`,
 //! `filter_list_row`); and whether stale lists are fetched on their own.
 
@@ -40,6 +43,9 @@ pub struct ShieldsState {
     pub site_keys: String,
     /// How the last fetch went, or what is going on now; empty for nothing to say.
     pub status: String,
+    /// What the content blocker made of the lists, as measured ("Rules active: …",
+    /// "Compiling rules…", "Failed: …"); empty for nothing to say.
+    pub rules: String,
 }
 
 impl ShieldsState {
@@ -49,20 +55,27 @@ impl ShieldsState {
             .iter()
             .any(|list| list.enabled && list.fetched_ago_ms.is_some())
     }
+
+    /// Whether any list is on, arrived or not.
+    fn any_enabled(&self) -> bool {
+        self.lists.iter().any(|list| list.enabled)
+    }
 }
 
-/// The card on top: a symbol, a title, and a line.
+/// The card on top: a symbol, a title, a line, and, while no list is on, the button that
+/// turns them on.
 struct Card {
     plate: Retained<Plate>,
     icon: Retained<NSImageView>,
     title: Retained<NSTextField>,
     detail: Retained<NSTextField>,
+    enable: Retained<NSButton>,
 }
 
 impl Card {
     const ICON: CGFloat = 28.0;
 
-    fn new(mtm: MainThreadMarker) -> Self {
+    fn new(target: &SettingsTarget, mtm: MainThreadMarker) -> Self {
         let plate = Plate::new(None, None, radius::ROW, mtm);
         let icon = NSImageView::initWithFrame(
             NSImageView::alloc(mtm),
@@ -71,7 +84,9 @@ impl Card {
         let title = label("", TextRole::Headline, &color::label(), mtm);
         let detail = paragraph("", mtm);
         detail.setTextColor(Some(&color::secondary_label()));
-        for view in [&*icon as &NSView, &title, &detail] {
+        let enable = button("Enable", sel!(enableLists:), target, mtm);
+        enable.sizeToFit();
+        for view in [&*icon as &NSView, &title, &detail, &enable] {
             plate.addSubview(view);
         }
         Self {
@@ -79,6 +94,7 @@ impl Card {
             icon,
             title,
             detail,
+            enable,
         }
     }
 
@@ -89,13 +105,20 @@ impl Card {
                 color::success(),
                 "Protection is on",
             )
+        } else if state.any_enabled() {
+            (
+                "shield",
+                color::secondary_label(),
+                "Filter lists are on but not fetched yet",
+            )
         } else {
             (
                 "shield.slash",
                 color::secondary_label(),
-                "No filter list is on yet",
+                "No filter lists enabled",
             )
         };
+        self.enable.setHidden(state.any_enabled());
         if state.protected() {
             self.plate
                 .set_paint(Some(color::success_fill), Some(color::success_line));
@@ -117,20 +140,34 @@ impl Card {
         self.icon.setContentTintColor(Some(&tint));
         set(&self.title, title);
         self.title.sizeToFit();
-        set(
-            &self.detail,
-            &format!(
+        let about = if state.any_enabled() {
+            format!(
                 "Shields are set per site, on the page: {} shows the site's switches for \
                  blocking, HTTPS-only, and JavaScript.",
                 state.site_keys
-            ),
-        );
+            )
+        } else {
+            "Nothing is blocked until a list is on. Enable turns every list on and fetches \
+             them now: the only connections it makes."
+                .to_owned()
+        };
+        let detail = if state.rules.is_empty() {
+            about
+        } else {
+            format!("{}\n{about}", state.rules)
+        };
+        set(&self.detail, &detail);
     }
 
     /// Places the card at `origin`, [`INNER`] wide; returns its height.
     fn place(&self, origin: NSPoint) -> CGFloat {
         let left = space::LG + Self::ICON + space::MD;
-        let text_width = INNER - left - space::LG;
+        let button = if self.enable.isHidden() {
+            0.0
+        } else {
+            self.enable.frame().size.width + space::MD
+        };
+        let text_width = INNER - left - space::LG - button;
         let title_height = self.title.frame().size.height;
         let detail_height = wrapped_height(&self.detail, text_width);
         let height = (space::LG * 2.0 + title_height + space::XS + detail_height)
@@ -149,6 +186,11 @@ impl Card {
         self.detail.setFrame(NSRect::new(
             NSPoint::new(left, top + title_height + space::XS),
             NSSize::new(text_width, detail_height),
+        ));
+        let size = self.enable.frame().size;
+        self.enable.setFrameOrigin(NSPoint::new(
+            INNER - space::LG - size.width,
+            ((height - size.height) / 2.0).round(),
         ));
         height
     }
@@ -204,7 +246,7 @@ impl Shields {
         status.setTextColor(Some(&color::secondary_label()));
         let shields = Self {
             page: ScrollPage::new("Privacy & Shields", mtm),
-            card: Card::new(mtm),
+            card: Card::new(target, mtm),
             lists_heading: heading("Filter lists", mtm),
             lists_group,
             lists,

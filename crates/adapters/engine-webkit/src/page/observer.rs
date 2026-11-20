@@ -9,9 +9,10 @@ use std::rc::Rc;
 use block2::DynBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_foundation::{
-    NSHTTPURLResponse, NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration, NSString,
+    NSHTTPURLResponse, NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration,
+    NSString, NSURL,
 };
 use objc2_web_kit::{
     WKDownload, WKFullscreenState, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
@@ -19,10 +20,12 @@ use objc2_web_kit::{
     WKWebView,
 };
 use quickie_domain_browsing::Focus;
+use url::Url;
 
 use super::Hooks;
 use super::asks::link_focus;
 use crate::downloads::wants_download;
+use crate::shields;
 
 /// What a page reports while it lives. Delivered on the main thread, sometimes from inside a
 /// call into the view: a handler must only record it.
@@ -51,6 +54,8 @@ pub(crate) enum PageEvent {
     /// The web content process that rendered the page terminated: the view is blank until it
     /// loads again.
     Crashed,
+    /// One of Quickie's content rule lists kept a load of the page from happening.
+    Blocked,
 }
 
 /// The title is observed by its key path.
@@ -104,6 +109,26 @@ define_class!(
                 }
             }
         }
+
+        /// `WebKit`'s private `WKNavigationDelegatePrivate` callback, the one Safari and other
+        /// content blockers count with: a content rule list acted on one of the page's loads.
+        /// `WebKit` calls it only because this delegate responds to it; an older or newer
+        /// `WebKit` without it simply never calls, and the counts stay at zero. The action is a
+        /// private `_WKContentRuleListAction`, asked for `blockedLoad` only when it responds to
+        /// it. Only Quickie's own rule lists count.
+        #[unsafe(method(_webView:contentRuleListWithIdentifier:performedAction:forURL:))]
+        fn rule_list_acted(
+            &self,
+            _view: &WKWebView,
+            identifier: Option<&NSString>,
+            action: Option<&AnyObject>,
+            _url: Option<&NSURL>,
+        ) {
+            let ours = identifier.is_some_and(|id| shields::is_ours(&id.to_string()));
+            if ours && action.is_some_and(blocked_load) {
+                (self.ivars().hooks.on_event)(PageEvent::Blocked);
+            }
+        }
     }
 
     unsafe impl NSObjectProtocol for PageObserver {}
@@ -136,6 +161,11 @@ define_class!(
             let policy = if unsafe { action.shouldPerformDownload() } {
                 WKNavigationActionPolicy::Download
             } else {
+                // SAFETY: getters with no preconditions.
+                let url = unsafe { action.request() }.URL();
+                if let Some(url) = url.as_deref().and_then(parsed) {
+                    (self.ivars().hooks.on_navigation)(&url);
+                }
                 WKNavigationActionPolicy::Allow
             };
             decide.call((policy,));
@@ -159,12 +189,19 @@ define_class!(
                     http.valueForHTTPHeaderField(&NSString::from_str("Content-Disposition"))
                 })
                 .map(|value| value.to_string());
-            let policy = if wants_download(can_show, disposition.as_deref()) {
-                WKNavigationResponsePolicy::Download
-            } else {
-                WKNavigationResponsePolicy::Allow
+            if wants_download(can_show, disposition.as_deref()) {
+                return decide.call((WKNavigationResponsePolicy::Download,));
+            }
+            // The document waits for its shields' scripts: they must be in place before the
+            // page's first script runs.
+            let Some(url) = answer.URL().as_deref().and_then(parsed) else {
+                return decide.call((WKNavigationResponsePolicy::Allow,));
             };
-            decide.call((policy,));
+            let decide = decide.copy();
+            (self.ivars().hooks.before_document)(
+                &url,
+                Box::new(move || decide.call((WKNavigationResponsePolicy::Allow,))),
+            );
         }
 
         /// `WebKit` does not reload a page whose process died: it stays blank until it is told.
@@ -194,6 +231,21 @@ define_class!(
         }
     }
 );
+
+/// A URL `WebKit` handed over, when it parses.
+fn parsed(url: &NSURL) -> Option<Url> {
+    Url::parse(&url.absoluteString()?.to_string()).ok()
+}
+
+/// Whether a private `_WKContentRuleListAction` says a load was blocked; false for an object
+/// that does not answer `blockedLoad`.
+fn blocked_load(action: &AnyObject) -> bool {
+    let selector = sel!(blockedLoad);
+    // SAFETY: `respondsToSelector:` is `NSObject`'s and takes any selector.
+    let responds: bool = unsafe { msg_send![action, respondsToSelector: selector] };
+    // SAFETY: the object responds to `blockedLoad`, a `BOOL` getter without arguments.
+    responds && unsafe { msg_send![action, blockedLoad] }
+}
 
 /// The link and the tab it goes to, when the user opened it in another tab.
 fn elsewhere(action: &WKNavigationAction) -> Option<(String, Focus)> {
