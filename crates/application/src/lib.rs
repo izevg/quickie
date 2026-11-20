@@ -20,15 +20,15 @@ mod site;
 pub use agent::{
     Agent, AnswerEvent, AskError, Asking, LocalFound, PageReader, detect_local, list_models,
 };
-pub use browsing::Browsing;
+pub use browsing::{Browsing, Playback};
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::conformance;
 pub use engine::{
     Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, Downloads,
     Engine, EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost,
     ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, Inspector, LinkTarget,
-    NoExtensions, PackageSource, PageAsks, PageContent, PageRect, PageSurface, PageZoom, PortsOf,
-    ReplyToken, Ticket, Unpacked, WindowTabs,
+    NoExtensions, PackageSource, PageAsks, PageContent, PageRect, PageSurface, PageVideo, PageZoom,
+    PortsOf, ReplyToken, Ticket, Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,

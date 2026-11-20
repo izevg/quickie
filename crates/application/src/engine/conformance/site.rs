@@ -101,6 +101,9 @@ pub enum Act {
     /// Adds a frame showing a path, without moving focus; its title becomes `framed:` and the
     /// path once the frame has loaded.
     AddFrame(&'static str),
+    /// Adds a muted video and plays it: a canvas's moving colors as a stream, so no file and
+    /// no codec is needed, and a muted video plays without the user's gesture.
+    PlayVideo,
 }
 
 impl Act {
@@ -134,6 +137,17 @@ impl Act {
                  frame.onload=()=>{{document.title='framed:{path}'}};\
                  frame.src='{path}';document.body.appendChild(frame);"
             ),
+            Self::PlayVideo => "const canvas=document.createElement('canvas');\
+                                canvas.width=64;canvas.height=36;\
+                                const paint=canvas.getContext('2d');let hue=0;\
+                                setInterval(()=>{hue=(hue+10)%360;\
+                                paint.fillStyle='hsl('+hue+',80%,50%)';\
+                                paint.fillRect(0,0,64,36)},30);\
+                                const video=document.createElement('video');\
+                                video.muted=true;video.playsInline=true;\
+                                video.srcObject=canvas.captureStream(30);\
+                                document.body.appendChild(video);video.play();"
+                .to_owned(),
         }
     }
 }
@@ -280,6 +294,7 @@ pub const SITE: &[(&str, Resource)] = &[
         "field-framed",
         Resource::Page(acting("Field", &[Act::FocusField, Act::AddFrame("plain")])),
     ),
+    ("video", Resource::Page(acting("Video", &[Act::PlayVideo]))),
     (
         "tracked",
         Resource::Page(TestPage {

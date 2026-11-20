@@ -3,12 +3,16 @@
 //! Every script runs in Quickie's own content world: it reads the same DOM as the site, but the
 //! site's JavaScript cannot see its globals or replace the functions it calls, and it adds
 //! nothing to the page's own world. The scripts only read the DOM and listen; the one that
-//! follows a link hint focuses or clicks the element the user picked.
+//! follows a link hint focuses or clicks the element the user picked, and while the mini player
+//! shows a page's video, the page carries a style sheet and marked elements that make the video
+//! fill it, taken away when it docks.
 //!
 //! Here: the world, the focus reports, and the page text the agent reads. [`hints`]: the
-//! link-hint scripts and their answers.
+//! link-hint scripts and their answers. [`video`]: what the page's video does, and floating it
+//! for the mini player.
 
 pub(crate) mod hints;
+pub(crate) mod video;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

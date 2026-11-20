@@ -29,7 +29,7 @@ pub use controls::{
 };
 pub use field::QueryField;
 pub use form::{FormGroup, Plate, ToggleRow};
-pub use glass::{Elevation, GlassSurface, Scrim};
+pub use glass::{Elevation, GlassSurface, Scrim, cast_shadow};
 pub use list::{IconTint, ListRow, ListSection, ListView, RowIcon};
 pub use motion::{Motion, Trigger};
 pub use sheet::{

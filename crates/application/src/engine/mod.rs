@@ -114,10 +114,38 @@ pub trait PageSurface {
     fn inspect(&mut self, tab: TabId) -> Result<(), EngineError>;
 }
 
+/// A tab's video out of its page, for the mini player: the page of a tab the user left goes
+/// into a view over another tab's page and shows only its video, which plays on. Which tab
+/// floats and when is the [`Playback`](crate::Playback) use case's choice; the video is the
+/// one the page reported last ([`EngineEvent::Video`]).
+pub trait PageVideo: PageSurface {
+    /// Puts the tab's page into `slot`, filling it and showing only its video, until
+    /// [`Self::dock_video`] or until a window shows the tab again, which docks it. The page
+    /// floating before, if another, docks first.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, a window shows it, or the engine cannot float videos.
+    fn float_video(&mut self, tab: TabId, slot: &Self::View) -> Result<(), EngineError>;
+
+    /// The tab's page shows whole again and leaves the slot; nothing when it does not float.
+    fn dock_video(&mut self, tab: TabId);
+
+    /// Plays the tab's video, or pauses it when `play` is false; the page reports the change
+    /// as [`EngineEvent::Video`].
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or the engine cannot play videos.
+    fn play_video(&mut self, tab: TabId, play: bool) -> Result<(), EngineError>;
+}
+
 /// One engine: everything a profile's pages need, the network the browser's own requests take,
 /// and what the UI may offer on it. The composition root names one; everything else reaches it
 /// through these ports.
-pub trait Engine: EnginePort + PageSurface + PageContent + PageZoom + PageAsks + Downloads {
+pub trait Engine:
+    EnginePort + PageSurface + PageContent + PageZoom + PageAsks + Downloads + PageVideo
+{
     /// The engine's own network stack, for the browser's own requests (filter lists, the agent's
     /// endpoint, extension packages), so every request of the product goes the same way.
     type Http: HttpPort + Clone + Send + 'static;

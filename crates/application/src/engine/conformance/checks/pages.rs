@@ -1,13 +1,13 @@
 //! What pages do to the browser: open pages and close themselves (opened), keep cookies in their
-//! jar (jars), and ask the user (dialogs, permissions).
+//! jar (jars), ask the user (dialogs, permissions), and play videos (video).
 
-use quickie_domain_browsing::{Focus, Jar, JarId};
+use quickie_domain_browsing::{Focus, Jar, JarId, Video};
 
 use super::{Case, Checked, Run, about, ensure, same, tab};
 use crate::conformance::{Group, Harness, WINDOW};
 use crate::{
     Answer, Ask, AskKind, Dialog, EngineEvent, EnginePort, Navigation, PageAsks, PageContent,
-    Permission,
+    PageVideo, Permission,
 };
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
@@ -69,6 +69,11 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             Group::Permissions,
             "a_camera_request_waits_for_its_answer",
             camera_waits,
+        ),
+        case(
+            Group::Video,
+            "a_video_says_it_plays_pauses_and_leaves",
+            video_reports,
         ),
     ]
 }
@@ -339,4 +344,53 @@ fn camera_waits<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     answer(run, &ask, &Answer::Decline)?;
 
     run.wait_title(1, "camera:denied")
+}
+
+/// True when what tab `serial`'s page said of its video last is `want`; false before it said
+/// anything.
+fn said<P>(events: &[EngineEvent<P>], serial: u64, want: Option<Video>) -> bool {
+    events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            EngineEvent::Video { tab: about, video } if *about == tab(serial) => {
+                Some(*video == want)
+            }
+            _ => None,
+        })
+        .unwrap_or(false)
+}
+
+/// Waits until tab `serial`'s page last said `video` of its video.
+fn wait_video<H: Harness>(run: &mut Run<'_, H>, serial: u64, video: Option<Video>) -> Checked {
+    run.wait(
+        &format!("{} saying its video is {video:?}", tab(serial)),
+        |events| said(events, serial, video),
+    )
+}
+
+/// The page plays a muted video by itself, which pauses and plays again when asked, and is
+/// gone once the page leaves.
+fn video_reports<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let playing = Some(Video::Playing { audible: false });
+    run.create(1, "video", Jar::Main)?;
+    run.engine
+        .show(WINDOW, tab(1))
+        .map_err(|error| format!("showing failed: {error}"))?;
+    wait_video(run, 1, playing)?;
+
+    run.engine
+        .play_video(tab(1), false)
+        .map_err(|error| format!("pausing failed: {error}"))?;
+    wait_video(run, 1, Some(Video::Paused))?;
+    run.engine
+        .play_video(tab(1), true)
+        .map_err(|error| format!("playing failed: {error}"))?;
+    wait_video(run, 1, playing)?;
+
+    let plain = run.url("plain");
+    run.engine
+        .navigate(tab(1), &Navigation::Load(plain))
+        .map_err(|error| format!("navigating failed: {error}"))?;
+    wait_video(run, 1, None)
 }

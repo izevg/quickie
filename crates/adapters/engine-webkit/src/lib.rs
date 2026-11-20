@@ -72,8 +72,8 @@ use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
     Answer, Capabilities, DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort,
-    FindStep, Found, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageZoom,
-    ReplyToken, Ticket,
+    FindStep, Found, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageVideo,
+    PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -84,7 +84,7 @@ pub use extensions::WebKitExtensions;
 pub use inbox::OpenedPage;
 use inbox::{Event, Inbox, Owner};
 pub use network::UrlSessionHttp;
-use page::WebPage;
+use page::{Report, WebPage};
 use scheme::InternalPages;
 pub use shields::WebKitContentBlocker;
 use shields::cosmetic::Cosmetics;
@@ -121,6 +121,8 @@ pub struct WebKitEngine {
     thumbnail_size: NSSize,
     /// The main jar's extension controller and every page's view, once extensions are on.
     extensions: Option<Rc<extensions::Shared>>,
+    /// The tab whose page floats in the mini player's slot, showing only its video.
+    floated: Option<TabId>,
 }
 
 impl std::fmt::Debug for WebKitEngine {
@@ -145,6 +147,8 @@ impl WebKitEngine {
         let inbox = Rc::<Inbox>::default();
         page::install_focus_script(&content, Rc::clone(&inbox.focus), mtm);
         page::install_focus_script(&throwaway_content, Rc::clone(&inbox.focus), mtm);
+        page::install_video_script(&content, Inbox::video_reports(&inbox), mtm);
+        page::install_video_script(&throwaway_content, Inbox::video_reports(&inbox), mtm);
         let waiting = Rc::downgrade(&inbox);
         let downloads = DownloadCenter::new(
             move |event| {
@@ -173,6 +177,7 @@ impl WebKitEngine {
             thumbnails: Rc::default(),
             thumbnail_size: THUMBNAIL_SIZE,
             extensions: None,
+            floated: None,
         }
     }
 
@@ -220,6 +225,22 @@ impl WebKitEngine {
                 report(&inbox, EngineEvent::Pictured { tab });
             }
         });
+    }
+
+    /// What the video scripts reported since the last drain, each for the tab whose page's view
+    /// it came from; a page that has no tab (yet, or any more) is not heard.
+    fn videos_reported(&self) {
+        let reports = std::mem::take(&mut *self.inbox.videos.borrow_mut());
+        for (view, Report(video)) in reports {
+            let tab = self
+                .pages
+                .iter()
+                .find(|(_, page)| page::scripts::view_key(page.web_view()) == view)
+                .map(|(&tab, _)| tab);
+            if let Some(tab) = tab {
+                self.inbox.push(EngineEvent::Video { tab, video });
+            }
+        }
     }
 
     /// A tab's page zoom, `1.0` for actual size; `None` for a tab without a page.
@@ -320,9 +341,14 @@ impl EnginePort for WebKitEngine {
     }
 
     /// Records that `window` shows `tab` and swaps the page views in its host. A window whose
-    /// host is not attached yet gets the page when [`PageSurface::attach_host`] runs.
+    /// host is not attached yet gets the page when [`PageSurface::attach_host`] runs. A page
+    /// that floats in the mini player docks first.
     fn show(&mut self, window: WindowId, tab: TabId) -> Result<(), EngineError> {
         let view = self.page(tab)?.view().retain();
+        if self.floated == Some(tab) {
+            self.floated = None;
+            self.page(tab)?.dock_video();
+        }
         let previous = self.shown.insert(window, tab);
         if let Some(previous) = previous.filter(|&previous| previous != tab)
             && let Some(page) = self.pages.get(&previous)
@@ -352,6 +378,9 @@ impl EnginePort for WebKitEngine {
 
     fn close(&mut self, tab: TabId) -> Result<(), EngineError> {
         self.shown.retain(|_, shown| *shown != tab);
+        if self.floated == Some(tab) {
+            self.floated = None;
+        }
         self.inbox.forget(tab);
         self.thumbnails.borrow_mut().close(tab);
         if let Some(shared) = &self.extensions {
@@ -486,6 +515,45 @@ impl Downloads for WebKitEngine {
 impl PageAsks for WebKitEngine {
     fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
         self.inbox.answer(token, answer)
+    }
+}
+
+/// The page itself floats: its `WKWebView` moves into the slot, sized to it, and the video
+/// script makes its video fill it alone, the element staying where it is in the document, so
+/// it plays on and its own page draws it. Docking undoes both. Nothing is copied or composited
+/// by Quickie; the window server composites the page's layers as anywhere else.
+impl PageVideo for WebKitEngine {
+    fn float_video(&mut self, tab: TabId, slot: &NSView) -> Result<(), EngineError> {
+        if self.shown.values().any(|&shown| shown == tab) {
+            return Err(EngineError(format!("{tab} is on screen in a window")));
+        }
+        if let Some(previous) = self.floated.filter(|&previous| previous != tab) {
+            self.dock_video(previous);
+        }
+        let page = self.page(tab)?;
+        page.float_video();
+        place(page.view(), slot);
+        self.floated = Some(tab);
+        Ok(())
+    }
+
+    /// The page leaves the slot and is laid out at a window's size again, so its picture and
+    /// its next show find it as it was.
+    fn dock_video(&mut self, tab: TabId) {
+        if self.floated != Some(tab) {
+            return;
+        }
+        self.floated = None;
+        if let Some(page) = self.pages.get(&tab) {
+            page.dock_video();
+            page.view().removeFromSuperview();
+            self.lay_out(page);
+        }
+    }
+
+    fn play_video(&mut self, tab: TabId, play: bool) -> Result<(), EngineError> {
+        self.page(tab)?.play_video(play);
+        Ok(())
     }
 }
 
@@ -652,6 +720,7 @@ impl Engine for WebKitEngine {
                 });
             }
         }
+        self.videos_reported();
         self.inbox.drain(into);
     }
 }

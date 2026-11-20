@@ -32,6 +32,10 @@ use url::Url;
 pub(crate) use observer::PageEvent;
 use observer::PageObserver;
 use scripts::hints::{self, COLLECT_SCRIPT, follow_script};
+use scripts::video::{
+    DOCK_SCRIPT, FLOAT_SCRIPT, VIDEO_HANDLER, VIDEO_SCRIPT, VideoHandler, play_script,
+};
+pub(crate) use scripts::video::{OnReport, Report};
 use scripts::{FOCUS_HANDLER, FOCUS_SCRIPT, FocusHandler, text_script};
 
 use crate::scheme::InternalPages;
@@ -432,6 +436,22 @@ impl WebPage {
         self.evaluate(&text_script(max_chars), done);
     }
 
+    /// Makes the page's video fill the view alone, for the mini player; the view is resized to
+    /// the player after.
+    pub(crate) fn float_video(&self) {
+        self.evaluate(FLOAT_SCRIPT, drop);
+    }
+
+    /// Puts the page back as it was before [`Self::float_video`], scrolled where it was.
+    pub(crate) fn dock_video(&self) {
+        self.evaluate(DOCK_SCRIPT, drop);
+    }
+
+    /// Plays the page's video, or pauses it; the video script reports the change.
+    pub(crate) fn play_video(&self, play: bool) {
+        self.evaluate(&play_script(play), drop);
+    }
+
     /// Runs `script` in Quickie's world of the main frame; `done` gets its string answer, empty
     /// for anything else or an error.
     fn evaluate(&self, script: &str, done: impl FnOnce(String) + 'static) {
@@ -470,6 +490,39 @@ impl Drop for WebPage {
         // SAFETY: stopping has no preconditions; a page going away loads nothing more.
         unsafe { self.view.stopLoading() };
         self.view.removeFromSuperview();
+    }
+}
+
+/// Adds the video script to the main frame of every page that uses `controller`, and one
+/// handler that hands each page's reports to `on_report`. Once per controller, as
+/// [`install_focus_script`].
+pub(crate) fn install_video_script(
+    controller: &WKUserContentController,
+    on_report: OnReport,
+    mtm: MainThreadMarker,
+) {
+    let world = scripts::world(mtm);
+    let handler = VideoHandler::new(on_report, mtm);
+    // SAFETY: the source is a complete script, injected at document start into main frames.
+    let script = unsafe {
+        WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
+            WKUserScript::alloc(mtm),
+            &NSString::from_str(VIDEO_SCRIPT),
+            WKUserScriptInjectionTime::AtDocumentStart,
+            true,
+            &world,
+        )
+    };
+    // SAFETY: the controller retains the script.
+    unsafe { controller.addUserScript(&script) };
+    // SAFETY: the controller retains the handler; this is the only handler under the name in
+    // this world, as this runs once per controller.
+    unsafe {
+        controller.addScriptMessageHandler_contentWorld_name(
+            ProtocolObject::from_ref(&*handler),
+            &world,
+            &NSString::from_str(VIDEO_HANDLER),
+        );
     }
 }
 

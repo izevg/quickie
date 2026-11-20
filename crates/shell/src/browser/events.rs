@@ -80,6 +80,7 @@ impl Browser {
             EngineEvent::ClosedByPage { tab } => self.closed_by_page(tab),
             EngineEvent::Crashed { tab } => self.crashed(tab),
             EngineEvent::Fullscreen { tab, entered } => self.fullscreen_changed(tab, entered),
+            EngineEvent::Video { tab, video } => self.video_reported(tab, video),
             EngineEvent::Asked(ask) => self.asked(ask),
             EngineEvent::Found(found) => self.found(&found),
             EngineEvent::Targets {

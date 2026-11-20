@@ -90,7 +90,8 @@ impl Browser {
     }
 
     /// For every window whose active tab or origin changed: the origin chip, and on a tab
-    /// switch the new tab's loading; the find bar closes when its tab leaves.
+    /// switch the new tab's loading and the mini player; the find bar closes when its tab
+    /// leaves.
     pub(super) fn page_changes(&self) {
         let active: Vec<(WindowId, TabId, Url)> = {
             let Ok(browsing) = self.browsing.try_borrow() else {
@@ -106,6 +107,7 @@ impl Browser {
                 })
                 .collect()
         };
+        self.player_tab_closed();
         for (window, tab, url) in active {
             let before = self.page.seen.borrow().get(&window).cloned();
             let change = change(before.as_ref(), tab, &url);
@@ -113,6 +115,9 @@ impl Browser {
                 .seen
                 .borrow_mut()
                 .insert(window, (tab, url.clone()));
+            if let (Change::Tab, Some((left, _))) = (change, &before) {
+                self.left_tab(window, *left, tab);
+            }
             if change == Change::Tab {
                 if let Some(line) = self.page.lines.borrow().get(&window) {
                     line.reset();

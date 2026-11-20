@@ -147,7 +147,7 @@ ninth context means regrouping first.
 
 | Port | Direction | Adapter |
 |---|---|---|
-| `Engine` bundle: `EnginePort` (tab lifecycle) + capability ports `PageSurface`, `PageContent`, `PageZoom`, `PageAsks`, `Downloads`, and for the agent profile `Automation`, `RequestGate`; one `EngineEvent` stream | driven | `engine-webkit`, `engine-cef` (agent profile), `engine-chromium` (post-MVP fork); see "Engines" below |
+| `Engine` bundle: `EnginePort` (tab lifecycle) + capability ports `PageSurface`, `PageContent`, `PageZoom`, `PageAsks`, `Downloads`, `PageVideo`, and for the agent profile `Automation`, `RequestGate`; one `EngineEvent` stream | driven | `engine-webkit`, `engine-cef` (agent profile), `engine-chromium` (post-MVP fork); see "Engines" below |
 | `HttpPort` | driven | supplied by the engine (`Engine::Http`): Chromium or CEF network stack, `NSURLSession` on WebKit; the shell never builds one |
 | `ExtensionHost` (capability), `ExtensionPackages` | driven | supplied by the engine (`Engine::Extensions`; `NoExtensions` on one without them): `engine-webkit` (`WKWebExtensionController`, main profile only); `system` checks CRX3 signatures with Security.framework and keeps packages |
 | `ExtensionsRepo` | driven | `store` |
@@ -206,8 +206,11 @@ browser's own traffic bypassed the engine's network stack.
   navigate, close, adopt, destroy a jar). Small capability ports sit next to it in
   `application/src/engine/`: `PageSurface` (the native view and thumbnails), `PageContent` (page
   text, link-hint targets, find), `PageZoom`, `PageAsks` (JavaScript dialogs, permissions, full
-  screen, answered with a `ReplyToken`), `Downloads`. There is no "evaluate JavaScript" port: an
-  isolated world is how WebKit does it, not what a use case needs.
+  screen, answered with a `ReplyToken`), `Downloads`, `PageVideo` (the mini player: a left
+  tab's page floats into a slot showing only its video, docks back, plays or pauses; on the
+  system WebKit the `WKWebView` itself moves and a script in Quickie's world makes its video
+  fill it). There is no "evaluate JavaScript" port: an isolated world is how WebKit does it, not
+  what a use case needs.
 - **One event stream.** Every engine reports through one `EngineEvent` enum, drained by the shell
   on the main thread after a waker. Nothing calls back into a use case from inside an engine
   call.
@@ -318,7 +321,7 @@ scaffold and `engine-chromium` stay as reference until the WebKit fork replaces 
 |---|---|---|
 | `app` | Window composition, overlay router (one active E2 at a time), theme, tokens | everything below |
 | `screens` | `BrowserScreen`, `SettingsScreen`, `KeymapEditorScreen`, `AgentAuditScreen` | widgets and below |
-| `widgets` | `CommandPalette`, `AddressOverlay`, `TabSwitcher`, `TabOverview`, `FindBar`, `LinkHintsLayer`, `ToastStack`, `LoadProgressLine`, `OriginChip`, `PermissionSheet`, `ShieldsPopover`, `DownloadsPopover`, `AgentAnswerPanel`, `AgentApprovalSheet` | features and below |
+| `widgets` | `CommandPalette`, `AddressOverlay`, `TabSwitcher`, `TabOverview`, `MiniPlayer`, `FindBar`, `LinkHintsLayer`, `ToastStack`, `LoadProgressLine`, `OriginChip`, `PermissionSheet`, `ShieldsPopover`, `DownloadsPopover`, `AgentAnswerPanel`, `AgentApprovalSheet` | features and below |
 | `features` | `copy_url`, `copy_as_markdown`, `reopen_closed_tab`, `find_in_page`, `toggle_shields`, `ask_agent`, `approve_agent_action`, `record_shortcut`, `swipe_navigation`, `link_hints` | entities and below, application |
 | `entities` | `TabRow`, `TabThumbnail`, `CommandRow`, `HistoryRow`, `KeycapGroup`, `AgentBadge`, `OriginLabel` | shared, domain |
 | `shared` | `GlassSurface::new(Elevation)`, `ListView` (`NSTableView` with a diffing source), `Keycap`, spring presets (`CASpringAnimation`), colors, typography | `objc2` |
@@ -389,7 +392,9 @@ pub trait EnginePort {
     fn destroy_jar(&mut self, jar: JarId) -> Result<(), EngineError>;
 }
 
-pub trait Engine: EnginePort + PageSurface + PageContent + PageZoom + PageAsks + Downloads {
+pub trait Engine:
+    EnginePort + PageSurface + PageContent + PageZoom + PageAsks + Downloads + PageVideo
+{
     type Http: HttpPort + Clone + Send + 'static;
     type Blocker: ContentBlockerPort;                         // status(), on_settled(waker)
     type Extensions: ExtensionHost;                           // NoExtensions<_> where none

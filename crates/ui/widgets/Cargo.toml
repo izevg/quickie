@@ -1,6 +1,6 @@
 [package]
 name = "quickie-ui-widgets"
-description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher and overview, the toast stack, the find bar, the origin chip, the load progress line, link hints, the downloads and shields popovers, the full-screen notice, the dialog and permission sheets, and the agent's answer panel, badge, and settings"
+description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher and overview, the mini player, the toast stack, the find bar, the origin chip, the load progress line, link hints, the downloads and shields popovers, the full-screen notice, the dialog and permission sheets, and the agent's answer panel, badge, and settings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -22,6 +22,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSColor",
   "NSComboBox",
   "NSControl",
+  "NSEvent",
   "NSFont",
   "NSFontDescriptor",
   "NSGestureRecognizer",
