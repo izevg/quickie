@@ -4,6 +4,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use objc2::Message;
+use objc2_app_kit::{NSTextField, NSView};
 use quickie_domain_browsing::{FindMatches, Origin};
 use quickie_ui_shared::stories::{Key, LIGHT, LIGHT_DARK, Modifiers, Scene, Story, Theme, WINDOW};
 use quickie_ui_widgets::{FindBar, FindRequest, LoadProgressLine, OriginChip};
@@ -74,6 +75,14 @@ pub const STORIES: &[Story] = &[
         themes: LIGHT,
         window: WINDOW,
         scene: chip_russian,
+    },
+    Story {
+        group: "page",
+        widget: "origin-chip",
+        state: "addresses",
+        themes: LIGHT,
+        window: WINDOW,
+        scene: chip_addresses,
     },
     Story {
         group: "page",
@@ -260,6 +269,55 @@ fn chip_russian(scene: &mut Scene) {
 
 fn chip_blocked(scene: &mut Scene) {
     chip(scene, "https://www.bbc.co.uk:8443/news", Some(12));
+}
+
+/// Addresses of many lengths, one after another as pages open: each shows whole, its last
+/// character included (#66). Their text widths end in fractions of a point; a label is as
+/// wide as its text rounded up to the backing pixel, and the pill must not cut it back. The
+/// half-point case of a Retina display is `Pill`'s layout test.
+fn chip_addresses(scene: &mut Scene) {
+    let chip = OriginChip::new(scene.mtm());
+    for address in [
+        "https://a.co/",
+        "https://example.com/",
+        "http://localhost:3000/",
+        "https://docs.rs/objc2/latest",
+        "https://mail.google.com/mail/u/0",
+        "https://news.ycombinator.com/item",
+        "https://en.wikipedia.org/wiki/Rust",
+        "https://www.youtube.com/watch",
+        "https://developer.mozilla.org/en-US/docs/Web",
+        "https://ru.wikipedia.org/wiki/%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0",
+        "https://stackoverflow.com/questions/12345",
+        "https://www.rust-lang.org/learn",
+    ] {
+        let url = fixtures::url(address);
+        if let Some(origin) = Origin::of(&url) {
+            chip.show(scene.host(), &origin, url.path(), None);
+        }
+        let clipped = clipped_text(scene.host());
+        scene.check(
+            clipped.is_empty(),
+            format!("{address}: the chip shows its text whole, not {clipped:?}"),
+        );
+    }
+    scene.keep(chip);
+}
+
+/// The text of every label under `view` drawn narrower than its text, which loses its end.
+fn clipped_text(view: &NSView) -> Vec<String> {
+    let mut clipped = Vec::new();
+    if let Some(field) = view.downcast_ref::<NSTextField>() {
+        let wanted = field.cell().map_or(0.0, |cell| cell.cellSize().width);
+        let width = field.frame().size.width;
+        if width + 0.001 < wanted {
+            clipped.push(format!("{} ({width} < {wanted})", field.stringValue()));
+        }
+    }
+    for child in view.subviews() {
+        clipped.extend(clipped_text(&child));
+    }
+    clipped
 }
 
 /// The line follows the page's progress, as a scale of its layer.
