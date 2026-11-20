@@ -1,14 +1,18 @@
 //! One tab in the overview: its title and pinned slot above, the page's last picture in
 //! 16:10, its host below. A tab whose page is not loaded has no picture: its host stands in
 //! the picture's place. The selected card wears the accent ring.
+//!
+//! The picture is an `NSImageView`, `AppKit`'s own way to draw an image, not contents set on
+//! the layer of a layer-backed view, which `AppKit` owns and manages.
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
-use objc2_app_kit::{NSImage, NSLineBreakMode, NSTextAlignment, NSTextField, NSView};
+use objc2_app_kit::{
+    NSImage, NSImageScaling, NSImageView, NSLineBreakMode, NSTextAlignment, NSTextField, NSView,
+};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
-use objc2_quartz_core::{kCACornerCurveContinuous, kCAGravityResizeAspectFill};
+use objc2_quartz_core::kCACornerCurveContinuous;
 use quickie_ui_shared::keycap_group;
 use quickie_ui_shared::tokens::{TextRole, color, radius, space};
 
@@ -23,6 +27,7 @@ pub struct Card {
     title: Retained<NSTextField>,
     host: Retained<NSTextField>,
     picture: Retained<NSView>,
+    image: Retained<NSImageView>,
     stand_in: Retained<NSTextField>,
     slot: Option<Retained<NSView>>,
 }
@@ -64,13 +69,17 @@ impl Card {
         picture.setWantsLayer(true);
         if let Some(layer) = picture.layer() {
             layer.setBackgroundColor(Some(&color::separator().CGColor()));
-            // SAFETY: an immutable string exported by Core Animation.
-            layer.setContentsGravity(unsafe { kCAGravityResizeAspectFill });
             layer.setMasksToBounds(true);
         }
+        // The engine draws pictures in the card's shape, so filling the frame keeps the page's
+        // proportions.
+        let image = NSImageView::new(mtm);
+        image.setImageScaling(NSImageScaling::ScaleAxesIndependently);
+        image.setEditable(false);
         let stand_in = label(&tab.host, TextRole::RowDetail, mtm);
         stand_in.setAlignment(NSTextAlignment::Center);
         stand_in.setTextColor(Some(&color::secondary_label()));
+        picture.addSubview(&image);
         picture.addSubview(&stand_in);
         let slot = tab
             .slot
@@ -86,6 +95,7 @@ impl Card {
             title,
             host,
             picture,
+            image,
             stand_in,
             slot,
         };
@@ -101,11 +111,8 @@ impl Card {
 
     /// Shows `image`, or the host in its place.
     pub fn set_picture(&self, image: Option<&NSImage>) {
-        if let Some(layer) = self.picture.layer() {
-            let contents: Option<&AnyObject> = image.map(AsRef::as_ref);
-            // SAFETY: a layer takes an `NSImage` as its contents on macOS, and retains it.
-            unsafe { layer.setContents(contents) };
-        }
+        self.image.setImage(image);
+        self.image.setHidden(image.is_none());
         self.stand_in.setHidden(image.is_some());
     }
 
@@ -150,6 +157,8 @@ impl Card {
             NSSize::new(width, (height - top - bottom).max(0.0)),
         );
         self.picture.setFrame(picture);
+        self.image
+            .setFrame(NSRect::new(NSPoint::new(0.0, 0.0), picture.size));
         self.stand_in.setFrame(NSRect::new(
             NSPoint::new(inset, ((picture.size.height - host_line) / 2.0).floor()),
             NSSize::new((width - inset * 2.0).max(0.0), host_line),

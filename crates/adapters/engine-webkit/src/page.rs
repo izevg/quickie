@@ -18,7 +18,7 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{NSImage, NSPrintInfo, NSPrintingPaginationMode, NSView};
 use objc2_foundation::{
-    NSData, NSError, NSNumber, NSObjectProtocol, NSRect, NSString, NSURL, NSURLRequest,
+    NSData, NSError, NSNumber, NSObjectProtocol, NSRect, NSSize, NSString, NSURL, NSURLRequest,
 };
 use objc2_web_kit::{
     WKContentWorld, WKSnapshotConfiguration, WKUserContentController, WKUserScript,
@@ -345,20 +345,31 @@ impl WebPage {
         find::find(&self.view, query, step, done);
     }
 
-    /// Renders the visible page `width` points wide, off the main thread, and hands the image
-    /// to `done` on the main thread; `None` when the page cannot be drawn.
+    /// The size of the page view, in points.
+    pub(crate) fn size(&self) -> NSSize {
+        self.view.bounds().size
+    }
+
+    /// Renders `rect` of the visible page (in the view's flipped coordinates, origin top left)
+    /// `width` points wide, at the screen's scale, and hands the image to `done` on the main
+    /// thread; `None` when the page cannot be drawn. The web content process paints it, so the
+    /// main thread only asks; a page just taken off screen is drawn from its last layout.
     pub(crate) fn snapshot(
         &self,
+        rect: NSRect,
         width: f64,
         done: impl FnOnce(Option<Retained<NSImage>>) + 'static,
     ) {
         let mtm = self.view.mtm();
         // SAFETY: a fresh configuration has no preconditions.
         let configuration = unsafe { WKSnapshotConfiguration::new(mtm) };
+        // SAFETY: a plain setter; any rect in the view's coordinates is valid.
+        unsafe { configuration.setRect(rect) };
         // SAFETY: a plain setter; the configuration copies the number.
         unsafe { configuration.setSnapshotWidth(Some(&NSNumber::new_f64(width))) };
-        // SAFETY: a plain setter. Not waiting for a screen update lets a page that is not on
-        // screen (just hidden by a tab switch) be drawn from its last layout.
+        // SAFETY: a plain setter. On macOS `WebKit` paints the snapshot in the web content
+        // process either way; not waiting keeps a page just hidden from waiting for a screen
+        // update it will never get.
         unsafe { configuration.setAfterScreenUpdates(false) };
         let done = Cell::new(Some(done));
         let block = RcBlock::new(move |image: *mut NSImage, _error: *mut NSError| {

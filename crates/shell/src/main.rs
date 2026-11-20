@@ -52,13 +52,14 @@ use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSSize};
 use quickie_application::{Agent, Browsing, Clock, Library, Shields, Zoom};
 use quickie_domain_browsing::{Profile, Timestamp};
 use quickie_domain_commands::{Catalog, Platform};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use quickie_store::{KeybindingsFile, PendingWrites, WriteBehindStore};
 use quickie_system::{KeychainSecrets, SystemEntropy};
+use quickie_ui_shared::tokens::overlay;
 use url::Url;
 
 use browser::{Browser, Services, install_shortcuts, keymap_from, launch_urls};
@@ -152,7 +153,11 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let home = Url::parse(HOME).map_err(|error| error.to_string())?;
     let store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let pending = store.pending();
-    let engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
+    let mut engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
+    // Pictures for the overview at the size of its widest card, so none costs more than a card
+    // shows at the screen's scale.
+    let card = overlay::THUMBNAIL_MAX_WIDTH;
+    engine.set_thumbnail_size(NSSize::new(card, (card * overlay::THUMBNAIL_SHAPE).round()));
     let mut browsing = Browsing::start(Profile::Main, engine, store, SystemClock, &home)
         .map_err(|error| error.to_string())?;
     // The library has a writer, and a connection, of its own.
