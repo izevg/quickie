@@ -405,7 +405,9 @@ impl Browser {
             return;
         };
         if self.run(|browsing| browsing.pin(tab, slot)).is_some() {
-            self.toast(&format!("Pinned to ⌘{}", slot.get()));
+            self.notify(
+                quickie_ui_widgets::Toast::done("Pinned").with_keys(format!("⌘{}", slot.get())),
+            );
         }
     }
 
@@ -428,7 +430,11 @@ impl Browser {
             pasteboard.clearContents();
             pasteboard.setString_forType(&NSString::from_str(&text), kind)
         });
-        self.toast(if copied { "Copied" } else { "Couldn't copy" });
+        self.notify(if copied {
+            quickie_ui_widgets::Toast::done("Copied").with_detail("to clipboard")
+        } else {
+            quickie_ui_widgets::Toast::problem("Couldn't copy")
+        });
     }
 
     /// `⌘D`: the active page into the bookmarks, once.
@@ -438,7 +444,9 @@ impl Browser {
         };
         let saved = self.library.borrow_mut().save_bookmark(&tab.url, tab.title);
         match saved {
-            Ok(saved) if saved.created => self.toast("Saved"),
+            Ok(saved) if saved.created => {
+                self.notify(quickie_ui_widgets::Toast::done("Saved").with_detail("to bookmarks"));
+            }
             Ok(_) => self.toast("Already saved"),
             Err(error) => self.report(&error),
         }

@@ -1,10 +1,10 @@
-//! The origin chip: an E1 pill near the top center that says whose page this is after a
-//! cross-origin navigation or a tab switch, so a page without chrome cannot pose as another
-//! site. The registrable domain is bold, the rest of the host and the port dimmed, a lock
-//! for `https` and a warning for `http` before them. It fades in with `fade-fast`, holds
-//! `origin-chip-hold` (2.4 s), and fades out; a newer origin replaces it at once.
-//!
-//! The blocked counter is a slot for now: the shell passes `None` until Shields counts.
+//! The origin chip (`docs/design/mocks/components/origin-chip.html`): an E1 pill near the top
+//! center that says whose page this is after a cross-origin navigation or a tab switch, so a
+//! page without chrome cannot pose as another site. A status dot (green for `https`, red for
+//! `http`), the host in SF Mono with the registrable domain bold and the rest dimmed, the path
+//! in the secondary color, a lock or a warning, and the requests Shields blocked on a green
+//! capsule. It fades in with `fade-fast`, holds `origin-chip-hold` (2.4 s), and fades out; a
+//! newer origin replaces it at once.
 
 use std::cell::{Cell, RefCell};
 use std::ptr::NonNull;
@@ -13,16 +13,20 @@ use std::rc::{Rc, Weak};
 use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSFont, NSLineBreakMode, NSTextField, NSView};
-use objc2_foundation::{NSPoint, NSRange, NSRect, NSSize, NSTimer};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSFont, NSView};
+use objc2_foundation::{NSPoint, NSRange, NSTimer};
 use quickie_domain_browsing::{Origin, Transport};
 use quickie_ui_shared::tokens::{TextRole, color, space};
-use quickie_ui_shared::{Elevation, GlassSurface, StyledText, Trigger, motion, symbol};
+use quickie_ui_shared::{Pill, PillPart, PillTone, StyledText, Trigger, motion};
+
+/// The most characters of a path the chip shows; the rest is cut with an ellipsis.
+const PATH_CHARS: usize = 32;
 
 /// The chip on screen, by the number of its showing.
 struct Shown {
     id: u64,
-    surface: GlassSurface,
+    pill: Pill,
+    text: String,
 }
 
 pub struct OriginChip {
@@ -43,30 +47,27 @@ impl OriginChip {
         })
     }
 
-    /// Shows `origin` at the top center of `host` for `origin-chip-hold`, with `blocked`
-    /// requests counted when Shields knows them.
-    pub fn show(&self, host: &NSView, origin: &Origin, blocked: Option<u32>) {
+    /// Shows `origin` and the page's `path` at the top center of `host` for
+    /// `origin-chip-hold`, with `blocked` requests counted when Shields knows them.
+    pub fn show(&self, host: &NSView, origin: &Origin, path: &str, blocked: Option<u32>) {
         self.remove();
         let id = self.next_id.get();
         self.next_id.set(id + 1);
-        let surface = chip(origin, blocked, self.mtm);
-        let size = surface.view().frame().size;
+        let (pill, text) = chip(origin, path, blocked, self.mtm);
+        let size = pill.size();
         let bounds = host.bounds();
-        surface.set_frame(NSRect::new(
-            NSPoint::new(
-                ((bounds.size.width - size.width) / 2.0).round(),
-                (bounds.size.height - space::MD - size.height).round(),
-            ),
-            size,
+        pill.place(NSPoint::new(
+            ((bounds.size.width - size.width) / 2.0).round(),
+            (bounds.size.height - space::MD - size.height).round(),
         ));
-        surface.view().setAutoresizingMask(
+        pill.view().setAutoresizingMask(
             NSAutoresizingMaskOptions::ViewMinXMargin
                 | NSAutoresizingMaskOptions::ViewMaxXMargin
                 | NSAutoresizingMaskOptions::ViewMinYMargin,
         );
-        host.addSubview(surface.view());
-        motion::show(surface.view(), motion::FADE_FAST, Trigger::App);
-        *self.shown.borrow_mut() = Some(Shown { id, surface });
+        host.addSubview(pill.view());
+        motion::show(pill.view(), motion::FADE_FAST, Trigger::App);
+        *self.shown.borrow_mut() = Some(Shown { id, pill, text });
         self.after(motion::ORIGIN_CHIP_HOLD, move |chip| chip.fade(id));
     }
 
@@ -75,22 +76,15 @@ impl OriginChip {
         self.remove();
     }
 
-    /// The text on screen, while the chip shows.
+    /// What the chip says, while it shows.
     #[must_use]
     pub fn text(&self) -> Option<String> {
-        let shown = self.shown.borrow();
-        let surface = &shown.as_ref()?.surface;
-        let content = surface.content_view().subviews();
-        content.iter().find_map(|view| {
-            view.downcast::<NSTextField>()
-                .ok()
-                .map(|field| field.stringValue().to_string())
-        })
+        self.shown.borrow().as_ref().map(|shown| shown.text.clone())
     }
 
     fn fade(&self, id: u64) {
         if let Some(shown) = self.shown.borrow().as_ref().filter(|shown| shown.id == id) {
-            motion::hide(shown.surface.view(), motion::FADE_FAST, Trigger::App);
+            motion::hide(shown.pill.view(), motion::FADE_FAST, Trigger::App);
         }
         self.after(motion::FADE_FAST.duration, move |chip| {
             let current = chip.shown.borrow().as_ref().map(|shown| shown.id);
@@ -102,7 +96,7 @@ impl OriginChip {
 
     fn remove(&self) {
         if let Some(shown) = self.shown.borrow_mut().take() {
-            shown.surface.view().removeFromSuperview();
+            shown.pill.view().removeFromSuperview();
         }
     }
 
@@ -122,65 +116,70 @@ impl OriginChip {
     }
 }
 
-/// The chip's surface, sized to its content: the transport glyph, then the host.
-fn chip(origin: &Origin, blocked: Option<u32>, mtm: MainThreadMarker) -> GlassSurface {
-    let surface = GlassSurface::new(Elevation::E1, mtm);
-    let label = NSTextField::labelWithAttributedString(text(origin, blocked).string(), mtm);
-    label.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
-    label.sizeToFit();
-    let text_size = label.frame().size;
-    let glyph = match origin.transport {
-        Transport::Secure => symbol(
-            "lock.fill",
-            "Secure connection",
-            TextRole::Caption,
-            &color::secondary_label(),
-            mtm,
-        ),
-        Transport::Insecure => symbol(
-            "exclamationmark.triangle.fill",
-            "Not secure",
-            TextRole::Caption,
-            &color::destructive(),
-            mtm,
-        ),
-    };
-    let glyph_width = glyph
-        .as_ref()
-        .map_or(0.0, |glyph| glyph.frame().size.width + space::SM);
-    let height = (text_size.height + space::SM * 2.0).ceil();
-    let width = (space::MD + glyph_width + text_size.width + space::MD).ceil();
-    if let Some(glyph) = glyph {
-        let size = glyph.frame().size;
-        glyph.setFrameOrigin(NSPoint::new(
-            space::MD,
-            ((height - size.height) / 2.0).round(),
-        ));
-        surface.content_view().addSubview(&glyph);
+/// The chip's pill and what it says in one line.
+fn chip(
+    origin: &Origin,
+    path: &str,
+    blocked: Option<u32>,
+    mtm: MainThreadMarker,
+) -> (Pill, String) {
+    let secure = origin.transport == Transport::Secure;
+    let host = host(origin);
+    let path = shown_path(path);
+    let mut parts = vec![
+        PillPart::Dot(if secure {
+            color::success
+        } else {
+            color::destructive
+        }),
+        PillPart::Styled(host),
+    ];
+    if let Some(path) = &path {
+        parts.push(PillPart::Detail(path.clone()));
     }
-    label.setFrame(NSRect::new(
-        NSPoint::new(
-            space::MD + glyph_width,
-            ((height - text_size.height) / 2.0).round(),
-        ),
-        text_size,
-    ));
-    surface.content_view().addSubview(&label);
-    surface.set_frame(NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(width, height),
-    ));
-    surface
-}
-
-/// `developer.` `apple.com` `:8443` in SF Mono, the registrable domain bold and the rest
-/// dimmed, then the blocked count when there is one.
-fn text(origin: &Origin, blocked: Option<u32>) -> StyledText {
+    parts.push(if secure {
+        PillPart::Glyph {
+            name: "lock",
+            description: "Secure connection",
+            tint: color::secondary_label,
+        }
+    } else {
+        PillPart::Glyph {
+            name: "exclamationmark.triangle.fill",
+            description: "Not secure",
+            tint: color::destructive,
+        }
+    });
+    if let Some(blocked) = blocked {
+        parts.push(PillPart::Count {
+            text: format!("{blocked} blocked"),
+            tint: color::success,
+            fill: color::success_fill,
+        });
+    }
+    let pill = Pill::with_parts(&parts, PillTone::Plain, mtm);
     let port = origin
         .port
         .map_or_else(String::new, |port| format!(":{port}"));
-    let count = blocked.map_or_else(String::new, |n| format!("  ·  {n} blocked"));
-    let whole = format!("{}{}{port}{count}", origin.subdomain, origin.registrable);
+    let mut text = format!("{}{}{port}", origin.subdomain, origin.registrable);
+    if let Some(path) = path {
+        text.push_str(&path);
+    }
+    if let Some(blocked) = blocked {
+        text.push_str(" · ");
+        text.push_str(&blocked.to_string());
+        text.push_str(" blocked");
+    }
+    (pill, text)
+}
+
+/// `developer.` `apple.com` `:8443` in SF Mono, the registrable domain bold and the rest
+/// dimmed.
+fn host(origin: &Origin) -> StyledText {
+    let port = origin
+        .port
+        .map_or_else(String::new, |port| format!(":{port}"));
+    let whole = format!("{}{}{port}", origin.subdomain, origin.registrable);
     let dimmed = TextRole::RowDetail.mono_font();
     let styled = StyledText::new(&whole, &dimmed, &color::secondary_label());
     let start = utf16(&origin.subdomain);
@@ -192,6 +191,43 @@ fn text(origin: &Origin, blocked: Option<u32>) -> StyledText {
     styled
 }
 
+/// The path as the chip shows it: none for the root, percent-escapes decoded when they spell
+/// UTF-8, cut after [`PATH_CHARS`] characters.
+fn shown_path(path: &str) -> Option<String> {
+    let path = path.trim_end_matches('/');
+    if path.is_empty() {
+        return None;
+    }
+    let decoded = decode(path).unwrap_or_else(|| path.to_owned());
+    if decoded.chars().count() <= PATH_CHARS {
+        return Some(decoded);
+    }
+    let kept: String = decoded.chars().take(PATH_CHARS - 1).collect();
+    Some(format!("{kept}…"))
+}
+
+/// `text` with its `%XX` escapes decoded; `None` when they do not spell UTF-8.
+fn decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        let escaped = (byte == b'%')
+            .then(|| bytes.get(at + 1..at + 3))
+            .flatten()
+            .and_then(|hex| std::str::from_utf8(hex).ok())
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        if let Some(value) = escaped {
+            out.push(value);
+            at += 3;
+        } else {
+            out.push(byte);
+            at += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 fn utf16(text: &str) -> usize {
     text.encode_utf16().count()
 }
@@ -201,4 +237,36 @@ fn bold() -> Retained<NSFont> {
     // SAFETY: `NSFontWeightSemibold` is an immutable `CGFloat` exported by AppKit.
     let semibold = unsafe { objc2_app_kit::NSFontWeightSemibold };
     NSFont::monospacedSystemFontOfSize_weight(TextRole::RowDetail.point_size(), semibold)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shown_path;
+
+    #[test]
+    fn the_root_shows_no_path() {
+        assert_eq!(shown_path("/"), None);
+        assert_eq!(shown_path(""), None);
+        assert_eq!(shown_path("/news/"), Some("/news".to_owned()));
+    }
+
+    #[test]
+    fn escapes_are_decoded_when_they_spell_utf8() {
+        assert_eq!(
+            shown_path("/wiki/%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0"),
+            Some("/wiki/Москва".to_owned())
+        );
+        assert_eq!(shown_path("/a%20b"), Some("/a b".to_owned()));
+        assert_eq!(shown_path("/bad%FF"), Some("/bad%FF".to_owned()));
+        assert_eq!(shown_path("/odd%2"), Some("/odd%2".to_owned()));
+    }
+
+    #[test]
+    fn a_long_path_is_cut() {
+        let long = format!("/{}", "a".repeat(40));
+        let shown = shown_path(&long).unwrap_or_default();
+
+        assert_eq!(shown.chars().count(), 32);
+        assert!(shown.ends_with('…'));
+    }
 }

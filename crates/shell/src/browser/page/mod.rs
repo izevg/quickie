@@ -131,7 +131,7 @@ impl Browser {
     fn show_origin(&self, window: WindowId, url: &Url) {
         let host = self.window(window).and_then(|window| window.contentView());
         match (Origin::of(url), host) {
-            (Some(origin), Some(host)) => self.page.chip.show(&host, &origin, None),
+            (Some(origin), Some(host)) => self.page.chip.show(&host, &origin, url.path(), None),
             _ => self.page.chip.hide(),
         }
     }

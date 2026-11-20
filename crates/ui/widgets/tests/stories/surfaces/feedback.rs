@@ -1,7 +1,7 @@
 //! The feedback group: toasts, the debug keys overlay, and the full-screen notice.
 
 use quickie_ui_shared::stories::{LIGHT, LIGHT_DARK, Scene, Story, Theme, WINDOW};
-use quickie_ui_widgets::{FullscreenNotice, KeyLogPanel, ToastStack};
+use quickie_ui_widgets::{FullscreenNotice, KeyLogPanel, Toast, ToastKind, ToastStack};
 
 use crate::fixtures;
 
@@ -20,6 +20,8 @@ pub const STORIES: &[Story] = &[
     toasts("one", LIGHT_DARK, toast_one),
     toasts("stacked", LIGHT, toast_stacked),
     toasts("tagged", LIGHT, toast_tagged),
+    toasts("kinds", LIGHT_DARK, toast_kinds),
+    toasts("problem", LIGHT, toast_problem),
     Story {
         group: "feedback",
         widget: "key-log",
@@ -61,6 +63,46 @@ fn toast_stacked(scene: &mut Scene) {
         "Filter lists are fetched in the background; pages load meanwhile",
     );
     scene.check_eq(stack.texts().len(), 3, "three toasts stack");
+    scene.keep(stack);
+}
+
+/// Each kind as the mock has them: done with a mono detail, info with the keys that did it,
+/// success in green with its measured count.
+fn toast_kinds(scene: &mut Scene) {
+    let stack = ToastStack::new(scene.mtm());
+    stack.show(
+        scene.host(),
+        Toast::done("URL copied").with_detail("to clipboard"),
+    );
+    stack.show(scene.host(), Toast::info("Tab restored").with_keys("⇧⌘T"));
+    stack.show(
+        scene.host(),
+        Toast::new(ToastKind::Success, "Downloaded").with_detail("quickie-0.1.0.dmg"),
+    );
+    scene.check_eq(
+        stack.texts(),
+        vec![
+            "URL copied".to_owned(),
+            "Tab restored".to_owned(),
+            "Downloaded".to_owned(),
+        ],
+        "three kinds stack",
+    );
+    scene.keep(stack);
+}
+
+/// A problem says why in the toast's own words; a long one is cut, not wrapped.
+fn toast_problem(scene: &mut Scene) {
+    let stack = ToastStack::new(scene.mtm());
+    stack.show(
+        scene.host(),
+        Toast::problem("Couldn't download: the server stopped answering")
+            .with_detail("Отчёт за квартал.pdf"),
+    );
+    stack.show(
+        scene.host(),
+        Toast::new(ToastKind::Success, "Shields blocked").with_count("12 requests"),
+    );
     scene.keep(stack);
 }
 

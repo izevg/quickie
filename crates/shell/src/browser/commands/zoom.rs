@@ -20,7 +20,7 @@ impl Browser {
             Ok(level) => {
                 self.show_zooms(None);
                 if let Some(host) = self.current().and_then(|(_, window)| window.contentView()) {
-                    self.toasts.show_tagged(&host, &level.to_string(), "zoom");
+                    self.toasts.show_tagged(&host, level.to_string(), "zoom");
                 }
             }
             Err(AppError::NoSite(_)) => self.toast("Only websites zoom"),

@@ -11,7 +11,7 @@ use quickie_application::{AppError, DownloadEvent, DownloadToken};
 use quickie_domain_browsing::{Jar, TabId};
 use quickie_domain_library::{DownloadError, DownloadId};
 use quickie_ui_shared::Trigger;
-use quickie_ui_widgets::DownloadsRequest;
+use quickie_ui_widgets::{DownloadsRequest, Toast, ToastKind};
 
 use super::super::Browser;
 use crate::input::keystroke::OverlayKey;
@@ -56,17 +56,17 @@ impl Browser {
             }
             (DownloadEvent::Refused { reason, .. }, _) => {
                 drop(library);
-                return self.toast(&format!("Couldn't download: {reason}"));
+                return self.notify(Toast::problem(format!("Couldn't download: {reason}")));
             }
             (DownloadEvent::Saved { jar, url, file, .. }, _) => {
                 let name = file_name(&file);
-                let toast = format!("Saved {name} to Downloads");
+                let toast = Toast::new(ToastKind::Success, "Saved to Downloads").with_detail(&name);
                 let listed = library
                     .download_started(url, name, jar)
                     .and_then(|id| library.download_finished(id));
                 drop(library);
                 return match listed {
-                    Ok(()) => self.toast(&toast),
+                    Ok(()) => self.notify(toast),
                     Err(error) => self.report(&error),
                 };
             }
@@ -79,10 +79,10 @@ impl Browser {
             ) => library.download_progressed(id, received, total),
             (DownloadEvent::Finished { .. }, Some(id)) => library
                 .download_finished(id)
-                .map(|()| self.ended(&library, id, "Downloaded")),
+                .map(|()| self.ended(&library, id, ToastKind::Success, "Downloaded")),
             (DownloadEvent::Failed { reason, .. }, Some(id)) => library
                 .download_failed(id, reason)
-                .map(|()| self.ended(&library, id, "Download failed:")),
+                .map(|()| self.ended(&library, id, ToastKind::Problem, "Download failed")),
         };
         drop(library);
         match outcome {
@@ -100,7 +100,7 @@ impl Browser {
         url: url::Url,
         name: String,
     ) {
-        let toast = format!("Downloading {name}");
+        let toast = Toast::info("Downloading").with_detail(&name);
         let started = self.library.borrow_mut().download_started(url, name, jar);
         match started {
             Ok(id) => {
@@ -108,7 +108,7 @@ impl Browser {
                 links.ids.insert(key, id);
                 links.keys.insert(id, (key, tab));
                 drop(links);
-                self.toast(&toast);
+                self.notify(toast);
             }
             Err(error) => {
                 self.browsing.borrow_mut().engine_mut().cancel_download(key);
@@ -118,9 +118,9 @@ impl Browser {
     }
 
     /// Tells that a download ended, by its name.
-    fn ended(&self, library: &crate::Lib, id: DownloadId, what: &str) {
+    fn ended(&self, library: &crate::Lib, id: DownloadId, kind: ToastKind, what: &str) {
         if let Some(download) = library.downloads().get(id) {
-            self.toast(&format!("{what} {}", download.file_name));
+            self.notify(Toast::new(kind, what).with_detail(&download.file_name));
         }
     }
 
