@@ -77,7 +77,8 @@ glass above the page, and is gone when you are done:
 
 ### Default keys
 
-All of them are commands in the palette and can be rebound in the keymap editor.
+All of them are commands in the palette and can be rebound in the keymap editor. ⌘ is Ctrl on
+Linux: `keybindings.json` writes it `mod` (`mod+shift+p`), and `⌃⇥` stays Ctrl on both.
 
 | Keys | Command |
 |---|---|

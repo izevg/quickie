@@ -110,7 +110,7 @@ impl Offers {
         for command in catalog.iter() {
             let glyphs = keymap
                 .bindings_for(&command.id)
-                .map(|binding| binding.chord.to_string())
+                .map(|binding| binding.chord.glyphs(keymap.platform()))
                 .collect();
             offers.push_with(
                 Target::Command(command.id.clone()),

@@ -7,6 +7,10 @@
 //!
 //! Keys are layout independent: the shell maps the ASCII-capable layout to a [`Key`], so `⌘⇧C`
 //! works on a Russian layout. Pure: no I/O, no clock, no async.
+//!
+//! Platform-neutral: the composition root hands in a [`Platform`] once. Bindings are written
+//! with `mod` for its primary modifier (`⌘` on macOS, Ctrl on Linux), resolved when the keymap
+//! is made, and keycaps are printed the way that platform prints them.
 
 mod command;
 mod key;
@@ -15,6 +19,7 @@ mod keymap;
 pub use command::{Catalog, Category, Command};
 pub use key::{
     Chord, ChordError, Digit, FunctionKey, Key, KeyStroke, KeyStrokeError, Letter, Modifiers,
+    Platform,
 };
 pub use keymap::{
     BindingError, Conflict, KeyBinding, Keymap, KeymapEntry, KeymapError, Resolution, Unbinding,
