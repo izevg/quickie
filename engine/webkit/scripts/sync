@@ -1,8 +1,9 @@
 #!/bin/sh
-# Fetches the WebKit commit in engine/webkit/webkit.pin into .build/webkit (never tracked): one
-# commit, no history (--depth 1), no blobs until checkout (--filter=blob:none), and a sparse
-# checkout without the test and website trees, which the build never reads. Safe to re-run: a
-# checkout already at the pin only gets its sparse patterns re-applied.
+# Fetches the WebKit commit in engine/webkit/webkit.pin (or QUICKIE_WEBKIT_COMMIT) into
+# .build/webkit (never tracked): one commit, no history (--depth 1), no blobs until checkout
+# (--filter=blob:none), and a sparse checkout without the test and website trees, which the build
+# never reads. Safe to re-run: a checkout already at the commit only gets its sparse patterns
+# re-applied.
 #
 #   engine/webkit/scripts/sync
 #
@@ -13,6 +14,8 @@
 #   QUICKIE_BUILD_DIR      where the checkout goes (default: <repo>/.build); no spaces
 #   QUICKIE_MIN_FREE_GB    refuse to run below this much free disk (default: 15)
 #   QUICKIE_WEBKIT_LOCAL   set to 1 to allow a run outside CI
+#   QUICKIE_WEBKIT_COMMIT  a full fork commit to build instead of the pinned one, for test builds
+#                          of patch branches (engine/README.md, "Building a patch branch")
 set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
@@ -45,10 +48,18 @@ for key in WEBKIT_REPO WEBKIT_BRANCH WEBKIT_COMMIT WEBKIT_CHECKED; do
   # shellcheck disable=SC2154 # value is assigned by the eval above
   [ -n "$value" ] || die "$key is missing in $pin"
 done
+pinned=$WEBKIT_COMMIT
+# An override is checked like the pin and then stands in for it everywhere below.
+WEBKIT_COMMIT=${QUICKIE_WEBKIT_COMMIT:-$WEBKIT_COMMIT}
+if [ -n "${QUICKIE_WEBKIT_COMMIT:-}" ]; then
+  source_name=QUICKIE_WEBKIT_COMMIT
+else
+  source_name=WEBKIT_COMMIT
+fi
 case "$WEBKIT_COMMIT" in
-  *[!0-9a-f]*) die "WEBKIT_COMMIT must be a full 40-character commit hash: $WEBKIT_COMMIT" ;;
+  *[!0-9a-f]*) die "$source_name must be a full 40-character commit hash: $WEBKIT_COMMIT" ;;
 esac
-[ "${#WEBKIT_COMMIT}" -eq 40 ] || die "WEBKIT_COMMIT must be a full 40-character commit hash"
+[ "${#WEBKIT_COMMIT}" -eq 40 ] || die "$source_name must be a full 40-character commit hash"
 
 case "$build" in
   *' '*) die "WebKit does not build in a path with spaces: $build" ;;
@@ -90,7 +101,7 @@ mkdir -p "$(dirname -- "$sparse")"
 
 head=$(git -C "$dir" rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null || true)
 if [ "$head" = "$WEBKIT_COMMIT" ]; then
-  # Already at the pin: only bring the working tree in line with the patterns.
+  # Already at the commit: only bring the working tree in line with the patterns.
   git -C "$dir" sparse-checkout reapply
 else
   # GitHub serves any reachable commit by hash, so the pin needs no branch or tag to exist.
@@ -98,14 +109,17 @@ else
   git -C "$dir" checkout -q --detach "$WEBKIT_COMMIT"
 fi
 actual=$(git -C "$dir" rev-parse 'HEAD^{commit}')
-[ "$actual" = "$WEBKIT_COMMIT" ] || die "the checkout is at $actual, but webkit.pin says $WEBKIT_COMMIT"
+[ "$actual" = "$WEBKIT_COMMIT" ] || die "the checkout is at $actual, but $source_name says $WEBKIT_COMMIT"
 
 branch_head=$(git ls-remote "$WEBKIT_REPO" "refs/heads/$WEBKIT_BRANCH" | awk '{ print $1 }')
 size=$(du -sk "$dir" | awk '{ printf "%.1f GB", $1 / 1048576 }')
 free_after=$(df -Pk "$dir" | awk 'NR == 2 { print int($4 / 1048576) }')
 printf 'sync: WebKit %s from %s\n' "$WEBKIT_COMMIT" "$WEBKIT_REPO"
 printf 'sync:   %s\n' "$(git -C "$dir" log -1 --format='%cI %s')"
-if [ "$branch_head" = "$WEBKIT_COMMIT" ]; then
+if [ "$WEBKIT_COMMIT" != "$pinned" ]; then
+  printf 'sync:   override (QUICKIE_WEBKIT_COMMIT); webkit.pin says %s\n' "$pinned"
+fi
+if [ "$branch_head" = "$pinned" ]; then
   printf 'sync:   %s is still at the pin (checked %s)\n' "$WEBKIT_BRANCH" "$WEBKIT_CHECKED"
 else
   printf 'sync:   %s is now at %s; the pin was checked %s\n' \
