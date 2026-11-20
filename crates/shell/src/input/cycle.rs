@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use quickie_domain_browsing::{Direction, TabCycle, WindowId};
+use quickie_domain_browsing::{Direction, TabCycle, TabId, WindowId};
 
 /// The switcher appears only after `⌃` is held longer than this.
 pub const REVEAL_AFTER: Duration = Duration::from_millis(150);
@@ -57,6 +57,16 @@ impl CycleHold {
         self.cycle.step(direction);
     }
 
+    /// Typing in the switcher kept the tabs at `kept` ([`TabCycle::narrow`]).
+    pub fn narrow(&mut self, kept: &[usize]) {
+        self.cycle.narrow(kept);
+    }
+
+    /// `tab` was closed from the switcher ([`TabCycle::remove`]).
+    pub fn remove(&mut self, tab: TabId) {
+        self.cycle.remove(tab);
+    }
+
     /// The cycle, to show or to commit.
     #[must_use]
     pub fn cycle(&self) -> &TabCycle {
@@ -69,9 +79,9 @@ impl CycleHold {
         self.window
     }
 
-    /// Position of the selection in [`TabCycle::order`].
+    /// Position of the selection in [`TabCycle::order`]; `None` when the filter keeps nothing.
     #[must_use]
-    pub fn selected_index(&self) -> usize {
+    pub fn selected_index(&self) -> Option<usize> {
         self.cycle.cursor()
     }
 }
@@ -141,13 +151,24 @@ mod tests {
     fn steps_move_the_selection_through_the_fixed_order() {
         let mut hold = hold(Instant::now());
 
-        assert_eq!(hold.selected_index(), 1);
-        assert_eq!(hold.cycle().selected(), TabId::new(Profile::Main, 1));
+        assert_eq!(hold.selected_index(), Some(1));
+        assert_eq!(hold.cycle().selected(), Some(TabId::new(Profile::Main, 1)));
         hold.step(Direction::Forward);
-        assert_eq!(hold.selected_index(), 2);
+        assert_eq!(hold.selected_index(), Some(2));
         hold.step(Direction::Backward);
         hold.step(Direction::Backward);
-        assert_eq!(hold.selected_index(), 0);
+        assert_eq!(hold.selected_index(), Some(0));
         assert_eq!(hold.window(), WindowId::new(Profile::Main, 7));
+    }
+
+    #[test]
+    fn typing_and_closing_reach_the_cycle() {
+        let mut hold = hold(Instant::now());
+
+        hold.narrow(&[2]);
+        assert_eq!(hold.selected_index(), Some(2));
+        hold.remove(TabId::new(Profile::Main, 2));
+        assert_eq!(hold.selected_index(), None);
+        assert_eq!(hold.cycle().order().len(), 2);
     }
 }

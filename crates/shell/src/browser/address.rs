@@ -12,6 +12,11 @@ use super::Browser;
 use super::palette::Opening;
 use crate::input::keystroke::OverlayKey;
 
+/// What `⏎` does on the page's URL, untouched, with the first action selected: `true` runs
+/// that action (Copy URL, as in the mockup); `false` loads the URL again, as before the
+/// overlay had actions. An action the user moved to with `↑` `↓` runs either way.
+const ENTER_RUNS_PAGE_ACTION: bool = true;
+
 impl Browser {
     /// Hands the overlay's edits and clicks to the browser.
     pub(super) fn wire_address(&self) {
@@ -98,12 +103,14 @@ impl Browser {
         true
     }
 
-    /// Runs the selected row; with no row (the field holds an address the user did not
-    /// change), goes where the field's text says.
+    /// Runs the selected row; with no row (the start page's field, or the page's URL with
+    /// [`ENTER_RUNS_PAGE_ACTION`] off), goes where the field's text says.
     fn submit_address(&self, opening: Opening) {
-        let target = self
-            .address
-            .chosen()
+        let reload = !ENTER_RUNS_PAGE_ACTION
+            && self.address.shows_page()
+            && self.address.selected() == Some(0);
+        let chosen = if reload { None } else { self.address.chosen() };
+        let target = chosen
             .or_else(|| Destination::of(&self.address.text()).map(|to| Target::Url(to.into_url())));
         match target {
             Some(target) => self.run_target(target, opening),

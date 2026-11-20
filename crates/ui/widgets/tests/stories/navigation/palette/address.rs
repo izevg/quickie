@@ -194,7 +194,7 @@ fn cyrillic(scene: &mut Scene) {
     let world = &host.world;
     scene.check_eq(
         host.overlay.target_at(1),
-        world.tabs.get(2).map(|&tab| Target::Tab(tab)),
+        world.tab_at("https://lenta.ru/news/").map(Target::Tab),
         "the Russian title is found",
     );
 }
@@ -236,7 +236,7 @@ fn go_to_tab(scene: &mut Scene) {
         "the field shows the selected row",
     );
     scene.press(Key::Return);
-    let tab = host.world.tabs.get(3).copied();
+    let tab = host.world.tab_at("https://github.com/izevg/quickie/pulls");
     scene.check_eq(
         host.ran.borrow().clone(),
         tab.map(|tab| (Target::Tab(tab), Modifiers::NONE)),
