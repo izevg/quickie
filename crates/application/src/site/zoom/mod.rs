@@ -15,11 +15,11 @@ mod tests;
 
 use std::collections::BTreeMap;
 
-use quickie_domain_browsing::{Jar, JarId, registrable_domain};
+use quickie_domain_browsing::{Jar, JarId, Session, TabId, registrable_domain};
 use quickie_domain_settings::{CorruptZooms, Site, SiteError, SiteZooms, ZoomLevel, ZoomStep};
 use url::Url;
 
-use crate::{AppError, ZoomRepo};
+use crate::{AppError, PageZoom, ZoomRepo};
 
 /// The zoom use cases over one profile's site zooms.
 #[derive(Debug)]
@@ -99,6 +99,20 @@ impl<R: ZoomRepo> Zoom<R> {
                 Ok(level)
             }
             Jar::Throwaway(id) => Ok(self.throwaway.entry(id).or_default().step(site, step)),
+        }
+    }
+
+    /// Puts pages at their site's zoom through `pages`: the tabs of `only`, or every tab of
+    /// `session`. Run it when pages commit, so each shows its site's zoom from its first
+    /// paint, and after a step, so the change reaches every open page of the site in its jar.
+    pub fn show(&self, session: &Session, only: Option<&[TabId]>, pages: &mut impl PageZoom) {
+        let tabs = session
+            .windows()
+            .filter_map(|window| session.tabs(window).ok())
+            .flatten()
+            .filter(|tab| only.is_none_or(|only| only.contains(&tab.id)));
+        for tab in tabs {
+            pages.set_zoom(tab.id, self.level(&tab.url, tab.jar));
         }
     }
 

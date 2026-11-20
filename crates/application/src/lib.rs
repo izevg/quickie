@@ -24,15 +24,15 @@ pub use browsing::Browsing;
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::conformance;
 pub use engine::{
-    Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, EngineEvent,
-    EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
-    ExtensionPackages, FindStep, Followed, Found, LinkTarget, PackageSource, PageContent, PageRect,
-    ReplyToken, Ticket, Unpacked, WindowTabs,
+    Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, Downloads,
+    EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost,
+    ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, LinkTarget, PackageSource,
+    PageAsks, PageContent, PageRect, PageZoom, ReplyToken, Ticket, Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,
 };
-pub use library::{CorruptLibrary, Library};
+pub use library::{CorruptLibrary, DownloadMoved, Library};
 pub use palette::{
     AddressSuggestions, InlineCompletion, PageFacts, Palette, PaletteIndex, PaletteItem, Sources,
     Suggestion, SuggestionKind, Target,
@@ -52,4 +52,6 @@ pub use settings::keymap::{
     keymap_lines, load_keymap, rebind, reset_binding,
 };
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};
-pub use site::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Zoom};
+pub use site::{
+    DialogAnswer, DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Waiting, Zoom,
+};

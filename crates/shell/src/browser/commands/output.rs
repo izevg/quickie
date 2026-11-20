@@ -7,6 +7,7 @@
 //! Develop menu. On Chromium (P1) they open `DevTools` docked in the window and on the asked
 //! panel, through the bridge.
 
+use quickie_application::Downloads;
 use quickie_domain_browsing::WindowId;
 
 use super::Browser;

@@ -285,6 +285,19 @@ mod starting {
 
         assert_eq!(browsing.engine.failing, vec!["show"]);
     }
+
+    #[test]
+    fn the_session_and_the_engine_are_reachable_together() {
+        let mut browsing = started();
+        let active = browsing.session().active(w0());
+
+        let (session, engine) = browsing.session_and_engine();
+        engine.failing.push("show");
+
+        assert!(active.is_some());
+        assert_eq!(session.active(w0()), active);
+        assert_eq!(browsing.engine.failing, vec!["show"]);
+    }
 }
 
 mod opening {

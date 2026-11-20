@@ -1,8 +1,9 @@
 //! What pages ask the user: JavaScript dialogs and camera or microphone requests, as E3 sheets
 //! attached to the page's window. The `Prompts` use case decides what is asked at all (a page's
-//! second dialog while one is open, a blocked page, a site allowed before); the rest waits in
-//! arrival order and shows when its tab is the window's active one. A sheet belongs to its tab:
-//! switching away hides it, coming back shows it again, and closing the tab declines it.
+//! second dialog while one is open, a blocked page, a site allowed before), keeps the rest
+//! waiting in arrival order, and hands every answer to the engine; a sheet shows when its tab
+//! is the window's active one. A sheet belongs to its tab: switching away hides it, coming back
+//! shows it again, and closing the tab declines it.
 //!
 //! Keys on a sheet: `⏎` OK, `⎋` cancel or block (the safe default), `1` / `2` the numbered
 //! permission answers, `⌘B` blocks a page's dialogs. Tab and window shortcuts still work; the
@@ -13,7 +14,7 @@ use std::collections::BTreeMap;
 
 use objc2::MainThreadMarker;
 use quickie_application::{
-    Answer, Ask, AskKind, Dialog, DialogGate, PermissionAnswer, PermissionGate, Prompts, ReplyToken,
+    Ask, AskKind, Dialog, DialogAnswer, PermissionAnswer, Prompts, ReplyToken,
 };
 use quickie_domain_browsing::{TabId, WindowId};
 use quickie_domain_commands::KeyStroke;
@@ -21,13 +22,6 @@ use quickie_ui_widgets::{DialogChoice, DialogKind, DialogRequest, DialogSheet, P
 
 use super::super::Browser;
 use crate::input::keystroke::{SheetKey, sheet_key};
-
-/// An ask waiting for the user.
-struct Queued {
-    ask: Ask,
-    /// A dialog offers "Block dialogs from this page".
-    offer_block: bool,
-}
 
 /// A window's two sheets, and the ask on screen in it.
 struct WindowSheets {
@@ -39,7 +33,6 @@ struct WindowSheets {
 /// The asks waiting for the user and the sheets that show them.
 pub struct PageAsks {
     prompts: RefCell<Prompts>,
-    queue: RefCell<Vec<Queued>>,
     windows: RefCell<BTreeMap<WindowId, WindowSheets>>,
     mtm: MainThreadMarker,
 }
@@ -48,7 +41,6 @@ impl PageAsks {
     pub fn new(mtm: MainThreadMarker) -> Self {
         Self {
             prompts: RefCell::new(Prompts::new()),
-            queue: RefCell::new(Vec::new()),
             windows: RefCell::new(BTreeMap::new()),
             mtm,
         }
@@ -67,53 +59,32 @@ pub enum SheetRoute {
 }
 
 impl Browser {
-    /// A page asked: answered at once when `Prompts` says so, else queued for a sheet, which
-    /// [`Self::present_asks`] puts on screen.
+    /// A page asked: `Prompts` answers it at once when the user already chose, else keeps it
+    /// for a sheet, which [`Self::present_asks`] puts on screen.
     pub(in crate::browser) fn asked(&self, ask: Ask) {
-        let mut prompts = self.page.asks.prompts.borrow_mut();
-        let offer_block = match &ask.kind {
-            AskKind::Dialog(_) => match prompts.dialog(ask.tab) {
-                DialogGate::Cancel => {
-                    drop(prompts);
-                    self.reply(ask.token, &Answer::Decline);
-                    return;
-                }
-                DialogGate::Show { offer_block } => offer_block,
-            },
-            AskKind::Permission(permission) => {
-                if prompts.permission(&ask.origin, *permission) == PermissionGate::Allow {
-                    drop(prompts);
-                    self.reply(ask.token, &Answer::Accept(None));
-                    return;
-                }
-                false
-            }
+        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+            return;
         };
-        drop(prompts);
         self.page
             .asks
-            .queue
+            .prompts
             .borrow_mut()
-            .push(Queued { ask, offer_block });
+            .asked(ask, browsing.engine_mut());
     }
 
     /// Puts each window's sheet on screen: the oldest ask of its active tab, or none. Asks of
-    /// closed tabs leave the queue.
+    /// closed tabs are forgotten.
     pub(in crate::browser) fn present_asks(&self) {
         let active: Vec<(WindowId, Option<TabId>)> = {
             let Ok(browsing) = self.browsing.try_borrow() else {
                 return;
             };
             let session = browsing.session();
-            let mut queue = self.page.asks.queue.borrow_mut();
-            let mut prompts = self.page.asks.prompts.borrow_mut();
-            queue.retain(|queued| {
-                let live = session.tab(queued.ask.tab).is_some();
-                if !live {
-                    prompts.forget(queued.ask.tab);
-                }
-                live
-            });
+            self.page
+                .asks
+                .prompts
+                .borrow_mut()
+                .keep_tabs(|tab| session.tab(tab).is_some());
             self.windows
                 .borrow()
                 .keys()
@@ -127,11 +98,10 @@ impl Browser {
             .retain(|window, _| active.iter().any(|(live, _)| live == window));
         for (window, tab) in active {
             let ask = tab.and_then(|tab| {
-                let queue = self.page.asks.queue.borrow();
-                queue
-                    .iter()
-                    .find(|queued| queued.ask.tab == tab)
-                    .map(|queued| (queued.ask.clone(), queued.offer_block))
+                let prompts = self.page.asks.prompts.borrow();
+                prompts
+                    .waiting(tab)
+                    .map(|waiting| (waiting.ask.clone(), waiting.offer_block))
             });
             self.present(window, ask);
         }
@@ -203,12 +173,7 @@ impl Browser {
     }
 
     fn offers_block(&self, id: ReplyToken) -> bool {
-        self.page
-            .asks
-            .queue
-            .borrow()
-            .iter()
-            .any(|queued| queued.ask.token == id && queued.offer_block)
+        self.page.asks.prompts.borrow().offers_block(id)
     }
 
     fn present(&self, window: WindowId, ask: Option<(Ask, bool)>) {
@@ -289,27 +254,20 @@ impl Browser {
         }
     }
 
-    /// Takes the ask `id` off the queue if `window` still shows it.
-    fn take_shown(&self, window: WindowId, id: ReplyToken) -> Option<Ask> {
-        let shown = self
-            .page
+    /// True when `window` still shows the ask `id`.
+    fn shows(&self, window: WindowId, id: ReplyToken) -> bool {
+        self.page
             .asks
             .windows
             .borrow()
             .get(&window)
-            .and_then(|sheets| sheets.shown);
-        if shown != Some(id) {
-            return None;
-        }
-        let mut queue = self.page.asks.queue.borrow_mut();
-        let index = queue.iter().position(|queued| queued.ask.token == id)?;
-        Some(queue.remove(index).ask)
+            .is_some_and(|sheets| sheets.shown == Some(id))
     }
 
     fn answer_dialog(&self, window: WindowId, id: ReplyToken, choice: DialogChoice) {
-        let Some(ask) = self.take_shown(window, id) else {
+        if !self.shows(window, id) {
             return;
-        };
+        }
         let text = self
             .page
             .asks
@@ -318,44 +276,40 @@ impl Browser {
             .get(&window)
             .and_then(|sheets| sheets.dialog.text());
         let answer = match choice {
-            DialogChoice::Ok => Answer::Accept(text),
-            DialogChoice::Cancel | DialogChoice::Block => Answer::Decline,
+            DialogChoice::Ok => DialogAnswer::Ok(text),
+            DialogChoice::Cancel => DialogAnswer::Cancel,
+            DialogChoice::Block => DialogAnswer::Block,
         };
-        self.page
-            .asks
-            .prompts
-            .borrow_mut()
-            .dialog_closed(ask.tab, choice == DialogChoice::Block);
-        self.reply(id, &answer);
-        self.settle(window);
-    }
-
-    fn answer_permission(&self, window: WindowId, id: ReplyToken, answer: PermissionAnswer) {
-        let Some(ask) = self.take_shown(window, id) else {
+        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
             return;
         };
-        let AskKind::Permission(permission) = ask.kind else {
-            return;
-        };
-        let granted =
+        let answered =
             self.page
                 .asks
                 .prompts
                 .borrow_mut()
-                .answer_permission(&ask.origin, permission, answer);
-        let reply = if granted {
-            Answer::Accept(None)
-        } else {
-            Answer::Decline
-        };
-        self.reply(id, &reply);
-        self.settle(window);
+                .dialog_answered(id, answer, browsing.engine_mut());
+        drop(browsing);
+        if answered {
+            self.settle(window);
+        }
     }
 
-    /// Sends an answer to the page that waits on `id`.
-    fn reply(&self, id: ReplyToken, answer: &Answer) {
-        if let Ok(mut browsing) = self.browsing.try_borrow_mut() {
-            browsing.engine_mut().answer(id, answer);
+    fn answer_permission(&self, window: WindowId, id: ReplyToken, answer: PermissionAnswer) {
+        if !self.shows(window, id) {
+            return;
+        }
+        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+            return;
+        };
+        let answered = self.page.asks.prompts.borrow_mut().permission_answered(
+            id,
+            answer,
+            browsing.engine_mut(),
+        );
+        drop(browsing);
+        if answered {
+            self.settle(window);
         }
     }
 

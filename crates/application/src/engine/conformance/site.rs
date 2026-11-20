@@ -93,6 +93,9 @@ pub enum Act {
     /// Its title becomes `scripts:` and the path of each script it loaded that ran, each
     /// followed by `;`.
     ShowScripts,
+    /// Its title becomes `width:` and how wide its viewport is in CSS pixels, which a zoom
+    /// divides: the page view's width at 100 %, half of it at 200 %.
+    ShowWidth,
 }
 
 impl Act {
@@ -117,6 +120,7 @@ impl Act {
             Self::SetCookie(cookie) => format!("document.cookie='{cookie}; path=/';"),
             Self::ShowCookies => "document.title='cookies:'+document.cookie;".to_owned(),
             Self::ShowScripts => "document.title='scripts:'+(window.ran||'');".to_owned(),
+            Self::ShowWidth => "document.title='width:'+innerWidth;".to_owned(),
         }
     }
 }
@@ -251,6 +255,10 @@ pub const SITE: &[(&str, Resource)] = &[
         Resource::Page(acting("Prompt", &[Act::Prompt("Name", "Ada")])),
     ),
     ("camera", Resource::Page(acting("Camera", &[Act::Camera]))),
+    (
+        "measured",
+        Resource::Page(acting("Measured", &[Act::ShowWidth])),
+    ),
     (
         "tracked",
         Resource::Page(TestPage {

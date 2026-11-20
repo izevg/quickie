@@ -7,13 +7,16 @@ mod inbox;
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::fmt;
+use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{
-    EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageContent, Ticket,
+    Answer, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, FindStep, Navigation,
+    PageAsks, PageContent, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
 use inbox::Inbox;
@@ -277,6 +280,34 @@ impl PageContent for ChromiumEngine {
     fn follow_link(&mut self, tab: TabId, _: usize, _: bool) -> Result<Ticket, EngineError> {
         self.unsupported(tab, "follow a link target in")
     }
+}
+
+/// The bridge has no downloads yet: a download or a PDF asked for fails without calling
+/// Chromium, so none is ever reported, and there is nothing to cancel.
+impl Downloads for ChromiumEngine {
+    fn set_directory(&mut self, _directory: PathBuf) {}
+
+    fn download(&mut self, tab: TabId, _url: &Url) -> Result<(), EngineError> {
+        self.unsupported(tab, "download from")
+    }
+
+    fn cancel(&mut self, _token: DownloadToken) {}
+
+    fn save_pdf(&mut self, tab: TabId) -> Result<(), EngineError> {
+        self.unsupported(tab, "save as a PDF")
+    }
+}
+
+/// The bridge reports no asks yet, so no page ever waits for an answer.
+impl PageAsks for ChromiumEngine {
+    fn answer(&mut self, _token: ReplyToken, _answer: &Answer) -> bool {
+        false
+    }
+}
+
+/// The bridge cannot zoom pages yet: every page stays at actual size.
+impl PageZoom for ChromiumEngine {
+    fn set_zoom(&mut self, _tab: TabId, _level: ZoomLevel) {}
 }
 
 /// An engine error naming what failed and why.

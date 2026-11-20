@@ -33,19 +33,8 @@ impl Browser {
         let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
             return;
         };
-        let zoom = self.zoom.borrow();
-        let session = browsing.session();
-        let pages: Vec<(TabId, f64)> = session
-            .windows()
-            .filter_map(|window| session.tabs(window).ok())
-            .flatten()
-            .filter(|tab| only.is_none_or(|only| only.contains(&tab.id)))
-            .map(|tab| (tab.id, zoom.level(&tab.url, tab.jar).factor()))
-            .collect();
-        let engine = browsing.engine_mut();
-        for (tab, factor) in pages {
-            engine.set_zoom(tab, factor);
-        }
+        let (session, engine) = browsing.session_and_engine();
+        self.zoom.borrow().show(session, only, engine);
     }
 
     /// Throwaway jars that closed: what they zoomed goes with them.

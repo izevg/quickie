@@ -53,7 +53,7 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSSize};
-use quickie_application::{Agent, Browsing, Clock, Extensions, Library, Shields, Zoom};
+use quickie_application::{Agent, Browsing, Clock, Downloads, Extensions, Library, Shields, Zoom};
 use quickie_domain_browsing::{Profile, Timestamp};
 use quickie_domain_commands::{Catalog, Platform};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine, WebKitExtensions};
@@ -203,7 +203,7 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let downloads_folder = home_dir()?.join("Downloads");
     browsing
         .engine_mut()
-        .set_download_directory(downloads_folder.clone());
+        .set_directory(downloads_folder.clone());
     // The agent too. It contacts its endpoint only when asked (docs/privacy.md).
     let agent_store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let agent_pending = agent_store.pending();

@@ -6,7 +6,8 @@ use quickie_domain_browsing::{Focus, Jar, JarId};
 use super::{Case, Checked, Run, about, ensure, same, tab};
 use crate::conformance::{Group, Harness, WINDOW};
 use crate::{
-    Answer, Ask, AskKind, Dialog, EngineEvent, EnginePort, Navigation, PageContent, Permission,
+    Answer, Ask, AskKind, Dialog, EngineEvent, EnginePort, Navigation, PageAsks, PageContent,
+    Permission,
 };
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
@@ -234,7 +235,7 @@ fn asked<H: Harness>(run: &mut Run<'_, H>, path: &str) -> Result<Ask, String> {
 
 /// Answers `ask`, which must still wait.
 fn answer<H: Harness>(run: &mut Run<'_, H>, ask: &Ask, answer: &Answer) -> Checked {
-    let waited = run.harness.answer(&mut run.engine, ask.token, answer)?;
+    let waited = run.engine.answer(ask.token, answer);
     ensure(waited, || {
         "the page no longer waited for its answer".to_owned()
     })
@@ -255,9 +256,7 @@ fn alert_waits<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     answer(run, &ask, &Answer::Accept(None))?;
 
     run.wait_title(1, "Alerted")?;
-    let again = run
-        .harness
-        .answer(&mut run.engine, ask.token, &Answer::Decline)?;
+    let again = run.engine.answer(ask.token, &Answer::Decline);
     ensure(!again, || "an alert took a second answer".to_owned())
 }
 
@@ -316,9 +315,7 @@ fn closing_declines<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     let mark = run.events.len();
     run.idle();
 
-    let waited = run
-        .harness
-        .answer(&mut run.engine, ask.token, &Answer::Accept(None))?;
+    let waited = run.engine.answer(ask.token, &Answer::Accept(None));
     ensure(!waited, || {
         "a closed page still waited for its answer".to_owned()
     })?;
