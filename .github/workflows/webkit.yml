@@ -16,7 +16,7 @@ on:
         default: Xcode_27.2.app
         type: string
   push:
-    branches: [main, "release/**"]
+    branches: [main, "release/**", build/webkit-pipeline]
     paths:
       - engine/webkit/**
       - .github/workflows/webkit.yml
