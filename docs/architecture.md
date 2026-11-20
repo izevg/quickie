@@ -325,7 +325,7 @@ overlays at once.
 - Each tab's navigation state (`SessionState`, Chromium's serialization) is stored in
   `shell.sqlite`; Chromium's own session restore is off.
 
-### 4.4 Engine (`engine/quickie`, built as `//quickie` in the tree)
+### 4.4 Engine (`engine/chromium/quickie`, parked; built as `//quickie` in the tree)
 
 | Component | Language | Role |
 |---|---|---|
@@ -395,7 +395,7 @@ pub struct KeyStroke { pub key_code: u16, pub ascii: char, pub mods: Mods }
 ```
 
 ```rust
-// engine/quickie/bridge/lib.rs
+// engine/chromium/quickie/bridge/lib.rs
 #[cxx::bridge(namespace = "quickie")]
 mod ffi {
     extern "Rust" {

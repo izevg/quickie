@@ -1,8 +1,9 @@
 //! Engine adapter on Chromium: [`ChromiumEngine`] implements the application's
 //! [`EnginePort`](quickie_application::EnginePort) over the cxx bridge to `//quickie`
-//! (`engine/quickie/bridge`).
+//! (`engine/chromium/quickie/bridge`).
 //!
-//! GN builds this crate into the product with the `chromium` feature (`engine/quickie/BUILD.gn`).
+//! GN builds this crate into the product with the `chromium` feature
+//! (`engine/chromium/quickie/BUILD.gn`).
 //! Cargo builds it without the feature: the C++ side exists only inside a Chromium checkout, so
 //! the calls into it are compiled out and every engine call fails as unavailable. The bookkeeping
 //! on top of the bridge is tested against a fake bridge.

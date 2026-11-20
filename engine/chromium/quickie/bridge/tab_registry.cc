@@ -79,7 +79,7 @@ class TabRegistry::PageObserver : public content::WebContentsObserver {
 
   void WebContentsDestroyed() override {
     // Chromium destroyed the page itself (window.close(), the Browser closing).
-    // TODO(verify): Rust is not told yet; P1 needs an event for it (see engine/README.md).
+    // TODO(verify): Rust is not told yet; P1 needs an event for it (see engine/chromium/README.md).
     TabRegistry::Get().Forget(web_contents());
   }
 
