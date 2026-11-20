@@ -3,25 +3,28 @@
 //! engine's loop ([`MemoryEngine::turn`]), never inside a call: what a call asks for is queued,
 //! and the waker runs at the end of a turn while events wait.
 
+mod bundle;
 mod page;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use quickie_domain_browsing::{Focus, Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
 use quickie_domain_shields::Site;
 use url::Url;
 
+pub use bundle::{MemoryBlocker, MemoryHttp, MemoryView};
 pub use page::MemoryPage;
 
 use super::site::resource;
 use super::{Act, Control, Resource};
 use crate::{
-    Answer, Ask, AskKind, BlockerError, BlockerRules, ContentBlockerPort, Dialog, DownloadEvent,
-    DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed,
-    Found, LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageZoom, Permission,
-    ReplyToken, Ticket,
+    Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, Downloads,
+    EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found, LinkTarget,
+    Navigation, PageAsks, PageContent, PageRect, PageZoom, Permission, ReplyToken, Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -33,7 +36,10 @@ pub struct MemoryEngine {
     wake: Option<Box<dyn Fn()>>,
     /// The cookies of each jar, as their pages set them.
     cookies: HashMap<Jar, Vec<&'static str>>,
-    rules: BlockerRules,
+    /// The rules its content blockers installed last.
+    rules: Rc<RefCell<BlockerRules>>,
+    /// The last picture of each page: where it was when it was taken.
+    pictures: HashMap<TabId, Url>,
     folder: Option<PathBuf>,
     /// Downloaded files, whole or as far as they came.
     files: HashMap<PathBuf, Vec<u8>>,
@@ -54,7 +60,8 @@ impl MemoryEngine {
             events: EventQueue::default(),
             wake: None,
             cookies: HashMap::new(),
-            rules: BlockerRules::default(),
+            rules: Rc::default(),
+            pictures: HashMap::new(),
             folder: None,
             files: HashMap::new(),
             running: HashMap::new(),
@@ -72,16 +79,6 @@ impl MemoryEngine {
         if let Some(wake) = self.wake.as_ref().filter(|_| !self.events.is_empty()) {
             wake();
         }
-    }
-
-    /// Sets what runs at the end of a turn while events wait.
-    pub fn set_waker(&mut self, wake: Box<dyn Fn()>) {
-        self.wake = Some(wake);
-    }
-
-    /// Moves the events that wait to the end of `into`, oldest first.
-    pub fn drain(&mut self, into: &mut Vec<EngineEvent<MemoryPage>>) {
-        self.events.drain_into(into);
     }
 
     /// The user clicks the link or button of a tab's page whose frame, as
@@ -195,19 +192,19 @@ impl MemoryEngine {
                 self.events
                     .titled(tab, format!("cookies:{}", cookies.unwrap_or_default()));
             }
+            Act::FocusField => page.field_focused = true,
             Act::ShowScripts => {
+                let rules = self.rules.borrow();
                 let ran = page
                     .shown
                     .as_ref()
                     .map_or_else(String::new, |(shown, described)| {
                         let unshielded = Site::try_from(shown)
-                            .is_ok_and(|site| self.rules.unshielded.contains(&site));
+                            .is_ok_and(|site| rules.unshielded.contains(&site));
                         described
                             .scripts
                             .iter()
-                            .filter(|script| {
-                                unshielded || !blocks(&self.rules, &at(&self.base, script))
-                            })
+                            .filter(|script| unshielded || !blocks(&rules, &at(&self.base, script)))
                             .flat_map(|script| [script, ";"])
                             .collect()
                     });
@@ -377,6 +374,7 @@ impl EnginePort for MemoryEngine {
             .remove(&tab)
             .ok_or_else(|| EngineError(format!("no page for {tab}")))?;
         self.events.forget(tab);
+        self.pictures.remove(&tab);
         Ok(())
     }
 
@@ -544,12 +542,5 @@ impl PageZoom for MemoryEngine {
         if let Some(page) = self.pages.get_mut(&tab) {
             page.zoom = level;
         }
-    }
-}
-
-impl ContentBlockerPort for MemoryEngine {
-    fn install(&mut self, rules: &BlockerRules) -> Result<(), BlockerError> {
-        rules.clone_into(&mut self.rules);
-        Ok(())
     }
 }

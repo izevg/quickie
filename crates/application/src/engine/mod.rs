@@ -14,9 +14,9 @@ mod queue;
 #[cfg(test)]
 mod tests;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use quickie_domain_browsing::TabId;
+use quickie_domain_browsing::{TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
@@ -30,15 +30,121 @@ pub use extensions::{
 };
 pub use queue::EventQueue;
 
-use crate::EngineError;
+use crate::{ContentBlockerPort, EngineError, EnginePort, HttpPort};
 
-/// What an engine can do that the UI only degrades without, declared once per engine as a
-/// `const` (`CAPS` on the adapter's engine type), so the shell decides at compile time what to
-/// offer. A capability a use case cannot work without is a trait bound instead.
+/// What an engine can do that the UI only degrades without, declared once per engine as
+/// [`Engine::CAPS`], so the shell decides at compile time what to offer. A capability a use
+/// case cannot work without is a trait bound instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Capabilities {
     /// Web extensions run in the main profile's pages ([`ExtensionHost`]).
     pub web_extensions: bool,
+    /// How the page's developer tools open.
+    pub inspector: Inspector,
+    /// The engine reports what its content blocker kept from loading
+    /// ([`EngineEvent::Blocked`]), so a page's blocked count means something.
+    pub blocked_counts: bool,
+}
+
+/// How a page's developer tools open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Inspector {
+    /// [`PageSurface::inspect`] opens them.
+    Programmatic,
+    /// Only the user opens them, from the page's context menu; [`PageSurface::inspect`] only
+    /// says whether they can attach to the page.
+    FromContextMenu,
+}
+
+/// Putting pages on screen: each window's host view, which a tab's page fills while the window
+/// shows it, and what the page view is up to. The application never looks inside a view or a
+/// picture; the shell names their types for its toolkit.
+pub trait PageSurface {
+    /// A view of the toolkit: what a window's pages fill, and what each page is drawn in.
+    type View: ?Sized;
+    /// A picture of a page, as the toolkit draws it.
+    type Picture;
+
+    /// Makes `host` the view a window's pages fill; the tab shown there, if any, moves in.
+    ///
+    /// # Errors
+    ///
+    /// The window already has another host the engine cannot let go of, or the page that waited
+    /// for it could not be shown.
+    fn attach_host(&mut self, window: WindowId, host: &Self::View) -> Result<(), EngineError>;
+
+    /// Forgets a window's host view; its page leaves it.
+    fn detach_host(&mut self, window: WindowId);
+
+    /// The view a tab's page is drawn in, to give it the keyboard; `None` for a tab without a
+    /// page.
+    fn view(&self, tab: TabId) -> Option<&Self::View>;
+
+    /// True when the focused element of the tab's page takes text, so a key typed now is the
+    /// page's rather than a browser shortcut. Asked on every key: the engine answers from what
+    /// the page last reported, never by asking it.
+    fn input_focused(&self, tab: TabId) -> bool;
+
+    /// How much of a tab's page has loaded, `0.0 ..= 1.0`, while it loads; `None` when it is not
+    /// loading or has no page. [`EngineEvent::Loading`] tells when it moves.
+    fn loading(&self, tab: TabId) -> Option<f64>;
+
+    /// Takes a new picture of the tab's page; [`EngineEvent::Pictured`] says when
+    /// [`Self::picture`] has it. Nothing for a tab without a page or a page not drawn yet.
+    fn capture(&mut self, tab: TabId);
+
+    /// The tab's last picture, `None` before its page was first drawn or for a tab without a
+    /// page.
+    fn picture(&self, tab: TabId) -> Option<Self::Picture>;
+
+    /// Opens the print panel for the tab's page, on its window.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or its page is not in a window.
+    fn print(&mut self, tab: TabId) -> Result<(), EngineError>;
+
+    /// Opens the developer tools on the tab's page when [`Capabilities::inspector`] is
+    /// [`Inspector::Programmatic`]; otherwise only checks that they can attach to it from the
+    /// page's context menu.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or the developer tools cannot attach to it; the error says why.
+    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError>;
+}
+
+/// One engine: everything a profile's pages need, the network the browser's own requests take,
+/// and what the UI may offer on it. The composition root names one; everything else reaches it
+/// through these ports.
+pub trait Engine: EnginePort + PageSurface + PageContent + PageZoom + PageAsks + Downloads {
+    /// The engine's own network stack, for the browser's own requests (filter lists, the agent's
+    /// endpoint, extension packages), so every request of the product goes the same way.
+    type Http: HttpPort + Clone + Send + 'static;
+    /// The content blocker of the engine's pages.
+    type Blocker: ContentBlockerPort;
+
+    /// What the UI may offer on this engine.
+    const CAPS: Capabilities;
+
+    /// A handle on the engine's network, for a worker thread.
+    fn http(&self) -> Self::Http;
+
+    /// The content blocker of every page, existing and future. It keeps what it compiles in
+    /// `directory`, which it creates.
+    ///
+    /// # Errors
+    ///
+    /// The directory cannot be created or used, or the engine has no content blocker.
+    fn content_blocker(&mut self, directory: &Path) -> Result<Self::Blocker, EngineError>;
+
+    /// Sets what runs, later on the main loop and never inside an engine call, when events wait:
+    /// it should [`Self::drain`] them. Events already waiting wake it at once. Set once, at
+    /// start.
+    fn set_waker(&mut self, wake: Box<dyn Fn()>);
+
+    /// Moves what pages did since the last call to the end of `into`, oldest first.
+    fn drain(&mut self, into: &mut Vec<EngineEvent<Self::Page>>);
 }
 
 /// What is on a tab's page, as the user sees it: the matches of a find, the links and controls

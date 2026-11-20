@@ -27,8 +27,8 @@ use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSBackingStoreType, NSView, NSWindow, NSWindowStyleMask};
 use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize};
 use quickie_application::{
-    Access, BlockerRules, ContentBlockerPort, EngineEvent, EnginePort, ExtensionEvent,
-    ExtensionHost, ExtensionInfo, ListRules, PageContent, WindowTabs,
+    Access, BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, ExtensionEvent,
+    ExtensionHost, ExtensionInfo, ListRules, PageContent, PageSurface, WindowTabs,
 };
 use quickie_domain_browsing::{Jar, JarId, Profile, TabId, WindowId};
 use quickie_domain_settings::{ExtensionId, ExtensionVersion};
@@ -84,7 +84,7 @@ fn run(mtm: MainThreadMarker) -> Outcome {
         }
         return Ok(());
     };
-    let _window = host(&mut engine, mtm);
+    let _window = host(&mut engine, mtm)?;
     let id = ExtensionId::from_digest(&[7; 16]);
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extension");
     extensions
@@ -200,7 +200,7 @@ fn serve() -> Result<u16, String> {
 }
 
 /// A window, off screen, whose host the engine's pages fill.
-fn host(engine: &mut WebKitEngine, mtm: MainThreadMarker) -> Retained<NSWindow> {
+fn host(engine: &mut WebKitEngine, mtm: MainThreadMarker) -> Result<Retained<NSWindow>, String> {
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(800.0, 600.0));
     // SAFETY: a borderless, buffered window of a plain rect, made on the main thread; it is
     // never closed, so releasing it when closed cannot free it twice.
@@ -215,8 +215,8 @@ fn host(engine: &mut WebKitEngine, mtm: MainThreadMarker) -> Retained<NSWindow> 
     };
     let host = NSView::initWithFrame(NSView::alloc(mtm), frame);
     window.setContentView(Some(&host));
-    engine.attach_host(WINDOW, &host);
-    window
+    engine.attach_host(WINDOW, &host).map_err(|error| error.0)?;
+    Ok(window)
 }
 
 fn wait_for_read(

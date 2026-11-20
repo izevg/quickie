@@ -23,8 +23,8 @@ use std::time::{Duration, Instant};
 use objc2::MainThreadMarker;
 use objc2_foundation::{NSDate, NSRunLoop};
 use quickie_application::{
-    BlockerRules, ContentBlockerPort, EngineEvent, EnginePort, HttpError, HttpPort, ListRules,
-    Navigation,
+    BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, HttpError, HttpPort,
+    ListRules, Navigation,
 };
 use quickie_domain_browsing::{Jar, Profile, TabId};
 use quickie_domain_shields::{ContentHash, FilterListId, Site};
@@ -207,7 +207,7 @@ fn unshielded_site_loads_everything(mtm: MainThreadMarker) -> Outcome {
 
 fn rules_are_reused(mtm: MainThreadMarker) -> Outcome {
     let dir = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let engine = WebKitEngine::new(&[], mtm);
+    let mut engine = WebKitEngine::new(&[], mtm);
     let mut first = engine
         .content_blocker(dir.path())
         .map_err(|error| error.to_string())?;

@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use objc2::MainThreadMarker;
+use quickie_application::PageSurface;
 use quickie_domain_browsing::{Origin, TabId, WindowId, is_cross_origin};
 use quickie_ui_widgets::{FindBar, FullscreenNotice, LoadProgressLine, OriginChip};
 use url::Url;
@@ -139,8 +140,8 @@ impl Browser {
     /// The window's active tab's loading, on its progress line.
     fn show_progress(&self, window: WindowId) {
         let progress = self.active(window).and_then(|tab| {
-            let mut browsing = self.browsing.try_borrow_mut().ok()?;
-            browsing.engine_mut().progress(tab)
+            let browsing = self.browsing.try_borrow().ok()?;
+            browsing.engine().loading(tab)
         });
         self.set_progress(window, progress);
     }

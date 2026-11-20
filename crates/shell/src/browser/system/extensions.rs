@@ -22,7 +22,6 @@ use quickie_application::{
 use quickie_domain_browsing::{Focus, Jar, JarChoice, TabId, WindowId};
 use quickie_domain_commands::KeyStroke;
 use quickie_domain_settings::{ExtensionId, ExtensionSource, Grants, SiteAccess};
-use quickie_engine_webkit::UrlSessionHttp;
 use quickie_system::ExtensionFiles;
 use quickie_ui_screens::{ExtensionState, ExtensionsState, Pane};
 use quickie_ui_shared::Trigger;
@@ -478,10 +477,11 @@ impl Browser {
     fn fetch_extensions(&self, checks: Vec<UpdateCheck>, asked: bool) {
         let files = self.extension_ui.files.clone();
         let browser = MainThreadBound::new(self.this.clone(), self.mtm);
+        let http = self.http.clone();
         let spawned = thread::Builder::new()
             .name("quickie-extension-fetch".to_owned())
             .spawn(move || {
-                let fetched = fetch_packages(&UrlSessionHttp::new(), &files, &checks);
+                let fetched = fetch_packages(&http, &files, &checks);
                 DispatchQueue::main().exec_async(move || {
                     let Some(mtm) = MainThreadMarker::new() else {
                         return;

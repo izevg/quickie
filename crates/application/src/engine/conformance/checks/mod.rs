@@ -11,7 +11,7 @@ use quickie_domain_browsing::{Focus, Jar, Profile, TabId};
 use url::Url;
 
 use super::{Event, Group, Harness, NotDriven, Outcome, Page};
-use crate::{EngineEvent, EnginePort, LinkTarget, PageContent};
+use crate::{Engine, EngineEvent, EnginePort, LinkTarget, PageContent};
 
 /// Why a check failed.
 type Checked = Result<(), String>;
@@ -99,10 +99,10 @@ impl<H: Harness> Run<'_, H> {
     /// Lets the engine work until the events drained so far satisfy `done`.
     fn wait(&mut self, what: &str, done: impl Fn(&[Event<H>]) -> bool) -> Checked {
         let events = &mut self.events;
-        H::drain(&mut self.engine, events);
+        self.engine.drain(events);
         let held = done(events)
             || self.harness.pump(&mut self.engine, &mut |engine| {
-                H::drain(engine, events);
+                engine.drain(events);
                 done(events)
             });
         ensure(held, || {
@@ -113,7 +113,7 @@ impl<H: Harness> Run<'_, H> {
     /// Lets the engine work for a while, then drains what it reported.
     fn idle(&mut self) {
         self.harness.idle(&mut self.engine);
-        H::drain(&mut self.engine, &mut self.events);
+        self.engine.drain(&mut self.events);
     }
 
     /// Waits until tab `serial` is at `path`, titled `title`.

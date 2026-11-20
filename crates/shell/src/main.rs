@@ -50,13 +50,16 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification, NSImage,
+    NSView,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSSize};
-use quickie_application::{Agent, Browsing, Clock, Downloads, Extensions, Library, Shields, Zoom};
+use quickie_application::{
+    Agent, Browsing, Clock, Downloads, Engine, EnginePort, Extensions, Library, Shields, Zoom,
+};
 use quickie_domain_browsing::{Profile, Timestamp};
 use quickie_domain_commands::{Catalog, Platform};
-use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine, WebKitExtensions};
+use quickie_engine_webkit::{WebKitEngine, WebKitExtensions};
 use quickie_store::{KeybindingsFile, PendingWrites, WriteBehindStore};
 use quickie_system::{ExtensionFiles, KeychainSecrets, SystemEntropy};
 use quickie_ui_shared::tokens::overlay;
@@ -65,8 +68,24 @@ use url::Url;
 use browser::{Browser, Services, install_shortcuts, keymap_from, launch_urls};
 use delegate::AppDelegate;
 
+/// The engine of the main profile's pages, named here and nowhere else; the rest of the shell
+/// reaches it through the application's engine ports.
+pub type MainEngine = WebKitEngine;
+
+/// An engine the macOS shell can put on screen: its pages are `NSView`s and their pictures
+/// `NSImage`s. The shell's code that works on any engine is generic over this one bound.
+pub trait MacEngine: Engine<View = NSView, Picture = Retained<NSImage>> {}
+
+impl<E: Engine<View = NSView, Picture = Retained<NSImage>>> MacEngine for E {}
+
+/// A page the main engine opened by itself, for `Browsing::adopt`.
+pub type OpenedPage = <MainEngine as EnginePort>::Page;
+
+/// The main engine's network, for the browser's own requests on worker threads.
+pub type Network = <MainEngine as Engine>::Http;
+
 /// The browsing use cases as the app composes them.
-pub type App = Browsing<WebKitEngine, WriteBehindStore, SystemClock>;
+pub type App = Browsing<MainEngine, WriteBehindStore, SystemClock>;
 
 /// The library use cases as the app composes them.
 pub type Lib = Library<WriteBehindStore, SystemClock>;
@@ -75,7 +94,7 @@ pub type Lib = Library<WriteBehindStore, SystemClock>;
 pub type Palette = quickie_application::Palette<SystemClock>;
 
 /// The shields use cases as the app composes them.
-pub type Guard = Shields<WriteBehindStore, SystemClock, WebKitContentBlocker>;
+pub type Guard = Shields<WriteBehindStore, SystemClock, <MainEngine as Engine>::Blocker>;
 
 /// The desktop whose key conventions the keymap follows, chosen here once for the whole app.
 pub const PLATFORM: Platform = Platform::MacOs;
@@ -157,14 +176,14 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let home = Url::parse(HOME).map_err(|error| error.to_string())?;
     let store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let pending = store.pending();
-    let mut engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
+    let mut engine = MainEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
     // Pictures for the overview at the size of its widest card, so none costs more than a card
     // shows at the screen's scale.
     let card = overlay::THUMBNAIL_MAX_WIDTH;
     engine.set_thumbnail_size(NSSize::new(card, (card * overlay::THUMBNAIL_SHAPE).round()));
     // Web extensions run in the main profile's pages, so the controller exists before the
     // session restores its first page. Not on a macOS before 15.4.
-    let extension_host = if WebKitEngine::CAPS.web_extensions {
+    let extension_host = if <MainEngine as Engine>::CAPS.web_extensions {
         engine.web_extensions()
     } else {
         None

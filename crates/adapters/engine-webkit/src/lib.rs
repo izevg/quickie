@@ -1,16 +1,18 @@
 //! Development engine of Quickie: pages on `WKWebView`, so UI work never waits for a Chromium
-//! build (`docs/architecture.md` §3, P0). It implements the application's [`EnginePort`] and
-//! [`PageContent`].
+//! build (`docs/architecture.md` §3, P0). It is one whole [`Engine`] of the application: its
+//! pages behind [`EnginePort`] and the capability ports, `NSView`s and `NSImage`s on its
+//! [`PageSurface`].
 //!
 //! The engine keeps one page per tab, keyed by the domain's [`TabId`]. Main-jar pages share the
 //! default data store; each throwaway jar gets one non-persistent store, shared by its tabs and
-//! dropped with the jar. The shell registers each window's host view; [`EnginePort::show`]
-//! puts a tab's page into it, under any overlays.
+//! dropped with the jar. The shell registers each window's host view
+//! ([`PageSurface::attach_host`]); [`EnginePort::show`] puts a tab's page into it, under any
+//! overlays.
 //!
 //! Everything pages report flows back as one stream of [`EngineEvent`]s, without re-entering
 //! the use cases: pages record what they did in one queue, the engine schedules the shell's
-//! waker ([`WebKitEngine::set_waker`]) on the main run loop, and the shell drains the queue
-//! ([`WebKitEngine::drain`]). Answers to requests (a find, link targets, page text, a picture)
+//! waker ([`Engine::set_waker`]) on the main run loop, and the shell drains the queue
+//! ([`Engine::drain`]). Answers to requests (a find, link targets, page text, a picture)
 //! come the same way, never through a callback.
 //!
 //! Pages open pages of their own (`window.open`, `target=_blank`, `⌘`-click): the engine makes
@@ -21,20 +23,21 @@
 //! and stays blank until it is reloaded.
 //!
 //! Main-jar pages share one user content controller and throwaway-jar pages another, so the
-//! [`WebKitContentBlocker`] the engine hands out ([`WebKitEngine::content_blocker`]) installs
+//! [`WebKitContentBlocker`] the engine hands out ([`Engine::content_blocker`]) installs
 //! the same rules in both and blocks on every page, popups included, and on pages made before
 //! its rules were compiled. Its cosmetic filters and scriptlets ride in the same controllers; a
 //! frame's document waits, briefly, for its host's. Extensions' content scripts land only in
 //! the main jar's controller, so they never reach a throwaway page. [`UrlSessionHttp`] is the
-//! network for the browser's own requests, such as fetching filter lists.
+//! network for the browser's own requests ([`Engine::http`]), such as fetching filter lists.
 //!
 //! Navigations that become downloads go to one download center, which saves them into the
 //! folder [`Downloads::set_directory`] names and reports [`EngineEvent::Download`]s; a page
 //! saved as a PDF ([`Downloads::save_pdf`]) is written there too, under a free name.
 //!
 //! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from the
-//! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it.
-//! Page zoom ([`PageZoom`]) and printing ([`WebKitEngine::print`]) are the view's own.
+//! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it, so
+//! its inspector is [`Inspector::FromContextMenu`]. Page zoom ([`PageZoom`]) and printing
+//! ([`PageSurface::print`]) are the view's own.
 //!
 //! Web extensions ([`WebKitExtensions`], from [`WebKitEngine::web_extensions`]) run in the
 //! main jar's pages through one `WKWebExtensionController`, on macOS 15.4 and later; never in
@@ -68,8 +71,9 @@ use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrdering
 use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
-    Answer, Capabilities, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, FindStep,
-    Found, Navigation, PageAsks, PageContent, PageZoom, ReplyToken, Ticket,
+    Answer, Capabilities, DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort,
+    FindStep, Found, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageZoom,
+    ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -172,11 +176,6 @@ impl WebKitEngine {
         }
     }
 
-    /// What this engine offers the UI beyond its ports.
-    pub const CAPS: Capabilities = Capabilities {
-        web_extensions: true,
-    };
-
     /// The main jar's web extensions, made once: pages created from now on run them. Call it
     /// before the first page exists. `None` on a macOS without `WKWebExtension` (before 15.4)
     /// and on a second call.
@@ -209,19 +208,6 @@ impl WebKitEngine {
         }
     }
 
-    /// True when the tab's page says its focused element takes text: a key typed now is the
-    /// page's, not a browser shortcut.
-    #[must_use]
-    pub fn input_focused(&self, tab: TabId) -> bool {
-        self.pages.get(&tab).is_some_and(WebPage::input_focused)
-    }
-
-    /// The tab's last picture, `None` before its page was first drawn or for a tab not loaded.
-    #[must_use]
-    pub fn thumbnail(&self, tab: TabId) -> Option<Retained<NSImage>> {
-        self.thumbnails.borrow().get(tab)
-    }
-
     /// Sets the size, in points, pictures are drawn at from now on: the largest the overview
     /// shows one. A picture is cropped to its shape and is never bigger, so each costs at most
     /// `size` at the screen's scale.
@@ -230,9 +216,9 @@ impl WebKitEngine {
     }
 
     /// Takes a new picture of the tab's page, painted by its web content process; once it is
-    /// in [`Self::thumbnail`], [`EngineEvent::Pictured`] says so. Nothing for a tab without a
-    /// page or a page not laid out yet. A picture of a page that closes meanwhile is dropped.
-    pub fn capture(&self, tab: TabId) {
+    /// kept, [`EngineEvent::Pictured`] says so. Nothing for a tab without a page or a page not
+    /// laid out yet. A picture of a page that closes meanwhile is dropped.
+    fn snapshot(&self, tab: TabId) {
         let Some(page) = self.pages.get(&tab) else {
             return;
         };
@@ -256,119 +242,10 @@ impl WebKitEngine {
         });
     }
 
-    /// The content blocker of every page, existing and future. It keeps compiled rule lists in
-    /// `directory`, which it creates.
-    ///
-    /// # Errors
-    ///
-    /// The directory cannot be created or is no place `WebKit` can keep rule lists.
-    pub fn content_blocker(&self, directory: &Path) -> Result<WebKitContentBlocker, EngineError> {
-        std::fs::create_dir_all(directory)
-            .map_err(|error| EngineError(format!("{}: {error}", directory.display())))?;
-        let path = directory
-            .to_str()
-            .ok_or_else(|| EngineError(format!("{} is not UTF-8", directory.display())))?;
-        let url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(path), true);
-        // SAFETY: `url` is a file URL of an existing directory.
-        let store = unsafe { WKContentRuleListStore::storeWithURL(Some(&url), self.mtm) }
-            .ok_or_else(|| EngineError(format!("no rule list store in {path}")))?;
-        Ok(WebKitContentBlocker::new(
-            store,
-            vec![self.content.clone(), self.throwaway_content.clone()],
-            Rc::clone(&self.cosmetics),
-            self.mtm,
-        ))
-    }
-
-    /// Makes `host` the view a window's pages fill. The tab shown there, if any, moves in.
-    pub fn attach_host(&mut self, window: WindowId, host: &NSView) {
-        self.hosts.insert(window, host.retain());
-        if let Some(page) = self.shown.get(&window).and_then(|tab| self.pages.get(tab)) {
-            place(page.view(), host);
-        }
-    }
-
-    /// Forgets a window's host view; its page leaves it.
-    pub fn detach_host(&mut self, window: WindowId) {
-        if let Some(page) = self.shown.get(&window).and_then(|tab| self.pages.get(tab)) {
-            page.view().removeFromSuperview();
-        }
-        self.hosts.remove(&window);
-    }
-
-    /// The view of a tab's page, to give it keyboard focus.
-    #[must_use]
-    pub fn view(&self, tab: TabId) -> Option<&NSView> {
-        self.pages.get(&tab).map(WebPage::view)
-    }
-
-    /// Sets what runs, later on the main run loop and never inside an engine call, when events
-    /// wait: it should [`Self::drain`] them. Events already waiting wake it at once.
-    pub fn set_waker(&mut self, wake: impl Fn() + 'static) {
-        *self.inbox.wake.borrow_mut() = Some(Rc::new(wake));
-        Inbox::schedule(&self.inbox);
-    }
-
-    /// Moves what pages did since the last call to the end of `events`, oldest first. A link a
-    /// page opened in another tab gets its page now, in its opener's data store; one whose
-    /// opener has closed is dropped.
-    pub fn drain(&mut self, events: &mut Vec<EngineEvent<OpenedPage>>) {
-        let links = std::mem::take(&mut *self.inbox.links.borrow_mut());
-        for link in links {
-            let (Some(opener), Ok(url)) = (self.pages.get(&link.opener), Url::parse(&link.url))
-            else {
-                continue;
-            };
-            let owner = Owner::default();
-            let page = WebPage::with_configuration(
-                &opener.configuration(),
-                Inbox::hooks(&self.inbox, &owner, self.mtm),
-                Rc::clone(&self.inbox.focus),
-                self.mtm,
-            );
-            if page.load(&url).is_ok() {
-                self.inbox.push(EngineEvent::Opened {
-                    opener: link.opener,
-                    page: OpenedPage {
-                        page,
-                        owner,
-                        opener: link.opener,
-                    },
-                    url,
-                    focus: link.focus,
-                });
-            }
-        }
-        self.inbox.drain(events);
-    }
-
-    /// How much of a tab's page has loaded, `0.0 ..= 1.0`, while it loads; `None` when it is
-    /// not loading or has no page. [`EngineEvent::Loading`] tells when it moves.
-    #[must_use]
-    pub fn progress(&self, tab: TabId) -> Option<f64> {
-        self.pages.get(&tab).and_then(WebPage::progress)
-    }
-
     /// A tab's page zoom, `1.0` for actual size; `None` for a tab without a page.
     #[must_use]
     pub fn zoom(&self, tab: TabId) -> Option<f64> {
         self.pages.get(&tab).map(WebPage::zoom)
-    }
-
-    /// Whether Web Inspector may attach to a tab's page: every page, popups included, is
-    /// inspectable on macOS 13.3 and later.
-    #[must_use]
-    pub fn inspectable(&self, tab: TabId) -> bool {
-        self.pages.get(&tab).is_some_and(WebPage::inspectable)
-    }
-
-    /// Opens the print panel for a tab's page, as a sheet on its window.
-    ///
-    /// # Errors
-    ///
-    /// The tab has no page, or its page is not in a window.
-    pub fn print(&self, tab: TabId) -> Result<(), EngineError> {
-        self.page(tab)?.print()
     }
 
     fn store(&mut self, jar: Jar) -> Retained<WKWebsiteDataStore> {
@@ -463,7 +340,7 @@ impl EnginePort for WebKitEngine {
     }
 
     /// Records that `window` shows `tab` and swaps the page views in its host. A window whose
-    /// host is not attached yet gets the page when [`WebKitEngine::attach_host`] runs.
+    /// host is not attached yet gets the page when [`PageSurface::attach_host`] runs.
     fn show(&mut self, window: WindowId, tab: TabId) -> Result<(), EngineError> {
         let view = self.page(tab)?.view().retain();
         let previous = self.shown.insert(window, tab);
@@ -471,7 +348,7 @@ impl EnginePort for WebKitEngine {
             && let Some(page) = self.pages.get(&previous)
         {
             // The page as the user left it, for the tab overview; drawn while still laid out.
-            self.capture(previous);
+            self.snapshot(previous);
             page.view().removeFromSuperview();
         }
         if let Some(host) = self.hosts.get(&window) {
@@ -639,6 +516,142 @@ impl PageZoom for WebKitEngine {
         if let Some(page) = self.pages.get(&tab) {
             page.set_zoom(level.factor());
         }
+    }
+}
+
+/// Each page is a `WKWebView` filling its window's host view; its picture is a snapshot its web
+/// content process paints, kept per tab at [`WebKitEngine::set_thumbnail_size`].
+impl PageSurface for WebKitEngine {
+    type View = NSView;
+    type Picture = Retained<NSImage>;
+
+    fn attach_host(&mut self, window: WindowId, host: &NSView) -> Result<(), EngineError> {
+        self.hosts.insert(window, host.retain());
+        if let Some(page) = self.shown.get(&window).and_then(|tab| self.pages.get(tab)) {
+            place(page.view(), host);
+        }
+        Ok(())
+    }
+
+    fn detach_host(&mut self, window: WindowId) {
+        if let Some(page) = self.shown.get(&window).and_then(|tab| self.pages.get(tab)) {
+            page.view().removeFromSuperview();
+        }
+        self.hosts.remove(&window);
+    }
+
+    fn view(&self, tab: TabId) -> Option<&NSView> {
+        self.pages.get(&tab).map(WebPage::view)
+    }
+
+    /// The last report of the page's focus script, which posts on every focus change.
+    fn input_focused(&self, tab: TabId) -> bool {
+        self.pages.get(&tab).is_some_and(WebPage::input_focused)
+    }
+
+    /// `WKWebView.estimatedProgress` while `isLoading`.
+    fn loading(&self, tab: TabId) -> Option<f64> {
+        self.pages.get(&tab).and_then(WebPage::progress)
+    }
+
+    fn capture(&mut self, tab: TabId) {
+        self.snapshot(tab);
+    }
+
+    fn picture(&self, tab: TabId) -> Option<Retained<NSImage>> {
+        self.thumbnails.borrow().get(tab)
+    }
+
+    /// The print panel opens as a sheet on the page's window.
+    fn print(&mut self, tab: TabId) -> Result<(), EngineError> {
+        self.page(tab)?.print()
+    }
+
+    /// Every page, popups included, is inspectable on macOS 13.3 and later; Web Inspector then
+    /// attaches from its context menu.
+    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError> {
+        if self.page(tab)?.inspectable() {
+            Ok(())
+        } else {
+            Err(EngineError(
+                "Web Inspector needs macOS 13.3 or later".to_owned(),
+            ))
+        }
+    }
+}
+
+/// The browser's own requests go over `NSURLSession`; the content blocker compiles rule lists
+/// into both user content controllers. Pages report their blocked requests, and Web Inspector
+/// opens only from a page's context menu.
+impl Engine for WebKitEngine {
+    type Http = UrlSessionHttp;
+    type Blocker = WebKitContentBlocker;
+
+    const CAPS: Capabilities = Capabilities {
+        web_extensions: true,
+        inspector: Inspector::FromContextMenu,
+        blocked_counts: true,
+    };
+
+    fn http(&self) -> UrlSessionHttp {
+        UrlSessionHttp::new()
+    }
+
+    /// Rule lists compile into a `WKContentRuleListStore` in `directory`.
+    fn content_blocker(&mut self, directory: &Path) -> Result<WebKitContentBlocker, EngineError> {
+        std::fs::create_dir_all(directory)
+            .map_err(|error| EngineError(format!("{}: {error}", directory.display())))?;
+        let path = directory
+            .to_str()
+            .ok_or_else(|| EngineError(format!("{} is not UTF-8", directory.display())))?;
+        let url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(path), true);
+        // SAFETY: `url` is a file URL of an existing directory.
+        let store = unsafe { WKContentRuleListStore::storeWithURL(Some(&url), self.mtm) }
+            .ok_or_else(|| EngineError(format!("no rule list store in {path}")))?;
+        Ok(WebKitContentBlocker::new(
+            store,
+            vec![self.content.clone(), self.throwaway_content.clone()],
+            Rc::clone(&self.cosmetics),
+            self.mtm,
+        ))
+    }
+
+    /// The waker runs from a block on the main dispatch queue.
+    fn set_waker(&mut self, wake: Box<dyn Fn()>) {
+        *self.inbox.wake.borrow_mut() = Some(Rc::from(wake));
+        Inbox::schedule(&self.inbox);
+    }
+
+    /// A link a page opened in another tab gets its page now, in its opener's data store; one
+    /// whose opener has closed is dropped.
+    fn drain(&mut self, into: &mut Vec<EngineEvent<OpenedPage>>) {
+        let links = std::mem::take(&mut *self.inbox.links.borrow_mut());
+        for link in links {
+            let (Some(opener), Ok(url)) = (self.pages.get(&link.opener), Url::parse(&link.url))
+            else {
+                continue;
+            };
+            let owner = Owner::default();
+            let page = WebPage::with_configuration(
+                &opener.configuration(),
+                Inbox::hooks(&self.inbox, &owner, self.mtm),
+                Rc::clone(&self.inbox.focus),
+                self.mtm,
+            );
+            if page.load(&url).is_ok() {
+                self.inbox.push(EngineEvent::Opened {
+                    opener: link.opener,
+                    page: OpenedPage {
+                        page,
+                        owner,
+                        opener: link.opener,
+                    },
+                    url,
+                    focus: link.focus,
+                });
+            }
+        }
+        self.inbox.drain(into);
     }
 }
 

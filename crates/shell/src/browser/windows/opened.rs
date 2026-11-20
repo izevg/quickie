@@ -4,10 +4,10 @@
 //! calls `window.close()` closes its tab into the trash, as `⌘W` would.
 
 use quickie_domain_browsing::{Focus, TabId};
-use quickie_engine_webkit::OpenedPage;
 use url::Url;
 
 use super::super::Browser;
+use crate::OpenedPage;
 
 impl Browser {
     /// Adopts a page a page opened; a foreground one is shown.

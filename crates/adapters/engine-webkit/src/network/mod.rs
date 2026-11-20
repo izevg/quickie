@@ -36,7 +36,7 @@ const STREAMED: Timeouts = Timeouts {
 
 /// Requests over ephemeral `NSURLSession`s: no cookies, no cache, no credentials kept, so a
 /// request carries nothing about the user and leaves nothing behind.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct UrlSessionHttp;
 
 impl UrlSessionHttp {

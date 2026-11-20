@@ -9,8 +9,9 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{
-    Answer, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, FindStep, Navigation,
-    PageAsks, PageContent, PageZoom, ReplyToken,
+    Answer, BlockerRules, ContentBlockerPort, DownloadToken, Downloads, Engine, EngineError,
+    EngineEvent, EnginePort, FindStep, HttpPort, Inspector, Navigation, PageAsks, PageContent,
+    PageSurface, PageZoom, ReplyToken,
 };
 use quickie_domain_browsing::{Focus, Jar, JarId, Profile, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -144,7 +145,7 @@ fn host(address: usize) -> NonNull<c_void> {
 
 fn attach(engine: &mut ChromiumEngine, raw: u64, address: usize) -> Result<(), EngineError> {
     // SAFETY: the fake bridge only records the address; nothing dereferences it.
-    unsafe { engine.attach_host(window(raw), host(address)) }
+    unsafe { engine.bind_host(window(raw), host(address)) }
 }
 
 /// An engine with a main-jar page for each of `tabs`, and the calls that made them forgotten.
@@ -748,6 +749,75 @@ fn no_page_waits_for_an_answer_and_zoom_leaves_pages_alone() {
     assert_eq!(drained(&mut engine), []);
 }
 
+#[test]
+fn the_surface_has_nothing_to_show_and_fails_without_calling_chromium() {
+    let (mut engine, fake) = with_pages(&[7]);
+
+    engine.capture(tab(7));
+    let printed = engine.print(tab(7));
+    let inspected = engine.inspect(tab(7));
+    let without = engine.print(tab(8));
+
+    assert!(engine.view(tab(7)).is_none());
+    assert!(engine.picture(tab(7)).is_none());
+    assert_eq!(engine.loading(tab(7)), None);
+    assert!(!engine.input_focused(tab(7)));
+    assert_eq!(
+        printed,
+        Err(EngineError(
+            "print the page of main tab#7: the Chromium bridge cannot yet".to_owned()
+        ))
+    );
+    assert_eq!(
+        inspected,
+        Err(EngineError(
+            "open the developer tools on the page of main tab#7: the Chromium bridge cannot yet"
+                .to_owned()
+        ))
+    );
+    assert_eq!(
+        without,
+        Err(EngineError("no page for main tab#8".to_owned()))
+    );
+    assert_eq!(fake.calls(), []);
+    assert_eq!(drained(&mut engine), []);
+}
+
+#[test]
+fn a_detached_window_shows_nothing_that_waited_for_its_host() {
+    let (mut engine, fake) = with_pages(&[7]);
+    engine.show(window(2), tab(7)).unwrap();
+
+    engine.detach_host(window(2));
+    let attached = attach(&mut engine, 2, 0x100);
+
+    assert_eq!(attached, Ok(()));
+    assert_eq!(fake.calls(), []);
+}
+
+#[test]
+fn the_browsers_own_requests_and_the_blocker_refuse_without_calling_chromium() {
+    let (mut engine, fake) = with_pages(&[7]);
+
+    let fetched = engine.http().get(&url("https://lists.test/easylist.txt"));
+    let blocker = engine.content_blocker(&PathBuf::from("/rules"));
+    let installed = super::ChromiumContentBlocker.install(&BlockerRules::default());
+
+    assert!(fetched.is_err());
+    assert_eq!(
+        blocker.err(),
+        Some(EngineError(
+            "the Chromium bridge has no content blocker yet".to_owned()
+        ))
+    );
+    assert!(installed.is_err());
+    assert_eq!(
+        <ChromiumEngine as Engine>::CAPS.inspector,
+        Inspector::Programmatic
+    );
+    assert_eq!(fake.calls(), []);
+}
+
 // ---- events --------------------------------------------------------------------------------
 
 #[test]
@@ -859,7 +929,7 @@ fn opened_pages_come_in_order_with_their_opener_in_front() {
 #[test]
 fn an_unknown_event_is_dropped_without_a_wake() {
     let (mut engine, fake) = engine();
-    engine.set_waker(|| {});
+    engine.set_waker(Box::new(|| {}));
 
     report(EngineEventKind { repr: 200 }, 7, None, "x");
 
@@ -925,7 +995,7 @@ fn events_wake_the_shell_once_per_batch_from_a_posted_task() {
     let (mut engine, fake) = with_pages(&[7]);
     let woken = Rc::new(Cell::new(0));
     let count = Rc::clone(&woken);
-    engine.set_waker(move || count.set(count.get() + 1));
+    engine.set_waker(Box::new(move || count.set(count.get() + 1)));
 
     report(
         EngineEventKind::NavigationCommitted,
@@ -959,7 +1029,7 @@ fn setting_a_waker_wakes_it_for_events_already_waiting() {
     let (mut engine, fake) = with_pages(&[7]);
     report(EngineEventKind::PageOpenedTab, 90, Some(7), "");
 
-    engine.set_waker(|| {});
+    engine.set_waker(Box::new(|| {}));
 
     assert_eq!(fake.wakes.get(), 1);
 }
@@ -968,7 +1038,7 @@ fn setting_a_waker_wakes_it_for_events_already_waiting() {
 fn setting_a_waker_with_nothing_waiting_posts_nothing() {
     let (mut engine, fake) = engine();
 
-    engine.set_waker(|| {});
+    engine.set_waker(Box::new(|| {}));
 
     assert_eq!(fake.wakes.get(), 0);
 }
@@ -976,7 +1046,7 @@ fn setting_a_waker_with_nothing_waiting_posts_nothing() {
 #[test]
 fn events_the_shell_left_get_the_next_wake() {
     let (mut engine, fake) = with_pages(&[7]);
-    engine.set_waker(|| {});
+    engine.set_waker(Box::new(|| {}));
     report(
         EngineEventKind::NavigationCommitted,
         7,
@@ -998,11 +1068,11 @@ fn a_drained_inbox_needs_no_further_wake() {
     )));
     let drained = Rc::new(RefCell::new(Vec::new()));
     let (shell, sink) = (Rc::downgrade(&engine), Rc::clone(&drained));
-    engine.borrow_mut().set_waker(move || {
+    engine.borrow_mut().set_waker(Box::new(move || {
         if let Some(engine) = shell.upgrade() {
             engine.borrow_mut().drain(&mut sink.borrow_mut());
         }
-    });
+    }));
     report(EngineEventKind::PageOpenedTab, 90, Some(7), "");
 
     ffi::run_wake();
@@ -1022,13 +1092,13 @@ fn an_event_during_a_wake_is_posted_once_the_wake_returns() {
     let wakes_inside = Rc::new(Cell::new(usize::MAX));
     let inside = Rc::clone(&wakes_inside);
     let probe = Rc::clone(&fake);
-    engine.borrow_mut().set_waker(move || {
+    engine.borrow_mut().set_waker(Box::new(move || {
         if let Some(engine) = shell.upgrade() {
             engine.borrow_mut().drain(&mut Vec::new());
         }
         report(EngineEventKind::PageOpenedTab, 91, Some(7), "");
         inside.set(probe.wakes.get());
-    });
+    }));
     report(EngineEventKind::PageOpenedTab, 90, Some(7), "");
 
     ffi::run_wake();
@@ -1057,7 +1127,7 @@ fn keys_reach_the_engines_key_handler() {
 fn a_dropped_engine_hears_nothing_more() {
     let fake = Rc::new(FakeBridge::default());
     let mut engine = ChromiumEngine::with_bridge(Rc::clone(&fake) as Rc<dyn Bridge>, |_| true);
-    engine.set_waker(|| {});
+    engine.set_waker(Box::new(|| {}));
     drop(engine);
 
     report(EngineEventKind::PageOpenedTab, 90, Some(7), "");

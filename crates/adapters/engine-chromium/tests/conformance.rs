@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use quickie_application::conformance::{
-    self, Driven, Event, Group, Harness, NotDriven, Outcome, PageSource,
+    self, Driven, Group, Harness, NotDriven, Outcome, PageSource,
 };
 use quickie_application::{BlockerRules, PageRect};
 use quickie_domain_browsing::TabId;
@@ -33,6 +33,7 @@ impl Harness for Chromium {
     fn unsupported(&self, group: Group) -> Option<&'static str> {
         match group {
             Group::Core
+            | Group::Surface
             | Group::Events
             | Group::Opened
             | Group::Jars
@@ -62,14 +63,6 @@ impl Harness for Chromium {
     }
 
     fn idle(&mut self, _engine: &mut ChromiumEngine) {}
-
-    fn set_waker(engine: &mut ChromiumEngine, wake: Box<dyn Fn()>) {
-        engine.set_waker(wake);
-    }
-
-    fn drain(engine: &mut ChromiumEngine, into: &mut Vec<Event<Self>>) {
-        engine.drain(into);
-    }
 
     // The bridge has none of the page features yet; its page content port fails each request.
 

@@ -3,7 +3,7 @@
 
 use std::time::SystemTime;
 
-use quickie_application::{Clock, Navigation};
+use quickie_application::{Clock, Engine, Navigation};
 use quickie_domain_shields::{Site, SitePolicy};
 use quickie_engine_webkit::BlockerStatus;
 use quickie_ui_shared::Trigger;
@@ -11,8 +11,8 @@ use quickie_ui_shared::format::ago;
 use quickie_ui_widgets::{ShieldsRequest, ShieldsSummary, SiteToggle};
 
 use super::super::Browser;
-use crate::SystemClock;
 use crate::input::keystroke::OverlayKey;
+use crate::{MainEngine, SystemClock};
 
 impl Browser {
     /// `⌥⌘S`: opens the popover for the active page, or closes it when it shows.
@@ -48,9 +48,11 @@ impl Browser {
         Some(ShieldsSummary {
             site: Site::try_from(&url).ok().map(|site| site.to_string()),
             policy,
-            // Counted by WebKit's content rule list callback; the counts start at zero with
-            // each page.
-            blocked: Some(blocked),
+            // Counted by the engine's content blocker, from zero with each page; none on an
+            // engine that counts nothing.
+            blocked: <MainEngine as Engine>::CAPS
+                .blocked_counts
+                .then_some(blocked),
             lists,
             now: SystemClock.now(),
             reload_offered: self.popovers.reload_offered.get() == Some(tab),

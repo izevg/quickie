@@ -25,9 +25,10 @@ pub use browsing::Browsing;
 pub use engine::conformance;
 pub use engine::{
     Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, Downloads,
-    EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost,
-    ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, LinkTarget, PackageSource,
-    PageAsks, PageContent, PageRect, PageZoom, ReplyToken, Ticket, Unpacked, WindowTabs,
+    Engine, EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost,
+    ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, Inspector, LinkTarget,
+    PackageSource, PageAsks, PageContent, PageRect, PageSurface, PageZoom, ReplyToken, Ticket,
+    Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,

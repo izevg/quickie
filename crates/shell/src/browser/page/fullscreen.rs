@@ -3,6 +3,7 @@
 
 use objc2::rc::Retained;
 use objc2_app_kit::NSView;
+use quickie_application::PageSurface;
 use quickie_domain_browsing::TabId;
 use url::Url;
 
@@ -16,12 +17,12 @@ impl Browser {
             return;
         }
         let shown: Option<(Retained<NSView>, Url)> = {
-            let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+            let Ok(browsing) = self.browsing.try_borrow() else {
                 return;
             };
             let url = browsing.session().tab(tab).map(|tab| tab.url.clone());
             let host = browsing
-                .engine_mut()
+                .engine()
                 .view(tab)
                 .and_then(NSView::window)
                 .and_then(|window| window.contentView());
