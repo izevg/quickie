@@ -183,6 +183,16 @@ impl WebKitEngine {
         }
     }
 
+    /// Reads the rendered text of the tab's page (its main frame), for the agent; `done` gets
+    /// it on the main thread, or `None` at once when the tab has no page. The script runs in
+    /// Quickie's isolated content world, never in the page's own.
+    pub fn page_text(&self, tab: TabId, done: impl FnOnce(Option<String>) + 'static) {
+        match self.pages.get(&tab) {
+            Some(page) => page.text(move |text| done(Some(text))),
+            None => done(None),
+        }
+    }
+
     /// Saves downloads into `directory` from now on; it is created when the first one comes.
     /// Until this is called, every download is refused.
     pub fn set_download_directory(&self, directory: PathBuf) {

@@ -159,6 +159,34 @@ fn the_app_commands_are_built_in() {
 }
 
 #[test]
+fn the_agent_commands_are_in_their_category() {
+    let catalog = Catalog::builtin();
+
+    let titles: Vec<(&str, Category)> = [
+        "quickie.agent.ask",
+        "quickie.agent.stop",
+        "quickie.agent.showAnswer",
+        "quickie.agent.settings",
+    ]
+    .into_iter()
+    .map(|text| {
+        let command = catalog.get(&id(text)).unwrap();
+        (command.title, command.category)
+    })
+    .collect();
+
+    assert_eq!(
+        titles,
+        [
+            ("Ask Agent About This Page", Category::Agent),
+            ("Stop Agent", Category::Agent),
+            ("Show Agent Answer", Category::Agent),
+            ("Show Agent Settings", Category::Agent),
+        ]
+    );
+}
+
+#[test]
 fn every_title_starts_with_a_capitalized_word() {
     let catalog = Catalog::builtin();
 
@@ -177,6 +205,7 @@ fn every_category_has_its_label() {
         (Category::Page, "Page"),
         (Category::Downloads, "Downloads"),
         (Category::Shields, "Shields"),
+        (Category::Agent, "Agent"),
         (Category::Developer, "Developer"),
         (Category::App, "App"),
     ];

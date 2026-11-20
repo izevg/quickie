@@ -1,5 +1,5 @@
 //! Things the palette can offer: tabs, bookmarks, history, commands, headings, tags, search
-//! shortcuts. The caller owns them and names each with its own key.
+//! shortcuts, the agent's skills. The caller owns them and names each with its own key.
 
 mod frecency;
 
@@ -22,11 +22,15 @@ pub enum Kind {
     Tag,
     /// A keyword search engine, for `!`.
     SearchShortcut,
+    /// A skill of the agent, for `?`.
+    Skill,
+    /// The user's own question to the agent, for `?`. Never ranked: it is the text as typed.
+    Question,
 }
 
 impl Kind {
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::OpenTab,
         Self::Bookmark,
         Self::History,
@@ -34,6 +38,8 @@ impl Kind {
         Self::Heading,
         Self::Tag,
         Self::SearchShortcut,
+        Self::Skill,
+        Self::Question,
     ];
 }
 

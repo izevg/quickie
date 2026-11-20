@@ -30,7 +30,7 @@ pub use find::FindStep;
 pub(crate) use observer::PageEvent;
 use observer::PageObserver;
 use scripts::hints::{self, COLLECT_SCRIPT, Followed, LinkTarget, follow_script};
-use scripts::{FOCUS_HANDLER, FOCUS_SCRIPT, FocusHandler};
+use scripts::{FOCUS_HANDLER, FOCUS_SCRIPT, FocusHandler, TEXT_SCRIPT};
 
 use crate::scheme::InternalPages;
 use asks::delegate::PageUi;
@@ -294,6 +294,12 @@ impl WebPage {
         self.evaluate(&follow_script(index, background), move |answer| {
             done(hints::followed(&answer));
         });
+    }
+
+    /// Reads the main frame's rendered text for the agent; `done` gets it, empty when the page
+    /// has none or the script failed.
+    pub(crate) fn text(&self, done: impl FnOnce(String) + 'static) {
+        self.evaluate(TEXT_SCRIPT, done);
     }
 
     /// Runs `script` in Quickie's world of the main frame; `done` gets its string answer, empty

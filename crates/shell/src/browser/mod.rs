@@ -11,7 +11,9 @@
 //! - [`popovers`]: the downloads and the shields popovers.
 //! - [`windows`]: new and closed windows, and the pages pages open or close.
 //! - [`system`]: links other apps open, the default browser, the profile in Finder.
+//! - [`agent`]: asking the agent about the page, its answer panel, badge, and settings.
 
+mod agent;
 mod commands;
 mod keys;
 mod navigation;
@@ -33,6 +35,7 @@ use quickie_application::{AppError, PaletteItem};
 use quickie_domain_browsing::{Session, TabId, WindowId};
 use quickie_domain_commands::{Catalog, CommandId, KeyStroke, Keymap, Modifiers};
 use quickie_store::PendingWrites;
+use quickie_system::KeychainSecrets;
 use quickie_ui_widgets::{AddressOverlay, CommandPalette, TabSwitcher, ToastStack};
 use url::Url;
 
@@ -41,7 +44,7 @@ pub use system::launch_urls;
 
 use crate::input::cycle::CycleHold;
 use crate::window::{browser_window, set_title};
-use crate::{App, Guard, Lib, Palette};
+use crate::{Agents, App, Guard, Lib, Palette};
 use navigation::NavigationOverlays;
 
 /// What the browser runs on, composed by `main`.
@@ -49,6 +52,9 @@ pub struct Services {
     pub browsing: App,
     pub library: Lib,
     pub shields: Guard,
+    pub agent: Agents,
+    /// The Keychain, for the worker threads that ask the endpoint.
+    pub secrets: KeychainSecrets,
     pub palette: Palette,
     pub catalog: Catalog,
     pub keymap: Keymap,
@@ -66,6 +72,8 @@ pub struct Browser {
     browsing: RefCell<App>,
     library: RefCell<Lib>,
     shields: RefCell<Guard>,
+    agent: RefCell<Agents>,
+    agent_ui: agent::AgentUi,
     palette: Palette,
     catalog: Catalog,
     keymap: Keymap,
@@ -119,10 +127,17 @@ impl Browser {
                 .iter()
                 .map(|corrupt| format!("Started fresh: {corrupt}")),
         );
+        if let Some(corrupt) = services.agent.corrupt_on_start() {
+            notices.push(format!(
+                "The agent's saved endpoint was unreadable and is set up anew ({corrupt})"
+            ));
+        }
         let browser = Rc::new_cyclic(|this| Self {
             browsing: RefCell::new(services.browsing),
             library: RefCell::new(services.library),
             shields: RefCell::new(services.shields),
+            agent: RefCell::new(services.agent),
+            agent_ui: agent::AgentUi::new(services.secrets, mtm),
             palette: services.palette,
             catalog: services.catalog,
             keymap: services.keymap,
@@ -150,6 +165,7 @@ impl Browser {
         browser.wire_find();
         browser.wire_navigation();
         browser.wire_popovers();
+        browser.wire_agent();
         // Only lists the user enabled and that never arrived, or stale ones when the user keeps
         // lists fresh: nothing on a fresh profile.
         let due = browser.shields.borrow().due_fetches();
@@ -283,7 +299,8 @@ impl Browser {
         let overlay = self.address.is_open()
             || self.command_palette.is_open()
             || self.navigation.overview_open()
-            || self.sheet_open(window);
+            || self.sheet_open(window)
+            || self.agent_ui.settings_open();
         if let (Some(ns_window), Some(view)) = (self.window(window), view)
             && !overlay
         {

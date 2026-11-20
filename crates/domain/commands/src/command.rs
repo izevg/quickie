@@ -33,6 +33,8 @@ pub enum Category {
     Downloads,
     /// Tracker and ad blocking: per-site shields and the filter lists.
     Shields,
+    /// The built-in agent: asking about the page, its answer, its endpoint.
+    Agent,
     /// The developer tools and their panels.
     Developer,
     /// Quickie in the system: the default browser, the profile on disk.
@@ -50,6 +52,7 @@ impl Category {
             Self::Page => "Page",
             Self::Downloads => "Downloads",
             Self::Shields => "Shields",
+            Self::Agent => "Agent",
             Self::Developer => "Developer",
             Self::App => "App",
         }

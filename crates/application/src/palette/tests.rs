@@ -469,12 +469,106 @@ mod unanswered {
     }
 
     #[test]
-    fn an_agent_question_lists_nothing() {
-        assert_eq!(full().query("?a", 10), []);
+    fn headings_list_nothing_yet() {
+        assert_eq!(full().query("@a", 10), []);
+    }
+}
+
+mod asking {
+    use quickie_domain_agents::{Question, Skill, SkillId};
+
+    use super::*;
+    use crate::palette::{ASK_DETAIL, ASK_TITLE};
+
+    fn skill(id: &str) -> Target {
+        Target::Skill(SkillId::try_from(id).unwrap())
+    }
+
+    fn ask(text: &str) -> Target {
+        Target::Ask(Question::try_from(text).unwrap())
     }
 
     #[test]
-    fn headings_list_nothing_yet() {
-        assert_eq!(full().query("@a", 10), []);
+    fn a_bare_question_mark_lists_every_skill_and_asks_nothing() {
+        let items = World::new().query("?", 50);
+
+        let mut listed = targets(&items);
+        listed.sort_by_key(|target| format!("{target:?}"));
+        let mut builtin: Vec<Target> = Skill::builtin()
+            .iter()
+            .map(|skill| Target::Skill(skill.id().clone()))
+            .collect();
+        builtin.sort_by_key(|target| format!("{target:?}"));
+        assert_eq!(listed, builtin);
+        assert!(items.iter().all(|item| item.kind == Kind::Skill));
+    }
+
+    #[test]
+    fn a_skill_row_shows_its_name_and_what_it_does() {
+        let items = World::new().query("?summ", 50);
+
+        let first = &items[0];
+        assert_eq!(first.target, skill("summarize"));
+        assert_eq!(first.title, "Summarize");
+        assert_eq!(
+            first.detail,
+            "Sums up the page: its main point first, then the key facts."
+        );
+        assert_eq!(first.title_matches, [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn the_typed_text_is_asked_last_as_a_question() {
+        let items = World::new().query("?summ", 50);
+
+        let last = items.last().unwrap();
+        assert_eq!(targets(&items), [skill("summarize"), ask("summ")]);
+        assert_eq!(last.kind, Kind::Question);
+        assert_eq!(last.title, format!("{ASK_TITLE}summ"));
+        assert_eq!(last.detail, ASK_DETAIL);
+        assert_eq!(last.glyphs, Vec::<String>::new());
+        assert_eq!(last.title_matches, Vec::<u32>::new());
+    }
+
+    #[test]
+    fn a_question_no_skill_matches_is_the_only_row() {
+        let items = World::new().query("? What does it cost?", 50);
+
+        assert_eq!(targets(&items), [ask("What does it cost?")]);
+        assert_eq!(items[0].title, "Ask about this page: What does it cost?");
+    }
+
+    #[test]
+    fn the_question_keeps_its_row_within_the_limit() {
+        assert_eq!(targets(&World::new().query("?e", 1)), [ask("e")]);
+        assert_eq!(targets(&World::new().query("?e", 2)).len(), 2);
+        assert_eq!(World::new().query("?e", 0), []);
+    }
+
+    #[test]
+    fn a_question_too_long_is_not_offered() {
+        let long = format!("?{}", "x".repeat(Question::MAX_CHARS + 1));
+
+        assert!(
+            World::new()
+                .query(&long, 50)
+                .iter()
+                .all(|item| item.kind != Kind::Question)
+        );
+    }
+
+    #[test]
+    fn the_agent_offers_no_page_tab_or_command() {
+        let mut world = World::new();
+        world.tab("summary", "Summary of things");
+        world.bookmark("summary", "Summary of things");
+
+        let items = world.query("?summ", 50);
+
+        assert!(
+            items
+                .iter()
+                .all(|item| matches!(item.target, Target::Skill(_) | Target::Ask(_)))
+        );
     }
 }

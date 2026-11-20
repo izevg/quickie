@@ -1,8 +1,9 @@
-//! The candidates each palette mode draws from, gathered from the session, the library, and the
-//! keymap.
+//! The candidates each palette mode draws from, gathered from the session, the library, the
+//! keymap, and the agent's skills.
 
 use std::collections::HashSet;
 
+use quickie_domain_agents::Skill;
 use quickie_domain_commands::{Catalog, Keymap};
 use quickie_domain_library::{Bookmarks, History, HistoryEntry, SearchShortcuts};
 use quickie_domain_palette::{Candidate, Frecency, Kind, Ranked};
@@ -138,6 +139,20 @@ impl Offers {
                 Kind::Tag,
                 tag.as_str().to_owned(),
                 detail,
+            );
+        }
+        offers
+    }
+
+    /// `?`: every skill of the agent, what it does as detail.
+    pub(super) fn skills(skills: &[Skill]) -> Self {
+        let mut offers = Self::default();
+        for skill in skills {
+            offers.push(
+                Target::Skill(skill.id().clone()),
+                Kind::Skill,
+                skill.name().to_owned(),
+                skill.description().to_owned(),
             );
         }
         offers

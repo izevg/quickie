@@ -1,5 +1,6 @@
 //! What the palette hands the UI: one row per answer, with what choosing it does.
 
+use quickie_domain_agents::{Question, SkillId};
 use quickie_domain_browsing::TabId;
 use quickie_domain_commands::CommandId;
 use quickie_domain_library::Tag;
@@ -19,6 +20,10 @@ pub enum Target {
     Tag(Tag),
     /// Open the results of a keyword search.
     Search(Url),
+    /// Run this skill of the agent on the current page.
+    Skill(SkillId),
+    /// Ask the agent this question about the current page.
+    Ask(Question),
 }
 
 /// One row of the palette, best first in a query's answer.
@@ -28,9 +33,10 @@ pub struct PaletteItem {
     pub target: Target,
     /// What the row is, for its icon.
     pub kind: Kind,
-    /// The main line: a page title, a command, a tag, a keyword.
+    /// The main line: a page title, a command, a tag, a keyword, a skill, the question.
     pub title: String,
-    /// The second line: a URL, a command's category, a tag's page count, a search template.
+    /// The second line: a URL, a command's category, a tag's page count, a search template,
+    /// what a skill does.
     pub detail: String,
     /// The keys bound to a command, as the keymap's platform prints them (`⇧⌘P` on macOS,
     /// `Ctrl+Shift+P` on Linux); empty for everything else.
