@@ -9,6 +9,7 @@
 //! - [`commands`]: the dispatcher, from a command id to the use case that does it; page zoom,
 //!   printing, and saving a page as a PDF.
 //! - [`palette`]: the command palette's query and what choosing a row does.
+//! - [`address`]: the address overlay's suggestions and where choosing one goes.
 //! - [`page`]: find in page, the origin chip, the load progress line, the sheets of what pages
 //!   ask, and the full-screen notice.
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
@@ -18,6 +19,7 @@
 //!   Settings window.
 //! - [`agent`]: asking the agent about the page, its answer panel, badge, and settings.
 
+mod address;
 mod agent;
 mod commands;
 mod events;
@@ -216,6 +218,7 @@ impl Browser {
         });
         browser.open_windows();
         browser.wire_palette();
+        browser.wire_address();
         browser.wire_find();
         browser.wire_navigation();
         browser.wire_popovers();

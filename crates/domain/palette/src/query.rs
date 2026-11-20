@@ -94,6 +94,16 @@ impl Query {
         }
     }
 
+    /// Reads `input` as go-to text whatever its first character, as the address overlay does:
+    /// it has no modes, so `#anchor` or `?q` are text like any other.
+    #[must_use]
+    pub fn go_to(input: &str) -> Self {
+        Self {
+            mode: Mode::GoTo,
+            text: input.trim_start().to_owned(),
+        }
+    }
+
     /// The mode the prefix selected.
     #[must_use]
     pub const fn mode(&self) -> Mode {
@@ -201,6 +211,14 @@ mod tests {
         let query = Query::parse(" >reload");
 
         assert_eq!((query.mode(), query.text()), (Mode::GoTo, ">reload"));
+    }
+
+    #[test]
+    fn go_to_text_has_no_prefix_at_all() {
+        let query = Query::go_to("  #top?x ");
+
+        assert_eq!((query.mode(), query.text()), (Mode::GoTo, "#top?x "));
+        assert_eq!(query.needle(), "#top?x ");
     }
 
     #[test]

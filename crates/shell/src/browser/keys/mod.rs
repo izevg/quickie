@@ -30,16 +30,13 @@ use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
     NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSView, NSWindow,
 };
-use quickie_application::Navigation;
 use quickie_domain_commands::{
     CommandId, ContextFlag, FocusedView, Key, KeyStroke, Modifiers, Resolution, WhenContext,
 };
-use url::Url;
 
 use super::Browser;
 use super::commands::Action;
 use super::page::SheetRoute;
-use crate::input::destination::destination;
 use crate::input::keystroke::chord::PendingChord;
 use crate::input::keystroke::log::{Outcome, Press};
 use crate::input::keystroke::{OverlayKey, Read, is_close, is_quit, overlay_key, read};
@@ -158,10 +155,15 @@ impl Browser {
         if self.navigation_key(stroke) {
             return Outcome::Overlay;
         }
-        if let Some(key) = overlay_key(stroke)
+        let fixed = overlay_key(stroke);
+        if let Some(key) = fixed
             && self.overlay_key(key)
         {
             return Outcome::Overlay;
+        }
+        if fixed.is_none() && self.address.is_open() {
+            // Any other key edits: the page's URL turns into the field before it lands.
+            self.address.wake();
         }
         let pending = self.take_pending();
         let resolution = self.keymap.borrow().resolve(stroke, pending, &self.when());
@@ -311,58 +313,10 @@ impl Browser {
             self.palette_key(key);
             return true;
         }
-        if !self.address.is_open() {
-            return self.find_key(key);
+        if self.address.is_open() {
+            return self.address_key(key);
         }
-        if self.address.is_composing() {
-            return false;
-        }
-        match key {
-            OverlayKey::Move(_) | OverlayKey::Previous => return false,
-            OverlayKey::Accept { new_tab } => self.submit_address(new_tab),
-            OverlayKey::Dismiss => self.close_address(),
-        }
-        true
-    }
-
-    pub(super) fn open_address(&self) {
-        let Some((window, ns_window)) = self.current() else {
-            return;
-        };
-        let Some(host) = ns_window.contentView() else {
-            return;
-        };
-        self.command_palette.hide();
-        self.hide_popovers();
-        self.cancel_cycle();
-        self.hide_find();
-        let url = self.active(window).and_then(|tab| {
-            let browsing = self.browsing.borrow();
-            browsing.session().tab(tab).map(|tab| tab.url.clone())
-        });
-        let url = url.filter(|url| *url != self.home);
-        self.address
-            .show(&host, &ns_window, url.as_ref().map_or("", Url::as_str));
-    }
-
-    /// `⏎` in the address overlay: go there in this tab; `⌘⏎`: in a new one.
-    fn submit_address(&self, new_tab: bool) {
-        let target = destination(&self.address.text()).and_then(|url| Url::parse(&url).ok());
-        self.close_address();
-        if let Some(url) = target {
-            if new_tab {
-                self.open_in_new_tab(url);
-            } else if let Some((window, _)) = self.current() {
-                self.navigate(window, &Navigation::Load(url));
-            }
-        }
-    }
-
-    fn close_address(&self) {
-        self.address.hide();
-        if let Some((window, _)) = self.current() {
-            self.settle(window);
-        }
+        self.find_key(key)
     }
 }
 
@@ -392,8 +346,12 @@ pub fn install_shortcuts(browser: &Rc<Browser>) -> Shortcuts {
                 event.as_ptr()
             }
             NSEventType::LeftMouseDown => {
-                // A click moves the user's attention: a chord's first stroke stops waiting.
+                // A click moves the user's attention: a chord's first stroke stops waiting,
+                // and the address overlay's URL turns into the field to click into.
                 browser.pending.take();
+                if browser.address.is_open() {
+                    browser.address.wake();
+                }
                 browser.pointer();
                 event.as_ptr()
             }

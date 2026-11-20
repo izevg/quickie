@@ -6,8 +6,8 @@
 //! belong to the system (Globe+F full screen, Globe+⌃F fill, a remapped key).
 //!
 //! Also the fixed keys of an open overlay, which are not commands and cannot be rebound: `↑`
-//! `↓` `⌃N` `⌃P` move, `⏎` accepts, `⌘⏎` accepts into a new tab, `⇧⏎` goes to the previous
-//! find match, `⎋` closes.
+//! `↓` `⌃N` `⌃P` move, `⏎` accepts, `⌘⏎` accepts into a new tab, `⌥⏎` into a new throwaway
+//! tab, `⇧⏎` goes to the previous find match, `⎋` closes.
 //!
 //! - [`chord`]: the first stroke of a two-stroke chord, and when it stops waiting.
 //! - [`log`]: the last key presses and what became of them, for the key debug overlay.
@@ -200,8 +200,9 @@ impl Passed {
 pub enum OverlayKey {
     /// Move the selection by this many rows.
     Move(isize),
-    /// Go with the selection; `new_tab` with `⌘`.
-    Accept { new_tab: bool },
+    /// Go with the selection; `new_tab` with `⌘`, `throwaway` (a new tab in a new throwaway
+    /// jar) with `⌥`.
+    Accept { new_tab: bool, throwaway: bool },
     /// `⇧⏎`: the previous one (a find match).
     Previous,
     /// Close the overlay.
@@ -222,8 +223,18 @@ pub fn overlay_key(stroke: KeyStroke) -> Option<OverlayKey> {
         (Key::Letter(letter), m) if m == control && letter.as_char() == 'n' => {
             Some(OverlayKey::Move(1))
         }
-        (Key::Enter, m) if m == none => Some(OverlayKey::Accept { new_tab: false }),
-        (Key::Enter, m) if m == Modifiers::COMMAND => Some(OverlayKey::Accept { new_tab: true }),
+        (Key::Enter, m) if m == none => Some(OverlayKey::Accept {
+            new_tab: false,
+            throwaway: false,
+        }),
+        (Key::Enter, m) if m == Modifiers::COMMAND => Some(OverlayKey::Accept {
+            new_tab: true,
+            throwaway: false,
+        }),
+        (Key::Enter, m) if m == Modifiers::OPTION => Some(OverlayKey::Accept {
+            new_tab: false,
+            throwaway: true,
+        }),
         (Key::Enter, m) if m == Modifiers::SHIFT => Some(OverlayKey::Previous),
         (Key::Escape, m) if m == none => Some(OverlayKey::Dismiss),
         _ => None,
@@ -443,8 +454,27 @@ mod tests {
             ("down", Some(OverlayKey::Move(1))),
             ("ctrl+p", Some(OverlayKey::Move(-1))),
             ("ctrl+n", Some(OverlayKey::Move(1))),
-            ("enter", Some(OverlayKey::Accept { new_tab: false })),
-            ("cmd+enter", Some(OverlayKey::Accept { new_tab: true })),
+            (
+                "enter",
+                Some(OverlayKey::Accept {
+                    new_tab: false,
+                    throwaway: false,
+                }),
+            ),
+            (
+                "cmd+enter",
+                Some(OverlayKey::Accept {
+                    new_tab: true,
+                    throwaway: false,
+                }),
+            ),
+            (
+                "alt+enter",
+                Some(OverlayKey::Accept {
+                    new_tab: false,
+                    throwaway: true,
+                }),
+            ),
             ("escape", Some(OverlayKey::Dismiss)),
             ("shift+enter", Some(OverlayKey::Previous)),
             ("shift+up", None),

@@ -1,5 +1,6 @@
 //! The open palette: every candidate gathered once, ranked again on each keystroke.
 
+mod address;
 mod gather;
 mod shelf;
 
@@ -10,6 +11,7 @@ use quickie_domain_library::SearchShortcuts;
 use quickie_domain_palette::{Kind, Mode, Query, Ranker};
 
 use super::{ASK_DETAIL, ASK_TITLE, PaletteItem, Sources, Target};
+pub use address::{AddressSuggestions, InlineCompletion, Suggestion, SuggestionKind};
 use shelf::Shelf;
 
 /// What the palette offers while it is open: the candidates of every mode, gathered and scored

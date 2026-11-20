@@ -1,7 +1,7 @@
 //! Fixtures the stories share: a page of text, URLs, and the browsing state the palette and
 //! the tab overlays read. English and Russian titles, and one far too long.
 
-use quickie_application::{Clock, Palette, PaletteItem, Sources};
+use quickie_application::{Clock, Palette, PaletteIndex, PaletteItem, Sources};
 use quickie_domain_browsing::{Focus, JarChoice, Profile, Session, TabId, Timestamp, WindowId};
 use quickie_domain_commands::{Catalog, Keymap, Platform};
 use quickie_domain_library::{Bookmarks, History, SearchShortcuts, Tag};
@@ -121,19 +121,20 @@ impl World {
         }
     }
 
+    /// The palette as the browser opens it: everything gathered once.
+    pub fn index(&self) -> PaletteIndex {
+        self.palette.open(&Sources {
+            session: &self.session,
+            history: &self.history,
+            bookmarks: &self.bookmarks,
+            shortcuts: &self.shortcuts,
+            keymap: &self.keymap,
+        })
+    }
+
     /// The palette use case's answer to `text`, as the browser asks it.
     pub fn answer(&self, text: &str) -> Vec<PaletteItem> {
-        self.palette.query(
-            text,
-            50,
-            &Sources {
-                session: &self.session,
-                history: &self.history,
-                bookmarks: &self.bookmarks,
-                shortcuts: &self.shortcuts,
-                keymap: &self.keymap,
-            },
-        )
+        self.index().query(text, 50)
     }
 
     /// The titles of the window's tabs, in opening order.

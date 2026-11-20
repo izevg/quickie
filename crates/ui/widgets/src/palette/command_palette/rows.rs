@@ -20,6 +20,7 @@ pub fn row(item: &PaletteItem) -> ListRow {
         detail: item.detail.clone(),
         detail_matches: item.detail_matches.clone(),
         keycaps: item.glyphs.first().cloned(),
+        ..ListRow::default()
     }
 }
 

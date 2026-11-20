@@ -236,7 +236,7 @@ impl Browser {
     pub(super) fn downloads_key(&self, key: OverlayKey) -> bool {
         match key {
             OverlayKey::Move(delta) => self.popovers.downloads.move_selection(delta),
-            OverlayKey::Accept { new_tab } => {
+            OverlayKey::Accept { new_tab, .. } => {
                 if let Some(request) = self.popovers.downloads.enter(new_tab) {
                     self.download_request(request);
                 }

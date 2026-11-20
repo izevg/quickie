@@ -1,10 +1,12 @@
 //! One row of the list as a view: the title with its fuzzy-match highlights, the detail in
-//! SF Mono below it, keycaps on the right. A selected row gets a light accent tint, never glass,
+//! SF Mono below it (a URL's host set apart), keycaps or a badge on the right. A selected row gets a light accent tint, never glass,
 //! and keeps its primary text and accent highlights (`docs/design/system.md`, `selection-fill`).
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSFont, NSLineBreakMode, NSTextField, NSView};
+use objc2_app_kit::{
+    NSAutoresizingMaskOptions, NSColor, NSFont, NSLineBreakMode, NSTextField, NSView,
+};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
@@ -61,11 +63,25 @@ pub(super) fn cell(
         }
     }
     let mut text_right = width - space::MD;
+    if let Some(badge) = &row.badge {
+        let label = NSTextField::labelWithString(&NSString::from_str(badge), mtm);
+        label.setFont(Some(&TextRole::Caption.font()));
+        label.setTextColor(Some(&color::secondary_label()));
+        label.sizeToFit();
+        let size = label.frame().size;
+        label.setFrameOrigin(NSPoint::new(
+            (text_right - size.width).floor(),
+            ((height - size.height) / 2.0).floor(),
+        ));
+        label.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin);
+        view.addSubview(&label);
+        text_right -= size.width + space::SM;
+    }
     if let Some(chord) = &row.keycaps {
         let caps = keycap_group(chord, selected, mtm);
         let size = caps.frame().size;
         caps.setFrameOrigin(NSPoint::new(
-            (width - space::MD - size.width).floor(),
+            (text_right - size.width).floor(),
             ((height - size.height) / 2.0).floor(),
         ));
         caps.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin);
@@ -78,24 +94,13 @@ pub(super) fn cell(
         &row.title_matches,
         (&TextRole::RowTitle.font(), &bold(TextRole::RowTitle)),
         selected,
-        true,
         mtm,
     );
     title.setFrame(NSRect::new(
         NSPoint::new(space::MD, height - space::SM - metrics.title),
         NSSize::new(text_width, metrics.title),
     ));
-    let detail = label(
-        &row.detail,
-        &row.detail_matches,
-        (
-            &TextRole::RowDetail.mono_font(),
-            &TextRole::RowDetail.mono_font(),
-        ),
-        selected,
-        false,
-        mtm,
-    );
+    let detail = detail(row, selected, mtm);
     detail.setFrame(NSRect::new(
         NSPoint::new(space::MD, space::SM),
         NSSize::new(text_width, metrics.detail),
@@ -107,26 +112,57 @@ pub(super) fn cell(
     view
 }
 
-/// A one-line label with the characters at `matches` set in `fonts.1` and the accent, on a
+/// A one-line title with the characters at `matches` set in `fonts.1` and the accent, on a
 /// selected row too: its fill is a light tint, so accent text stays readable on it.
 fn label(
     text: &str,
     matches: &[u32],
     fonts: (&NSFont, &NSFont),
     selected: bool,
-    primary: bool,
     mtm: MainThreadMarker,
 ) -> Retained<NSTextField> {
-    let base = match (selected, primary) {
-        (true, true) => color::selection_text(),
-        (false, true) => color::label(),
-        (_, false) => color::secondary_label(),
-    };
+    let base = primary(selected);
     let highlight = color::accent();
     let styled = StyledText::new(text, fonts.0, &base);
     for range in char_ranges(text, matches) {
         styled.style(range, fonts.1, &highlight);
     }
+    one_line(&styled, mtm)
+}
+
+/// The detail line in SF Mono and the secondary colour: its strong characters (a host) in
+/// semibold and the primary colour, its matches in the accent.
+fn detail(row: &ListRow, selected: bool, mtm: MainThreadMarker) -> Retained<NSTextField> {
+    let role = TextRole::RowDetail;
+    let (regular, strong) = (role.mono_font(), role.strong_mono_font());
+    let styled = StyledText::new(&row.detail, &regular, &color::secondary_label());
+    let host: Vec<u32> = row.detail_strong.clone().collect();
+    for range in char_ranges(&row.detail, &host) {
+        styled.style(range, &strong, &primary(selected));
+    }
+    let highlight = color::accent();
+    let (in_host, elsewhere): (Vec<u32>, Vec<u32>) = row
+        .detail_matches
+        .iter()
+        .partition(|at| row.detail_strong.contains(at));
+    for (positions, font) in [(in_host, &strong), (elsewhere, &regular)] {
+        for range in char_ranges(&row.detail, &positions) {
+            styled.style(range, font, &highlight);
+        }
+    }
+    one_line(&styled, mtm)
+}
+
+/// The colour of primary text on a row.
+fn primary(selected: bool) -> Retained<NSColor> {
+    if selected {
+        color::selection_text()
+    } else {
+        color::label()
+    }
+}
+
+fn one_line(styled: &StyledText, mtm: MainThreadMarker) -> Retained<NSTextField> {
     let field = NSTextField::labelWithAttributedString(styled.string(), mtm);
     field.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
     field
