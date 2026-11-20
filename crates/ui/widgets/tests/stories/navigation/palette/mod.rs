@@ -1,11 +1,13 @@
-//! The palette group: the command palette and the address overlay.
+//! The palette group: the command palette here, the address overlay in [`address`].
+
+pub mod address;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use quickie_application::{PaletteItem, Target};
 use quickie_ui_shared::stories::{Key, LIGHT, LIGHT_DARK, Scene, Story, Theme, WINDOW};
-use quickie_ui_widgets::{AddressOverlay, CommandPalette};
+use quickie_ui_widgets::CommandPalette;
 
 use crate::fixtures::{LONG_TITLE, TABS, World};
 
@@ -31,22 +33,6 @@ pub const STORIES: &[Story] = &[
     Story {
         window: (560.0, 480.0),
         ..palette("narrow", LIGHT, narrow)
-    },
-    Story {
-        group: "palette",
-        widget: "address-overlay",
-        state: "current-url",
-        themes: LIGHT_DARK,
-        window: WINDOW,
-        scene: address_current,
-    },
-    Story {
-        group: "palette",
-        widget: "address-overlay",
-        state: "typed",
-        themes: LIGHT,
-        window: WINDOW,
-        scene: address_typed,
     },
 ];
 
@@ -201,29 +187,4 @@ fn run_command(scene: &mut Scene) {
 
 fn narrow(scene: &mut Scene) {
     Host::open(scene, World::new(&TABS), ">");
-}
-
-fn address(scene: &mut Scene, text: &str) -> Rc<AddressOverlay> {
-    let overlay = Rc::new(AddressOverlay::new(scene.mtm()));
-    overlay.show(scene.host(), scene.window(), text);
-    scene.keep(Rc::clone(&overlay));
-    overlay
-}
-
-fn address_current(scene: &mut Scene) {
-    let overlay = address(
-        scene,
-        "https://developer.apple.com/documentation/appkit/nswindow",
-    );
-    scene.check(overlay.is_open(), "the overlay is open");
-}
-
-fn address_typed(scene: &mut Scene) {
-    let overlay = address(scene, "https://developer.apple.com/");
-    scene.type_text("rust-lang.org/learn");
-    scene.check_eq(
-        overlay.text(),
-        "rust-lang.org/learn".to_owned(),
-        "typing replaces the selected address",
-    );
 }

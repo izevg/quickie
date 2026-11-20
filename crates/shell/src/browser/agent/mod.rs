@@ -128,7 +128,10 @@ impl Browser {
                 self.close_agent();
                 true
             }
-            OverlayKey::Accept { new_tab: false } => {
+            OverlayKey::Accept {
+                new_tab: false,
+                throwaway: false,
+            } => {
                 match self.agent_ui.panel.return_request() {
                     Some(request) => self.panel_request(request),
                     None => return false,

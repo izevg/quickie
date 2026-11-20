@@ -74,6 +74,27 @@ impl Shelf {
             })
     }
 
+    /// The detail of the candidate under `key`: a page's URL on the go-to shelf.
+    pub(super) fn detail(&self, key: usize) -> Option<&str> {
+        let offer = self.offers.get(key)?;
+        Some(self.texts.get(&offer.detail).as_str())
+    }
+
+    /// The first candidate whose detail is `detail`: on the go-to shelf, the open tab, else the
+    /// bookmark, else the history entry of a page.
+    pub(super) fn find(&self, detail: &str) -> Option<usize> {
+        self.offers
+            .iter()
+            .position(|offer| self.texts.get(&offer.detail).as_str() == detail)
+    }
+
+    /// The candidate that does `target`.
+    pub(super) fn find_target(&self, target: &Target) -> Option<usize> {
+        self.offers
+            .iter()
+            .position(|offer| matches!(&offer.aim, Aim::Fixed(fixed) if fixed.0 == *target))
+    }
+
     /// The row of a ranked candidate.
     pub(super) fn item(&self, ranked: Ranked<usize>) -> Option<PaletteItem> {
         let offer = self.offers.get(ranked.key)?;

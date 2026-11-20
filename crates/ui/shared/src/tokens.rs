@@ -56,6 +56,8 @@ pub mod overlay {
     pub const ANSWER_PANEL_MAX_HEIGHT: CGFloat = 640.0;
     /// Palettes sit this fraction of the window height below its top edge.
     pub const PALETTE_TOP: CGFloat = 0.15;
+    /// The address overlay sits a little lower than the palettes.
+    pub const ADDRESS_TOP: CGFloat = 0.20;
     /// The tab overview at its widest, and the narrowest it gets for its header and hints.
     pub const OVERVIEW_MAX_WIDTH: CGFloat = 1360.0;
     pub const OVERVIEW_MIN_WIDTH: CGFloat = 480.0;
@@ -267,6 +269,14 @@ impl TextRole {
         // SAFETY: `NSFontWeightRegular` is an immutable `CGFloat` exported by AppKit.
         let regular = unsafe { NSFontWeightRegular };
         NSFont::monospacedSystemFontOfSize_weight(self.point_size(), regular)
+    }
+
+    /// SF Mono at this role's size, semibold: the host of a URL, set apart from the rest.
+    #[must_use]
+    pub fn strong_mono_font(self) -> Retained<NSFont> {
+        // SAFETY: `NSFontWeightSemibold` is an immutable `CGFloat` exported by AppKit.
+        let semibold = unsafe { objc2_app_kit::NSFontWeightSemibold };
+        NSFont::monospacedSystemFontOfSize_weight(self.point_size(), semibold)
     }
 }
 
