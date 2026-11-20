@@ -6,9 +6,12 @@
 use std::rc::Rc;
 
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSView, NSWindow};
-use quickie_ui_shared::tokens::TextRole;
-use quickie_ui_shared::{Emphasis, Sheet, SheetAnswer, SheetContent, SheetLine, header};
+use objc2::rc::Retained;
+use objc2_app_kit::{NSColor, NSView, NSWindow};
+use quickie_ui_shared::tokens::{TextRole, color};
+use quickie_ui_shared::{
+    Emphasis, Sheet, SheetAnswer, SheetContent, SheetIcon, SheetLine, named_header,
+};
 
 /// What an extension asks for, as the sheet shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,19 +99,24 @@ fn content(request: &ExtensionRequest) -> SheetContent {
         lines.extend(said.iter().map(|text| line(&format!("·  {text}"))));
     }
     SheetContent {
-        header: header(before, &request.name, after, ""),
-        glyph: Some("puzzlepiece.extension.fill".to_owned()),
+        header: named_header(before, &request.name, after),
+        icon: Some(SheetIcon {
+            symbol: "puzzlepiece.extension.fill",
+            tint: color::accent,
+            fill: accent_fill,
+        }),
         lines,
+        card: None,
         field: None,
         answers: vec![
-            answer(allow, "1", Emphasis::Plain),
-            answer(refuse, "⎋", Emphasis::Default),
-        ],
-        hints: vec![
-            ("1".to_owned(), allow.to_lowercase()),
-            ("⎋".to_owned(), refuse.to_lowercase()),
+            answer(allow, "1", Emphasis::Plain, None),
+            answer(refuse, "⎋", Emphasis::Default, Some("nosign")),
         ],
     }
+}
+
+fn accent_fill() -> Retained<NSColor> {
+    color::accent().colorWithAlphaComponent(color::TINT_ALPHA)
 }
 
 fn line(text: &str) -> SheetLine {
@@ -119,11 +127,17 @@ fn line(text: &str) -> SheetLine {
     }
 }
 
-fn answer(label: &str, keys: &str, emphasis: Emphasis) -> SheetAnswer {
+fn answer(
+    label: &str,
+    keys: &str,
+    emphasis: Emphasis,
+    symbol: Option<&'static str>,
+) -> SheetAnswer {
     SheetAnswer {
         label: label.to_owned(),
         keys: keys.to_owned(),
         emphasis,
+        symbol,
     }
 }
 

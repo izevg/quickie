@@ -12,13 +12,15 @@ use std::rc::Rc;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{
-    AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
 };
 use objc2_app_kit::{
-    NSBackgroundColorAttributeName, NSColor, NSFont, NSFontAttributeName,
-    NSForegroundColorAttributeName, NSLinkAttributeName, NSScrollView, NSTextDelegate, NSTextView,
+    NSAttributedStringNSExtendedStringDrawing, NSBackgroundColorAttributeName, NSColor, NSFont,
+    NSFontAttributeName, NSFontDescriptorSymbolicTraits, NSForegroundColorAttributeName,
+    NSLinkAttributeName, NSScrollView, NSStringDrawingOptions, NSTextDelegate, NSTextView,
     NSTextViewDelegate, NSView,
 };
+use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSMutableAttributedString, NSRange, NSSize, NSString, NSURL};
 use quickie_ui_shared::tokens::{TextRole, color};
 use url::Url;
@@ -159,6 +161,29 @@ impl AnswerText {
         }
     }
 
+    /// How tall the whole text is when laid out `width` wide: the panel grows to it.
+    #[must_use]
+    pub fn content_height(&self, width: CGFloat) -> CGFloat {
+        // SAFETY: a getter; a text view always has a text storage.
+        let Some(storage) = (unsafe { self.text.textStorage() }) else {
+            return 0.0;
+        };
+        if storage.length() == 0 {
+            return 0.0;
+        }
+        // The text container keeps a line fragment padding on each side.
+        // SAFETY: a getter; a text view made by `scrollableTextView` has a text container.
+        let container = unsafe { self.text.textContainer() };
+        let padding = container.map_or(0.0, |container| container.lineFragmentPadding());
+        let bounds = storage.boundingRectWithSize_options_context(
+            NSSize::new((width - padding * 2.0).max(1.0), 100_000.0),
+            NSStringDrawingOptions::UsesLineFragmentOrigin
+                | NSStringDrawingOptions::UsesFontLeading,
+            None,
+        );
+        bounds.size.height.ceil()
+    }
+
     /// True when the end of the text is in view, or there is nothing to scroll.
     fn at_end(&self) -> bool {
         let visible = self.scroll.contentView().documentVisibleRect();
@@ -172,6 +197,7 @@ impl AnswerText {
 struct Look {
     body: Retained<NSFont>,
     strong: Retained<NSFont>,
+    italic: Retained<NSFont>,
     code: Retained<NSFont>,
     note: Retained<NSFont>,
     label: Retained<NSColor>,
@@ -186,6 +212,7 @@ impl Look {
         let body = TextRole::RowTitle.font();
         Self {
             strong: bold(&body),
+            italic: italic(&body),
             code: TextRole::RowTitle.mono_font(),
             note: TextRole::RowDetail.font(),
             body,
@@ -217,6 +244,7 @@ impl Look {
         let (font, tint) = match style {
             Style::Body | Style::Quote => (&self.body, &self.label),
             Style::Strong | Style::Heading => (&self.strong, &self.label),
+            Style::Emphasis => (&self.italic, &self.label),
             Style::Code => (&self.code, &self.label),
             Style::Link(_) => (&self.body, &self.accent),
             Style::Note => (&self.note, &self.secondary),
@@ -246,12 +274,21 @@ impl Look {
             }
             Style::Body
             | Style::Strong
+            | Style::Emphasis
             | Style::Code
             | Style::Heading
             | Style::Note
             | Style::Problem => {}
         }
     }
+}
+
+/// `font` in italics; `font` itself when the system has no italic of it.
+fn italic(font: &NSFont) -> Retained<NSFont> {
+    let descriptor = font
+        .fontDescriptor()
+        .fontDescriptorWithSymbolicTraits(NSFontDescriptorSymbolicTraits::TraitItalic);
+    NSFont::fontWithDescriptor_size(&descriptor, font.pointSize()).unwrap_or_else(|| font.retain())
 }
 
 /// The system font at the size of `font`, semibold.

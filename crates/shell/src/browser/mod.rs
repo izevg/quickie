@@ -45,7 +45,9 @@ use quickie_domain_commands::{Catalog, CommandId, Keymap, Modifiers};
 use quickie_store::{KeybindingsFile, PendingWrites};
 use quickie_system::{ExtensionFiles, KeychainSecrets};
 use quickie_ui_screens::SettingsScreen;
-use quickie_ui_widgets::{AddressOverlay, CommandPalette, KeyLogPanel, TabSwitcher, ToastStack};
+use quickie_ui_widgets::{
+    AddressOverlay, CommandPalette, KeyLogPanel, TabSwitcher, Toast, ToastStack,
+};
 use url::Url;
 
 pub use keys::install_shortcuts;
@@ -288,15 +290,20 @@ impl Browser {
         }
     }
 
-    /// Shows `text` as a toast in the current window.
+    /// Shows `text` as an info toast in the current window.
     fn toast(&self, text: &str) {
+        self.notify(Toast::info(text));
+    }
+
+    /// Shows `toast` in the current window.
+    fn notify(&self, toast: Toast) {
         if let Some(host) = self.current().and_then(|(_, window)| window.contentView()) {
-            self.toasts.show(&host, text);
+            self.toasts.show(&host, toast);
         }
     }
 
     fn report(&self, error: &AppError) {
-        self.toast(&format!("That didn't work: {error}"));
+        self.notify(Toast::problem(format!("That didn't work: {error}")));
     }
 
     /// After a command: the active tab's sheet comes up if it asked something, the window's

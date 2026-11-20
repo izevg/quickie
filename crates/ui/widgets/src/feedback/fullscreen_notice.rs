@@ -1,7 +1,8 @@
-//! The full-screen notice: whenever a page takes the whole screen, an E1 pill at the top center
-//! says whose page it is and how to leave, "`example.com` is full screen · ⎋ to exit", for
-//! `fullscreen-notice-hold` (3 s). A page with no chrome around it cannot pose as the system or
-//! another site (Dia's CVE-2025-13132, `docs/lessons.md`).
+//! The full-screen notice (`docs/design/mocks/system/fullscreen/`): whenever a page takes the
+//! whole screen, an E1 pill at the top center says whose page it is and how to leave,
+//! "⛶ `example.com` is full screen — press ⎋ to exit", for `fullscreen-notice-hold` (3 s). A
+//! page with no chrome around it cannot pose as the system or another site (Dia's
+//! CVE-2025-13132, `docs/lessons.md`).
 
 use std::cell::{Cell, RefCell};
 use std::ptr::NonNull;
@@ -9,16 +10,20 @@ use std::rc::{Rc, Weak};
 
 use block2::RcBlock;
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSFont, NSTextField, NSView};
-use objc2_foundation::{NSPoint, NSRange, NSRect, NSSize, NSTimer};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSFont, NSView};
+use objc2_foundation::{NSPoint, NSRange, NSTimer};
 use quickie_domain_browsing::Origin;
 use quickie_ui_shared::tokens::{TextRole, color, space};
-use quickie_ui_shared::{Elevation, GlassSurface, StyledText, Trigger, motion};
+use quickie_ui_shared::{Pill, PillPart, PillTone, StyledText, Trigger, motion};
 use url::Url;
+
+/// The key that leaves full screen, on its cap.
+const EXIT_KEY: &str = "⎋";
 
 struct Shown {
     id: u64,
-    surface: GlassSurface,
+    pill: Pill,
+    text: String,
 }
 
 pub struct FullscreenNotice {
@@ -44,24 +49,21 @@ impl FullscreenNotice {
         self.hide();
         let id = self.next_id.get();
         self.next_id.set(id + 1);
-        let surface = notice(url, self.mtm);
-        let size = surface.view().frame().size;
+        let (pill, text) = notice(url, self.mtm);
+        let size = pill.size();
         let bounds = host.bounds();
-        surface.set_frame(NSRect::new(
-            NSPoint::new(
-                ((bounds.size.width - size.width) / 2.0).round(),
-                (bounds.size.height - space::XL - size.height).round(),
-            ),
-            size,
+        pill.place(NSPoint::new(
+            ((bounds.size.width - size.width) / 2.0).round(),
+            (bounds.size.height - space::XL - size.height).round(),
         ));
-        surface.view().setAutoresizingMask(
+        pill.view().setAutoresizingMask(
             NSAutoresizingMaskOptions::ViewMinXMargin
                 | NSAutoresizingMaskOptions::ViewMaxXMargin
                 | NSAutoresizingMaskOptions::ViewMinYMargin,
         );
-        host.addSubview(surface.view());
-        motion::show(surface.view(), motion::FADE_FAST, Trigger::App);
-        *self.shown.borrow_mut() = Some(Shown { id, surface });
+        host.addSubview(pill.view());
+        motion::show(pill.view(), motion::FADE_FAST, Trigger::App);
+        *self.shown.borrow_mut() = Some(Shown { id, pill, text });
         self.after(motion::FULLSCREEN_NOTICE_HOLD, move |notice| {
             notice.fade(id);
         });
@@ -70,25 +72,19 @@ impl FullscreenNotice {
     /// Takes the notice away at once: the page left full screen.
     pub fn hide(&self) {
         if let Some(shown) = self.shown.borrow_mut().take() {
-            shown.surface.view().removeFromSuperview();
+            shown.pill.view().removeFromSuperview();
         }
     }
 
-    /// The text on screen, while the notice shows.
+    /// What the notice says, while it shows.
     #[must_use]
     pub fn text(&self) -> Option<String> {
-        let shown = self.shown.borrow();
-        let surface = &shown.as_ref()?.surface;
-        surface.content_view().subviews().iter().find_map(|view| {
-            view.downcast::<NSTextField>()
-                .ok()
-                .map(|field| field.stringValue().to_string())
-        })
+        self.shown.borrow().as_ref().map(|shown| shown.text.clone())
     }
 
     fn fade(&self, id: u64) {
         if let Some(shown) = self.shown.borrow().as_ref().filter(|shown| shown.id == id) {
-            motion::hide(shown.surface.view(), motion::FADE_FAST, Trigger::App);
+            motion::hide(shown.pill.view(), motion::FADE_FAST, Trigger::App);
         }
         self.after(motion::FADE_FAST.duration, move |notice| {
             let current = notice.shown.borrow().as_ref().map(|shown| shown.id);
@@ -114,7 +110,7 @@ impl FullscreenNotice {
     }
 }
 
-/// The words of the notice and the UTF-16 range of the site's name in them.
+/// The words before the key and the UTF-16 range of the site's name in them.
 fn words(url: &Url) -> (String, NSRange) {
     let (before, owner, after) = match Origin::of(url) {
         Some(origin) => (
@@ -133,34 +129,33 @@ fn words(url: &Url) -> (String, NSRange) {
     let start = before.encode_utf16().count();
     let range = NSRange::new(start, owner.encode_utf16().count());
     (
-        format!("{before}{owner}{after} is full screen  ·  ⎋ to exit"),
+        format!("{before}{owner}{after} is full screen — press"),
         range,
     )
 }
 
-fn notice(url: &Url, mtm: MainThreadMarker) -> GlassSurface {
-    let surface = GlassSurface::new(Elevation::E1, mtm);
+/// The pill, and its words as one sentence.
+fn notice(url: &Url, mtm: MainThreadMarker) -> (Pill, String) {
     let (text, owner) = words(url);
     let styled = StyledText::new(&text, &TextRole::RowTitle.font(), &color::label());
     // SAFETY: `NSFontWeightSemibold` is an immutable `CGFloat` exported by AppKit.
     let semibold = unsafe { objc2_app_kit::NSFontWeightSemibold };
     let bold = NSFont::monospacedSystemFontOfSize_weight(TextRole::RowTitle.point_size(), semibold);
     styled.style(owner, &bold, &color::label());
-    let label = NSTextField::labelWithAttributedString(styled.string(), mtm);
-    label.sizeToFit();
-    let text_size = label.frame().size;
-    let height = (text_size.height + space::SM * 2.0).ceil();
-    let width = (text_size.width + space::LG * 2.0).ceil();
-    label.setFrame(NSRect::new(
-        NSPoint::new(space::LG, ((height - text_size.height) / 2.0).round()),
-        text_size,
-    ));
-    surface.content_view().addSubview(&label);
-    surface.set_frame(NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(width, height),
-    ));
-    surface
+    let pill = Pill::with_parts(
+        &[
+            PillPart::Symbol {
+                name: "arrow.up.left.and.arrow.down.right",
+                tint: color::accent,
+            },
+            PillPart::Styled(styled),
+            PillPart::Keys(EXIT_KEY.to_owned()),
+            PillPart::Text("to exit".to_owned()),
+        ],
+        PillTone::Plain,
+        mtm,
+    );
+    (pill, format!("{text} {EXIT_KEY} to exit"))
 }
 
 #[cfg(test)]
@@ -174,7 +169,7 @@ mod tests {
     fn the_notice_names_the_site_and_the_way_out() {
         let (text, owner) = words(&Url::parse("https://www.example.com/video").unwrap());
 
-        assert_eq!(text, "www.example.com is full screen  ·  ⎋ to exit");
+        assert_eq!(text, "www.example.com is full screen — press");
         assert_eq!(owner, NSRange::new(4, 11));
     }
 
@@ -182,7 +177,7 @@ mod tests {
     fn a_page_off_the_web_is_named_whole() {
         let (text, owner) = words(&Url::parse("about:blank").unwrap());
 
-        assert_eq!(text, "about:blank is full screen  ·  ⎋ to exit");
+        assert_eq!(text, "about:blank is full screen — press");
         assert_eq!(owner, NSRange::new(0, 11));
     }
 }

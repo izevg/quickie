@@ -18,7 +18,9 @@ use quickie_domain_browsing::{Focus, JarChoice};
 use quickie_engine_webkit::UrlSessionHttp;
 use quickie_llm::OpenAiClient;
 use quickie_ui_shared::Trigger;
-use quickie_ui_widgets::{Activity, AnswerHeader, PanelRequest, SettingsRequest, agent_wording};
+use quickie_ui_widgets::{
+    Activity, AnswerHeader, PanelRequest, SettingsRequest, Toast, agent_wording,
+};
 use url::Url;
 
 use super::super::Browser;
@@ -86,6 +88,7 @@ impl Browser {
             Request::Skill(skill) => skill.name().to_owned(),
         };
         let ui = &self.agent_ui;
+        *ui.last.borrow_mut() = Some(request.clone());
         let generation = ui.generation.get() + 1;
         ui.generation.set(generation);
         ui.asked.set(Some(first));
@@ -251,6 +254,24 @@ impl Browser {
             PanelRequest::DetectLocal => {
                 self.open_agent_settings();
                 self.settings_request(SettingsRequest::DetectLocal);
+            }
+            PanelRequest::Retry => {
+                let last = self.agent_ui.last.borrow().clone();
+                if let Some(request) = last {
+                    self.ask(request);
+                }
+            }
+            PanelRequest::Copy => {
+                let answer = self.agent_ui.panel.answer();
+                self.notify(if crate::browser::commands::copy_text(&answer) {
+                    Toast::done("Answer copied").with_detail("to clipboard")
+                } else {
+                    Toast::problem("Couldn't copy")
+                });
+            }
+            PanelRequest::FollowUp => {
+                self.hide_agent();
+                self.open_palette("?");
             }
         }
     }

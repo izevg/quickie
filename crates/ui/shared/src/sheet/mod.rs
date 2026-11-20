@@ -3,35 +3,46 @@
 //! user for a decision a page asked for, so it always animates, even when a key brought it up,
 //! and leaves with `fade-fast`.
 //!
-//! Its content is a column: the header (who asks, set large), lines of text, an optional field,
-//! the answers as rows with their keys, and a hint bar. The rows are click targets too; the
-//! keys themselves are the caller's to route.
+//! Its content is a column (`docs/design/mocks/system/permission/`): a tinted icon tile beside
+//! the header (who asks, set large) and the lines of text, an optional card, an optional field,
+//! and the answers as buttons that carry their keys, so no hint bar repeats them. The buttons
+//! are click targets; the keys themselves are the caller's to route.
+
+mod answers;
+mod card;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, NSObjectProtocol};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSButton, NSLineBreakMode, NSTextField, NSView, NSWindow,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
-use crate::controls::{StyledText, hint_bar, keycap_group, symbol};
+pub use answers::{BUTTON_HEIGHT, keyed_button};
+pub use card::{SheetCard, SheetIcon};
+
+use crate::controls::StyledText;
 use crate::glass::{Elevation, GlassSurface, Scrim};
 use crate::motion::{self, Trigger};
-use crate::tokens::{TextRole, color, overlay, radius, space};
+use crate::tokens::{TextRole, color, overlay, space};
 
-/// How an answer row looks.
+/// How an answer looks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Emphasis {
-    /// What `⏎` or the first number does: the accent tint.
+    /// What `⏎` does: filled with the accent, across the sheet.
     Primary,
+    /// A secondary button, paired with the next plain one.
     Plain,
-    /// The safe default, named as such.
+    /// The safe default (`⎋` blocks, refuses): filled red, across the sheet, named as such.
     Default,
+    /// What the agent asks of the user next (set up an endpoint, try again): filled with the
+    /// agent color. Outside sheets only.
+    Agent,
 }
 
 /// One answer: its label, the keys that give it, and how it looks.
@@ -41,6 +52,8 @@ pub struct SheetAnswer {
     /// In glyphs: `⏎`, `⎋`, `1`, `⌘B`.
     pub keys: String,
     pub emphasis: Emphasis,
+    /// An SF Symbol before the label of a filled answer: `nosign` for Block.
+    pub symbol: Option<&'static str>,
 }
 
 /// A line of text under the header.
@@ -56,20 +69,18 @@ pub struct SheetLine {
 pub struct SheetContent {
     /// Who asks, set large: an origin, with its registrable domain in bold.
     pub header: StyledText,
-    /// An SF Symbol before the header (`video.fill`), tinted with the accent.
-    pub glyph: Option<String>,
+    /// The tile beside the header and the lines.
+    pub icon: Option<SheetIcon>,
     pub lines: Vec<SheetLine>,
+    /// A card under the lines.
+    pub card: Option<SheetCard>,
     /// A text field holding this text, focused and selected.
     pub field: Option<String>,
     pub answers: Vec<SheetAnswer>,
-    pub hints: Vec<(String, String)>,
 }
 
 /// Longest a message may run before it is cut, in points.
 const MAX_LINES_HEIGHT: CGFloat = 320.0;
-
-/// Height of an answer row.
-const ROW_HEIGHT: CGFloat = 32.0;
 
 type Clicked = Rc<dyn Fn(usize)>;
 
@@ -239,36 +250,37 @@ impl Sheet {
         let mut placed: Vec<(Retained<NSView>, NSRect)> = Vec::new();
         let mut y = padding;
 
+        // The tile, and the header and lines in a column beside it.
+        let column = match &content.icon {
+            Some(icon) => {
+                placed.push((
+                    card::tile(icon, mtm),
+                    NSRect::new(
+                        NSPoint::new(padding, y),
+                        NSSize::new(card::TILE, card::TILE),
+                    ),
+                ));
+                padding + card::TILE + space::MD
+            }
+            None => padding,
+        };
+        let column_width = width - padding - column;
+        let top = y;
         let header = NSTextField::labelWithAttributedString(content.header.string(), mtm);
         header.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
-        let glyph = content
-            .glyph
-            .as_deref()
-            .and_then(|name| symbol(name, "", TextRole::Title, &color::accent(), mtm));
-        let glyph_width = glyph
-            .as_ref()
-            .map_or(0.0, |glyph| glyph.frame().size.width + space::SM);
         let header_height = header.fittingSize().height.ceil();
-        if let Some(glyph) = glyph {
-            let size = glyph.frame().size;
-            let top = y + ((header_height - size.height) / 2.0).round();
-            placed.push((
-                glyph.into_super().into_super(),
-                NSRect::new(NSPoint::new(padding, top), size),
-            ));
-        }
         placed.push((
             header.into_super().into_super(),
             NSRect::new(
-                NSPoint::new(padding + glyph_width, y),
-                NSSize::new(inner - glyph_width, header_height),
+                NSPoint::new(column, y),
+                NSSize::new(column_width, header_height),
             ),
         ));
-        y += header_height + space::SM;
+        y += header_height + space::XS;
 
         let mut lines_height = 0.0;
         for line in &content.lines {
-            let label = wrapping(&line.text, line.role, line.dimmed, inner, mtm);
+            let label = wrapping(&line.text, line.role, line.dimmed, column_width, mtm);
             let height = label
                 .fittingSize()
                 .height
@@ -278,11 +290,24 @@ impl Sheet {
             lines_height += height + space::XS;
             placed.push((
                 label.into_super().into_super(),
-                NSRect::new(NSPoint::new(padding, y), NSSize::new(inner, height)),
+                NSRect::new(NSPoint::new(column, y), NSSize::new(column_width, height)),
             ));
             y += height + space::XS;
         }
+        if content.icon.is_some() {
+            y = y.max(top + card::TILE + space::XS);
+        }
         y += space::MD;
+
+        if let Some(said) = &content.card {
+            let card = card::card(said, inner, mtm);
+            let height = card.frame().size.height;
+            placed.push((
+                card,
+                NSRect::new(NSPoint::new(padding, y), NSSize::new(inner, height)),
+            ));
+            y += height + space::LG;
+        }
 
         let field = content.field.as_deref().map(|text| {
             let field = NSTextField::textFieldWithString(&NSString::from_str(text), mtm);
@@ -296,31 +321,8 @@ impl Sheet {
             field
         });
 
-        for (index, answer) in content.answers.iter().enumerate() {
-            let row = self.answer_row(answer, index, inner);
-            placed.push((
-                row,
-                NSRect::new(NSPoint::new(padding, y), NSSize::new(inner, ROW_HEIGHT)),
-            ));
-            y += ROW_HEIGHT + space::XS;
-        }
-
-        if !content.hints.is_empty() {
-            y += space::SM;
-            let hints: Vec<(&str, &str)> = content
-                .hints
-                .iter()
-                .map(|(key, meaning)| (key.as_str(), meaning.as_str()))
-                .collect();
-            let bar = hint_bar(&hints, mtm);
-            let height = bar.frame().size.height;
-            placed.push((
-                bar,
-                NSRect::new(NSPoint::new(padding, y), NSSize::new(inner, height)),
-            ));
-            y += height;
-        }
-        let height = (y + padding).ceil();
+        y = self.place_answers(&content.answers, &mut placed, padding, inner, y);
+        let height = (y - space::SM + padding).ceil();
         for (subview, frame) in placed {
             subview.setFrame(NSRect::new(
                 NSPoint::new(frame.origin.x, height - frame.origin.y - frame.size.height),
@@ -331,73 +333,38 @@ impl Sheet {
         (height, field)
     }
 
-    /// A row with the answer's label on the left and its keys on the right; a click on it
-    /// answers.
-    fn answer_row(&self, answer: &SheetAnswer, index: usize, width: CGFloat) -> Retained<NSView> {
-        let mtm = self.mtm;
-        let row = NSView::initWithFrame(
-            NSView::alloc(mtm),
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, ROW_HEIGHT)),
-        );
-        row.setWantsLayer(true);
-        let primary = answer.emphasis == Emphasis::Primary;
-        if let Some(layer) = row.layer() {
-            layer.setCornerRadius(radius::ROW);
-            let fill = if primary {
-                color::selection_fill()
-            } else {
-                crate::tokens::white(0.06)
-            };
-            layer.setBackgroundColor(Some(&fill.CGColor()));
+    /// Adds the answers' buttons to `placed`, row by row from `y` down, `inner` wide from
+    /// `left`; returns the `y` under the last row.
+    fn place_answers(
+        &self,
+        answers: &[SheetAnswer],
+        placed: &mut Vec<(Retained<NSView>, NSRect)>,
+        left: CGFloat,
+        inner: CGFloat,
+        mut y: CGFloat,
+    ) -> CGFloat {
+        let target: &AnyObject = self.target.as_ref();
+        let emphases: Vec<Emphasis> = answers.iter().map(|answer| answer.emphasis).collect();
+        for row in answers::rows(&emphases) {
+            let count = CGFloat::from(u32::try_from(row.len()).unwrap_or(1));
+            let each = ((inner - space::SM * (count - 1.0)) / count).floor();
+            let mut x = left;
+            for index in row {
+                let Some(answer) = answers.get(index) else {
+                    continue;
+                };
+                placed.push((
+                    answers::button(answer, index, each, target, self.mtm),
+                    NSRect::new(
+                        NSPoint::new(x, y),
+                        NSSize::new(each, answers::BUTTON_HEIGHT),
+                    ),
+                ));
+                x += each + space::SM;
+            }
+            y += answers::BUTTON_HEIGHT + space::SM;
         }
-        let label = NSTextField::labelWithString(&NSString::from_str(&answer.label), mtm);
-        label.setFont(Some(&TextRole::RowTitle.font()));
-        label.setTextColor(Some(&color::label()));
-        label.sizeToFit();
-        let label_height = label.frame().size.height;
-        let keys = keycap_group(&answer.keys, primary, mtm);
-        let keys_size = keys.frame().size;
-        let mut right = width - space::MD - keys_size.width;
-        keys.setFrameOrigin(NSPoint::new(
-            right,
-            ((ROW_HEIGHT - keys_size.height) / 2.0).round(),
-        ));
-        row.addSubview(&keys);
-        if answer.emphasis == Emphasis::Default {
-            let note = NSTextField::labelWithString(&NSString::from_str("Default"), mtm);
-            note.setFont(Some(&TextRole::Caption.font()));
-            note.setTextColor(Some(&color::secondary_label()));
-            note.sizeToFit();
-            let size = note.frame().size;
-            right -= size.width + space::SM;
-            note.setFrameOrigin(NSPoint::new(
-                right,
-                ((ROW_HEIGHT - size.height) / 2.0).round(),
-            ));
-            row.addSubview(&note);
-        }
-        label.setFrame(NSRect::new(
-            NSPoint::new(space::MD, ((ROW_HEIGHT - label_height) / 2.0).round()),
-            NSSize::new((right - space::MD * 2.0).max(0.0), label_height),
-        ));
-        row.addSubview(&label);
-        // SAFETY: the target implements `answer:`, which takes a sender, and the sheet keeps
-        // the target alive for as long as its rows.
-        let button = unsafe {
-            NSButton::buttonWithTitle_target_action(
-                &NSString::new(),
-                Some(&self.target),
-                Some(sel!(answer:)),
-                mtm,
-            )
-        };
-        button.setBordered(false);
-        button.setTransparent(true);
-        button.setRefusesFirstResponder(true);
-        button.setTag(isize::try_from(index).unwrap_or(isize::MAX));
-        button.setFrame(row.bounds());
-        row.addSubview(&button);
-        row
+        y
     }
 }
 
@@ -406,15 +373,8 @@ impl Sheet {
 #[must_use]
 pub fn header(before: &str, owner: &str, after: &str, then: &str) -> StyledText {
     let size = TextRole::Title.point_size();
-    // SAFETY: the weights are immutable `CGFloat`s exported by AppKit.
-    let (regular, semibold) = unsafe {
-        (
-            objc2_app_kit::NSFontWeightRegular,
-            objc2_app_kit::NSFontWeightSemibold,
-        )
-    };
-    let mono = objc2_app_kit::NSFont::monospacedSystemFontOfSize_weight(size, regular);
-    let bold = objc2_app_kit::NSFont::monospacedSystemFontOfSize_weight(size, semibold);
+    let mono = objc2_app_kit::NSFont::monospacedSystemFontOfSize_weight(size, regular());
+    let bold = objc2_app_kit::NSFont::monospacedSystemFontOfSize_weight(size, semibold());
     let whole = format!("{before}{owner}{after}{then}");
     let styled = StyledText::new(&whole, &mono, &color::secondary_label());
     let start = utf16(before);
@@ -430,6 +390,35 @@ pub fn header(before: &str, owner: &str, after: &str, then: &str) -> StyledText 
         &color::label(),
     );
     styled
+}
+
+/// A sheet's header in words, not an origin: `before` and `after` in the title font, `name`
+/// (an extension's) semibold between them: `Add` **`Bitwarden`**`?`.
+#[must_use]
+pub fn named_header(before: &str, name: &str, after: &str) -> StyledText {
+    let size = TextRole::Title.point_size();
+    let whole = format!("{before}{name}{after}");
+    let styled = StyledText::new(
+        &whole,
+        &objc2_app_kit::NSFont::systemFontOfSize_weight(size, regular()),
+        &color::label(),
+    );
+    styled.style(
+        objc2_foundation::NSRange::new(utf16(before), utf16(name)),
+        &objc2_app_kit::NSFont::systemFontOfSize_weight(size, semibold()),
+        &color::label(),
+    );
+    styled
+}
+
+fn regular() -> CGFloat {
+    // SAFETY: an immutable `CGFloat` exported by AppKit.
+    unsafe { objc2_app_kit::NSFontWeightRegular }
+}
+
+fn semibold() -> CGFloat {
+    // SAFETY: an immutable `CGFloat` exported by AppKit.
+    unsafe { objc2_app_kit::NSFontWeightSemibold }
 }
 
 fn utf16(text: &str) -> usize {

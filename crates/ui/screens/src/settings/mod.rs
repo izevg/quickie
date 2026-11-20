@@ -322,6 +322,15 @@ impl SettingsScreen {
         self.keys.show_recorded(command, recorded);
     }
 
+    /// The sidebar's search takes the keyboard: typing keeps the matching panes, `⏎` shows
+    /// the first.
+    pub fn search_panes(&self) {
+        let search = self.sidebar.search();
+        if let Some(window) = search.window() {
+            window.makeFirstResponder(Some(search));
+        }
+    }
+
     /// The keymap's search takes the keyboard, on the Keyboard pane.
     pub fn search_keymap(&self) {
         self.select(Pane::Keys);

@@ -201,6 +201,16 @@ impl Action {
     }
 }
 
+/// Puts `text` on the general pasteboard; `false` when it could not.
+pub(in crate::browser) fn copy_text(text: &str) -> bool {
+    // SAFETY: an immutable `NSString` constant exported by AppKit.
+    let kind = unsafe { NSPasteboardTypeString };
+    general_pasteboard().is_some_and(|pasteboard| {
+        pasteboard.clearContents();
+        pasteboard.setString_forType(&NSString::from_str(text), kind)
+    })
+}
+
 /// The general pasteboard, `None` when the pasteboard server cannot be reached (a sandboxed or
 /// headless session). The binding declares it never nil and would panic.
 fn general_pasteboard() -> Option<Retained<NSPasteboard>> {
@@ -405,7 +415,9 @@ impl Browser {
             return;
         };
         if self.run(|browsing| browsing.pin(tab, slot)).is_some() {
-            self.toast(&format!("Pinned to ⌘{}", slot.get()));
+            self.notify(
+                quickie_ui_widgets::Toast::done("Pinned").with_keys(format!("⌘{}", slot.get())),
+            );
         }
     }
 
@@ -422,13 +434,11 @@ impl Browser {
         let Some(text) = text(tab) else {
             return self.toast("Nothing to copy");
         };
-        // SAFETY: an immutable `NSString` constant exported by AppKit.
-        let kind = unsafe { NSPasteboardTypeString };
-        let copied = general_pasteboard().is_some_and(|pasteboard| {
-            pasteboard.clearContents();
-            pasteboard.setString_forType(&NSString::from_str(&text), kind)
+        self.notify(if copy_text(&text) {
+            quickie_ui_widgets::Toast::done("Copied").with_detail("to clipboard")
+        } else {
+            quickie_ui_widgets::Toast::problem("Couldn't copy")
         });
-        self.toast(if copied { "Copied" } else { "Couldn't copy" });
     }
 
     /// `⌘D`: the active page into the bookmarks, once.
@@ -438,7 +448,9 @@ impl Browser {
         };
         let saved = self.library.borrow_mut().save_bookmark(&tab.url, tab.title);
         match saved {
-            Ok(saved) if saved.created => self.toast("Saved"),
+            Ok(saved) if saved.created => {
+                self.notify(quickie_ui_widgets::Toast::done("Saved").with_detail("to bookmarks"));
+            }
             Ok(_) => self.toast("Already saved"),
             Err(error) => self.report(&error),
         }

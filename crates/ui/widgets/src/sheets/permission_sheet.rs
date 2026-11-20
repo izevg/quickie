@@ -9,8 +9,10 @@ use objc2::MainThreadMarker;
 use objc2_app_kit::{NSView, NSWindow};
 use quickie_application::{Permission, PermissionAnswer};
 use quickie_domain_browsing::Origin;
-use quickie_ui_shared::tokens::TextRole;
-use quickie_ui_shared::{Emphasis, Sheet, SheetAnswer, SheetContent, SheetLine, header};
+use quickie_ui_shared::tokens::{TextRole, color};
+use quickie_ui_shared::{
+    Emphasis, Sheet, SheetAnswer, SheetCard, SheetContent, SheetIcon, SheetLine, header,
+};
 use url::Url;
 
 /// The answers, in the order the sheet lists them.
@@ -78,39 +80,54 @@ fn glyph(permission: Permission) -> &'static str {
     }
 }
 
+/// What macOS itself shows while the device is in use: the privacy indicator in the menu bar,
+/// green for the camera, orange for the microphone. The system's promise, not ours.
+fn indicator(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Camera => "Camera: green dot",
+        Permission::Microphone => "Microphone: orange dot",
+        Permission::CameraAndMicrophone => "Camera: green dot · Microphone: orange dot",
+    }
+}
+
 fn content(origin: &Url, permission: Permission) -> SheetContent {
     let (before, owner, after) = who(origin);
     let answers = ANSWERS
         .iter()
         .map(|answer| match answer {
-            PermissionAnswer::AllowOnce => row("Allow once", "1", Emphasis::Plain),
-            PermissionAnswer::AllowOnSite => row("Allow on this site", "2", Emphasis::Plain),
-            PermissionAnswer::Deny => row("Block", "⎋", Emphasis::Default),
+            PermissionAnswer::AllowOnce => row("Allow once", "1", Emphasis::Plain, None),
+            PermissionAnswer::AllowOnSite => row("Allow on this site", "2", Emphasis::Plain, None),
+            PermissionAnswer::Deny => row("Block", "⎋", Emphasis::Default, Some("nosign")),
         })
         .collect();
     SheetContent {
         header: header(&before, &owner, &after, ""),
-        glyph: Some(glyph(permission).to_owned()),
+        icon: Some(SheetIcon {
+            symbol: glyph(permission),
+            tint: color::destructive,
+            fill: color::destructive_fill,
+        }),
         lines: vec![SheetLine {
             text: wants(permission).to_owned(),
             role: TextRole::RowTitle,
             dimmed: true,
         }],
+        card: Some(SheetCard {
+            symbol: "checkmark.shield.fill",
+            title: "macOS shows in the menu bar while the page records".to_owned(),
+            detail: indicator(permission).to_owned(),
+        }),
         field: None,
         answers,
-        hints: vec![
-            ("1".to_owned(), "allow once".to_owned()),
-            ("2".to_owned(), "allow on this site".to_owned()),
-            ("⎋".to_owned(), "block".to_owned()),
-        ],
     }
 }
 
-fn row(label: &str, keys: &str, emphasis: Emphasis) -> SheetAnswer {
+fn row(label: &str, keys: &str, emphasis: Emphasis, symbol: Option<&'static str>) -> SheetAnswer {
     SheetAnswer {
         label: label.to_owned(),
         keys: keys.to_owned(),
         emphasis,
+        symbol,
     }
 }
 

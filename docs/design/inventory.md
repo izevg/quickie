@@ -110,7 +110,7 @@ the slices inside a group still never use each other.
 | Layer | Module | What |
 |---|---|---|
 | screens | `browser` | The window: E0 page plus the overlay host |
-| screens | `settings` | Standard settings window on `⌘,`, one instance, `⌘W` closes; a sidebar of panes, each pane's title in the titlebar's band. Built: `general` (default browser, downloads folder), `shields` (protection card, filter lists with refresh, keep fresh), `keys` (the keymap editor: search on `⌘F`, keycaps, recording on `⏎` or double-click, conflicts in red, user vs default, `⌫` restores the defaults, `keybindings.json`), `agent` (the `agent_settings` form). Planned: `advanced`, searching all settings |
+| screens | `settings` | Standard settings window on `⌘,`, one instance, `⌘W` closes; a sidebar of panes, each pane's title in the titlebar's band. Built: `general` (default browser, downloads folder), `shields` (protection card, filter lists with refresh, keep fresh), `keys` (the keymap editor: search on `⌘F`, keycaps, recording on `⏎` or double-click, conflicts in red, user vs default, `⌫` restores the defaults, `keybindings.json`), `agent` (the `agent_settings` form); the sidebar's search keeps the panes whose names or settings match. Planned: `advanced`, searching inside the panes |
 | app | `overlay_router` | One E2/E3 at a time, focus return, `⎋` handling |
 | app | `theme` | Light/dark/tinted, Increase Contrast, Reduce Motion |
 
@@ -121,8 +121,9 @@ the slices inside a group still never use each other.
   `toggle_row` is in `shared/form`; sizes and ages read through `shared/format`. In the
   Settings window a filter list is a `toggle_row` with a refresh button, and `binding_row` lives
   in the `screens/settings` keymap pane, for the same reason.
-- `agent_badge`, `model_chip` (a line of the panel's header), and `citation_chip` (the panel's
-  source buttons) live in `widgets/agent` for the same reason. The answer panel docks at the
+- `agent_badge` (with the `agent_frame`, in `widgets/agent/session`), `model_chip` (in the
+  panel's `chrome`, with its empty state and footer), and `citation_chip` (the panel's source
+  buttons) live in `widgets/agent` for the same reason. The answer panel docks at the
   right of the window instead of under the palette as in the mockup, so a passage a citation
   scrolls to stays in view beside the answer.
 

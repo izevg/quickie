@@ -1,17 +1,20 @@
 //! The agent's answer panel (`docs/design/mocks/agent/ask/`, `ask-empty/`): an E2 surface docked
 //! at the right of the window, so the page stays readable beside it and a cited passage scrolls
-//! into view next to the answer.
+//! into view next to the answer. It is as tall as its answer, between [`MIN_HEIGHT`] and
+//! `ANSWER_PANEL_MAX_HEIGHT`, and grows as the answer streams in.
 //!
 //! - The header names what was asked and the model chip where it runs.
 //! - The status line says what the agent does; `Stop ⌘.` while it answers, the measured speed
-//!   (`24 tok/s · 0.4 s TTFT`) once it is done.
+//!   (`24 tok/s · 0.4 s TTFT`) once it is done, a red warning when it failed.
 //! - The answer streams in as plain styled text ([`markdown`]); only its last line is laid out
 //!   again as tokens come ([`transcript`]). Nothing in it is fetched: no image, no link.
 //! - "Sources from this page": a chip per citation; choosing one finds the quote in the page.
+//! - The footer ([`chrome`]) offers what comes next: follow up and copy, or retry.
 //! - Without an endpoint, the empty state offers the settings and looking for a local LLM.
 //!
 //! The panel only shows; the browser runs every request.
 
+mod chrome;
 pub mod markdown;
 pub mod text;
 pub mod transcript;
@@ -24,7 +27,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSBezelStyle, NSBox, NSBoxType, NSButton, NSColor, NSControlSize, NSLineBreakMode,
+    NSBezelStyle, NSBox, NSBoxType, NSButton, NSColor, NSControlSize, NSImageView, NSLineBreakMode,
     NSProgressIndicator, NSProgressIndicatorStyle, NSTextAlignment, NSTextField, NSView,
 };
 use objc2_core_foundation::CGFloat;
@@ -32,9 +35,10 @@ use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use quickie_application::AnswerEvent;
 use quickie_domain_agents::Citation;
 use quickie_ui_shared::tokens::{TextRole, color, overlay, space};
-use quickie_ui_shared::{Elevation, GlassSurface, Scrim, Trigger, hint_bar, motion};
+use quickie_ui_shared::{Elevation, GlassSurface, Scrim, Trigger, motion, symbol};
 use url::Url;
 
+use chrome::{Empty, Footer, FooterKind};
 use markdown::{LinePart, Span, Style};
 use text::AnswerText;
 use transcript::{Edit, Transcript};
@@ -46,6 +50,12 @@ const MAX_CHIPS: usize = 12;
 const CHIP_CHARS: usize = 36;
 /// A chip's height.
 const CHIP_HEIGHT: CGFloat = 24.0;
+/// The panel at its shortest: a question with nothing come yet.
+pub const MIN_HEIGHT: CGFloat = 240.0;
+/// The header row's height.
+const HEADER: CGFloat = 28.0;
+/// The status row's height.
+const STATUS: CGFloat = 20.0;
 
 /// What the panel asks of the browser.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +70,12 @@ pub enum PanelRequest {
     Settings,
     /// Look for a local LLM server.
     DetectLocal,
+    /// Ask the last question again: the answer failed.
+    Retry,
+    /// Put the whole answer on the pasteboard.
+    Copy,
+    /// Ask something more: the palette, ready for a question.
+    FollowUp,
 }
 
 /// What an answer is about, for the header.
@@ -80,6 +96,17 @@ enum Phase {
     Done(String),
     Stopped,
     Failed,
+}
+
+impl Phase {
+    fn footer(&self) -> FooterKind {
+        match self {
+            Self::Unconfigured => FooterKind::Setup,
+            Self::Working(_) => FooterKind::Working,
+            Self::Done(_) | Self::Stopped => FooterKind::Answered,
+            Self::Failed => FooterKind::Failed,
+        }
+    }
 }
 
 type Handler = Rc<dyn Fn(PanelRequest)>;
@@ -124,6 +151,21 @@ define_class!(
         fn detect(&self, _sender: Option<&NSButton>) {
             self.ask(PanelRequest::DetectLocal);
         }
+
+        #[unsafe(method(retry:))]
+        fn retry(&self, _sender: Option<&NSButton>) {
+            self.ask(PanelRequest::Retry);
+        }
+
+        #[unsafe(method(copy:))]
+        fn copy(&self, _sender: Option<&NSButton>) {
+            self.ask(PanelRequest::Copy);
+        }
+
+        #[unsafe(method(follow:))]
+        fn follow(&self, _sender: Option<&NSButton>) {
+            self.ask(PanelRequest::FollowUp);
+        }
     }
 );
 
@@ -145,21 +187,14 @@ impl PanelTarget {
     }
 }
 
-/// The empty state's views.
-struct Empty {
-    title: Retained<NSTextField>,
-    body: Retained<NSTextField>,
-    settings: Retained<NSButton>,
-    detect: Retained<NSButton>,
-}
-
 pub struct AgentAnswerPanel {
     scrim: Option<Scrim>,
     surface: GlassSurface,
     glyph: Retained<NSTextField>,
     title: Retained<NSTextField>,
-    chip: Retained<NSTextField>,
+    chip: RefCell<Retained<NSView>>,
     spinner: Retained<NSProgressIndicator>,
+    warning: Option<Retained<NSImageView>>,
     status: Retained<NSTextField>,
     stop: Retained<NSButton>,
     readout: Retained<NSTextField>,
@@ -168,9 +203,11 @@ pub struct AgentAnswerPanel {
     sources: Retained<NSTextField>,
     chips: RefCell<Vec<Retained<NSButton>>>,
     empty: Empty,
-    hints: RefCell<Retained<NSView>>,
+    footer: Footer,
     transcript: RefCell<Transcript>,
     phase: RefCell<Phase>,
+    /// How tall the panel is now, to grow it only when the answer needs more.
+    height: Cell<CGFloat>,
     target: Retained<PanelTarget>,
     open: Cell<bool>,
     mtm: MainThreadMarker,
@@ -189,42 +226,31 @@ impl AgentAnswerPanel {
         spinner.setControlSize(NSControlSize::Small);
         spinner.setDisplayedWhenStopped(false);
         let stop = button("Stop ⌘.", sel!(stop:), target_object, mtm);
+        stop.setContentTintColor(Some(&color::destructive()));
         let readout = label(TextRole::Caption, &color::secondary_label(), mtm);
         readout.setFont(Some(&TextRole::Caption.mono_font()));
         readout.setAlignment(NSTextAlignment::Right);
-        let chip = label(TextRole::Caption, &color::secondary_label(), mtm);
-        chip.setFont(Some(&TextRole::Caption.mono_font()));
-        chip.setAlignment(NSTextAlignment::Right);
         let sources = label(TextRole::Caption, &color::secondary_label(), mtm);
         set(&sources, "Sources from this page");
-        let body = NSTextField::wrappingLabelWithString(
-            &NSString::from_str(
-                "The agent answers through an OpenAI-compatible endpoint you choose: a local \
-                 server such as Ollama or LM Studio, or a hosted API. Quickie sends the page \
-                 only when you ask, and only to that endpoint.",
-            ),
-            mtm,
-        );
-        body.setFont(Some(&TextRole::RowTitle.font()));
-        body.setTextColor(Some(&color::secondary_label()));
-        body.setSelectable(false);
-        let empty_title = label(TextRole::Title, &color::label(), mtm);
-        set(&empty_title, "No LLM endpoint set up");
-        let empty = Empty {
-            title: empty_title,
-            body,
-            settings: button("Agent Settings…", sel!(settings:), target_object, mtm),
-            detect: button("Detect Local LLM", sel!(detect:), target_object, mtm),
-        };
         let separator = NSBox::new(mtm);
         separator.setBoxType(NSBoxType::Separator);
+        // SAFETY: the target implements `settings:` and `detect:`, and the panel keeps it
+        // alive for as long as the empty state's buttons.
+        let empty = unsafe { Empty::new(target_object, mtm) };
         let panel = Self {
             scrim: Scrim::new(Elevation::E2, mtm),
             surface: GlassSurface::new(Elevation::E2, mtm),
             glyph,
             title: label(TextRole::RowTitle, &color::label(), mtm),
-            chip,
+            chip: RefCell::new(NSView::new(mtm)),
             spinner,
+            warning: symbol(
+                "exclamationmark.triangle.fill",
+                "Failed",
+                TextRole::RowDetail,
+                &color::destructive(),
+                mtm,
+            ),
             status: label(TextRole::RowDetail, &color::secondary_label(), mtm),
             stop,
             readout,
@@ -233,9 +259,10 @@ impl AgentAnswerPanel {
             sources,
             chips: RefCell::new(Vec::new()),
             empty,
-            hints: RefCell::new(hint_bar(&[("⎋", "close")], mtm)),
+            footer: Footer::new(mtm),
             transcript: RefCell::new(Transcript::default()),
             phase: RefCell::new(Phase::Unconfigured),
+            height: Cell::new(MIN_HEIGHT),
             target,
             open: Cell::new(false),
             mtm,
@@ -244,7 +271,6 @@ impl AgentAnswerPanel {
         for view in [
             &*panel.glyph as &NSView,
             &panel.title,
-            &panel.chip,
             &panel.spinner,
             &panel.status,
             &panel.stop,
@@ -252,14 +278,14 @@ impl AgentAnswerPanel {
             &panel.separator,
             panel.text.view(),
             &panel.sources,
-            &panel.empty.title,
-            &panel.empty.body,
-            &panel.empty.settings,
-            &panel.empty.detect,
+            panel.empty.view(),
+            panel.footer.view(),
         ] {
             content.addSubview(view);
         }
-        content.addSubview(&panel.hints.borrow());
+        if let Some(warning) = &panel.warning {
+            content.addSubview(warning);
+        }
         panel
     }
 
@@ -286,6 +312,17 @@ impl AgentAnswerPanel {
     #[must_use]
     pub fn answer(&self) -> String {
         self.text.string()
+    }
+
+    /// What `⏎` does now: follow up on an answer, retry a failed one; nothing while the agent
+    /// works or without an endpoint.
+    #[must_use]
+    pub fn return_request(&self) -> Option<PanelRequest> {
+        match self.phase.borrow().footer() {
+            FooterKind::Answered => Some(PanelRequest::FollowUp),
+            FooterKind::Failed => Some(PanelRequest::Retry),
+            FooterKind::Setup | FooterKind::Working => None,
+        }
     }
 
     /// Opens over `host` with what it holds: the answer so far, or the empty state.
@@ -321,7 +358,7 @@ impl AgentAnswerPanel {
     pub fn unconfigured(&self) {
         self.reset();
         set(&self.title, "Ask the agent");
-        set(&self.chip, "");
+        self.set_chip("");
         *self.phase.borrow_mut() = Phase::Unconfigured;
         self.refresh();
     }
@@ -330,7 +367,7 @@ impl AgentAnswerPanel {
     pub fn start(&self, header: &AnswerHeader) {
         self.reset();
         set(&self.title, &header.title);
-        set(&self.chip, &header.model);
+        self.set_chip(&header.model);
         *self.phase.borrow_mut() = Phase::Working(Activity::Reading);
         self.refresh();
     }
@@ -350,11 +387,13 @@ impl AgentAnswerPanel {
     }
 
     /// The answer's events since the last call, in order. Text and citations go into the
-    /// answer in one edit; the last event may end it.
+    /// answer in one edit; the last event may end it. The panel grows with the text until it
+    /// reaches its tallest.
     pub fn receive(&self, events: &[AnswerEvent]) {
         let mut pieces = Vec::new();
         let mut cited = Vec::new();
         let mut ended = None;
+        let mut problem = None;
         for event in events {
             match event {
                 AnswerEvent::Token(token) => pieces.push(LinePart::Text(token.clone())),
@@ -365,7 +404,7 @@ impl AgentAnswerPanel {
                 AnswerEvent::Done(speed) => ended = Some(Phase::Done(wording::speed(*speed))),
                 AnswerEvent::Stopped => ended = Some(Phase::Stopped),
                 AnswerEvent::Error(error) => {
-                    self.problem(&wording::ask_error(error));
+                    problem = Some(wording::ask_error(error));
                     ended = Some(Phase::Failed);
                 }
             }
@@ -374,6 +413,10 @@ impl AgentAnswerPanel {
             let edit = self.transcript.borrow_mut().push(pieces);
             self.text.apply(&edit);
         }
+        // After the text: its edit rewrites the last line, which would take the problem along.
+        if let Some(problem) = problem {
+            self.problem(&problem);
+        }
         let more_chips = !cited.is_empty();
         for citation in cited {
             self.add_chip(&citation);
@@ -381,7 +424,7 @@ impl AgentAnswerPanel {
         if let Some(ended) = ended {
             *self.phase.borrow_mut() = ended;
             self.refresh();
-        } else if more_chips {
+        } else if more_chips || self.wants_to_grow() {
             self.relayout();
         }
     }
@@ -418,6 +461,14 @@ impl AgentAnswerPanel {
             chip.removeFromSuperview();
         }
         self.target.ivars().anchors.borrow_mut().clear();
+        self.height.set(MIN_HEIGHT);
+    }
+
+    fn set_chip(&self, model: &str) {
+        let chip = chrome::model_chip(model, self.mtm);
+        self.chip.borrow().removeFromSuperview();
+        self.surface.content_view().addSubview(&chip);
+        *self.chip.borrow_mut() = chip;
     }
 
     fn add_chip(&self, citation: &Citation) {
@@ -440,7 +491,7 @@ impl AgentAnswerPanel {
         self.chips.borrow_mut().push(chip);
     }
 
-    /// Puts the status, the buttons, and the hints in line with the phase.
+    /// Puts the status, the buttons, and the footer in line with the phase.
     fn refresh(&self) {
         let phase = self.phase.borrow().clone();
         let (status, tint) = match &phase {
@@ -476,6 +527,9 @@ impl AgentAnswerPanel {
             unsafe { self.spinner.stopAnimation(None) };
         }
         self.stop.setHidden(!working);
+        if let Some(warning) = &self.warning {
+            warning.setHidden(phase != Phase::Failed);
+        }
         set(
             &self.readout,
             match &phase {
@@ -483,15 +537,10 @@ impl AgentAnswerPanel {
                 _ => "",
             },
         );
-        let hints: &[(&str, &str)] = if working {
-            &[("⌘.", "stop"), ("⎋", "close")]
-        } else {
-            &[("⎋", "close")]
-        };
-        let fresh = hint_bar(hints, self.mtm);
-        self.hints.borrow().removeFromSuperview();
-        self.surface.content_view().addSubview(&fresh);
-        *self.hints.borrow_mut() = fresh;
+        let target: &AnyObject = self.target.as_ref();
+        // SAFETY: the target implements the footer's actions, and the panel keeps it alive
+        // for as long as the footer's buttons.
+        unsafe { self.footer.set(phase.footer(), target) };
         self.relayout();
     }
 
@@ -502,41 +551,43 @@ impl AgentAnswerPanel {
         }
     }
 
-    /// Sizes the panel to `host` and places everything, top down.
-    fn lay_out(&self, host: &NSView) {
-        let bounds = host.bounds().size;
-        let width = (bounds.width * overlay::ANSWER_PANEL_SHARE)
+    /// The panel's width over a host `bounds` wide.
+    fn width(bounds: NSSize) -> CGFloat {
+        (bounds.width * overlay::ANSWER_PANEL_SHARE)
             .clamp(overlay::POPOVER_WIDTH, overlay::ANSWER_PANEL_WIDTH)
             .min(bounds.width - space::XL * 2.0)
-            .round();
-        let height = (bounds.height - space::LG * 2.0)
+            .round()
+    }
+
+    /// The tallest the panel may be over a host `bounds` high.
+    fn tallest(bounds: NSSize) -> CGFloat {
+        (bounds.height - space::LG * 2.0)
             .min(overlay::ANSWER_PANEL_MAX_HEIGHT)
-            .round();
-        self.surface
-            .place_top_right(host, NSSize::new(width, height));
+            .round()
+    }
+
+    /// True when the text has outgrown the panel and the panel can still grow.
+    fn wants_to_grow(&self) -> bool {
+        // SAFETY: a getter; the superview is retained while it is used.
+        let Some(host) = (unsafe { self.surface.view().superview() }) else {
+            return false;
+        };
+        let bounds = host.bounds().size;
+        let height = self.height.get();
+        if height >= Self::tallest(bounds) {
+            return false;
+        }
+        let inner = Self::width(bounds) - space::PALETTE_PADDING * 2.0;
+        let visible = self.text.view().frame().size.height;
+        self.text.content_height(inner) > visible + 1.0
+    }
+
+    /// Sizes the panel to `host` and its content, and places everything, top down.
+    fn lay_out(&self, host: &NSView) {
+        let bounds = host.bounds().size;
+        let width = Self::width(bounds);
         let padding = space::PALETTE_PADDING;
         let inner = width - padding * 2.0;
-        let mut top = height - padding;
-
-        let header = 28.0;
-        let chip_width = (inner * 0.4).round();
-        place(&self.glyph, padding, top, 20.0, header);
-        place(
-            &self.title,
-            padding + 20.0 + space::SM,
-            top,
-            inner - 20.0 - space::SM - chip_width - space::SM,
-            header,
-        );
-        place(
-            &self.chip,
-            width - padding - chip_width,
-            top,
-            chip_width,
-            header,
-        );
-        top -= header + space::SM;
-
         let unconfigured = *self.phase.borrow() == Phase::Unconfigured;
         for view in [
             &*self.spinner as &NSView,
@@ -547,32 +598,95 @@ impl AgentAnswerPanel {
         ] {
             view.setHidden(unconfigured);
         }
-        for view in [
-            &*self.empty.title as &NSView,
-            &self.empty.body,
-            &self.empty.settings,
-            &self.empty.detect,
-        ] {
-            view.setHidden(!unconfigured);
-        }
-        let hint_height = self.hints.borrow().frame().size.height;
-        self.hints.borrow().setFrame(NSRect::new(
-            NSPoint::new(padding, padding),
-            NSSize::new(inner, hint_height),
-        ));
-        let bottom = padding + hint_height + space::MD;
+        self.empty.view().setHidden(!unconfigured);
         if unconfigured {
             self.sources.setHidden(true);
             self.stop.setHidden(true);
-            self.lay_out_empty(padding, inner, top);
+            if let Some(warning) = &self.warning {
+                warning.setHidden(true);
+            }
+        }
+        let footer = self.footer.lay_out(inner);
+        let chips = self.chips_height(inner);
+        let body = if unconfigured {
+            self.empty.lay_out(inner)
+        } else {
+            STATUS + space::SM + 1.0 + space::MD + self.text.content_height(inner) + chips
+        };
+        let wanted = padding + HEADER + space::SM + body + space::MD + footer + padding;
+        let height = wanted
+            .max(self.height.get())
+            .clamp(MIN_HEIGHT, Self::tallest(bounds).max(MIN_HEIGHT))
+            .ceil();
+        self.height.set(height);
+        self.surface
+            .place_top_right(host, NSSize::new(width, height));
+
+        let mut top = height - padding;
+        self.lay_out_header(padding, inner, top);
+        top -= HEADER + space::SM;
+        self.footer
+            .view()
+            .setFrameOrigin(NSPoint::new(padding, padding));
+        let bottom = padding + footer + space::MD;
+        if unconfigured {
+            let column = self.empty.view().frame().size.height;
+            self.empty
+                .view()
+                .setFrameOrigin(NSPoint::new(padding, top - column));
             return;
         }
+        self.lay_out_status(padding, inner, top);
+        top -= STATUS + space::SM;
+        self.separator.setFrame(NSRect::new(
+            NSPoint::new(padding, top - 1.0),
+            NSSize::new(inner, 1.0),
+        ));
+        top -= 1.0 + space::MD;
+        self.lay_out_chips(padding, inner, bottom);
+        self.text.view().setFrame(NSRect::new(
+            NSPoint::new(padding, bottom + chips),
+            NSSize::new(inner, (top - bottom - chips).max(0.0)),
+        ));
+    }
 
-        let row = 20.0;
+    /// The glyph, the question, and the model chip at the right.
+    fn lay_out_header(&self, padding: CGFloat, inner: CGFloat, top: CGFloat) {
+        let chip = self.chip.borrow();
+        let chip_size = chip.frame().size;
+        let chip_width = chip_size.width.min((inner * 0.45).round());
+        chip.setFrame(NSRect::new(
+            NSPoint::new(
+                padding + inner - chip_width,
+                top - HEADER + ((HEADER - chip_size.height) / 2.0).round(),
+            ),
+            NSSize::new(chip_width, chip_size.height),
+        ));
+        place(&self.glyph, padding, top, 20.0, HEADER);
+        let title_left = padding + 20.0 + space::SM;
+        place(
+            &self.title,
+            title_left,
+            top,
+            inner - 20.0 - space::SM - chip_width - space::SM,
+            HEADER,
+        );
+    }
+
+    /// The spinner or the warning, what the agent does, and Stop or the measured speed.
+    fn lay_out_status(&self, padding: CGFloat, inner: CGFloat, top: CGFloat) {
+        let width = padding * 2.0 + inner;
         self.spinner.setFrame(NSRect::new(
-            NSPoint::new(padding, top - row + 2.0),
+            NSPoint::new(padding, top - STATUS + 2.0),
             NSSize::new(16.0, 16.0),
         ));
+        if let Some(warning) = &self.warning {
+            let size = warning.frame().size;
+            warning.setFrameOrigin(NSPoint::new(
+                padding,
+                top - STATUS + ((STATUS - size.height) / 2.0).round(),
+            ));
+        }
         let status_left = padding + 16.0 + space::SM;
         let side = (inner * 0.45).round();
         place(
@@ -580,37 +694,20 @@ impl AgentAnswerPanel {
             status_left,
             top,
             inner - 16.0 - space::SM - side,
-            row,
+            STATUS,
         );
-        place(&self.readout, width - padding - side, top, side, row);
+        place(&self.readout, width - padding - side, top, side, STATUS);
         let stop_size = self.stop.frame().size;
         self.stop.setFrameOrigin(NSPoint::new(
             width - padding - stop_size.width,
-            top - row + ((row - stop_size.height) / 2.0).round(),
-        ));
-        top -= row + space::SM;
-        self.separator.setFrame(NSRect::new(
-            NSPoint::new(padding, top - 1.0),
-            NSSize::new(inner, 1.0),
-        ));
-        top -= 1.0 + space::MD;
-
-        let sources_height = self.lay_out_chips(padding, inner, bottom);
-        self.text.view().setFrame(NSRect::new(
-            NSPoint::new(padding, bottom + sources_height),
-            NSSize::new(inner, (top - bottom - sources_height).max(0.0)),
+            top - STATUS + ((STATUS - stop_size.height) / 2.0).round(),
         ));
     }
 
-    /// Places the sources caption and the chips, wrapping, above `bottom`; returns the height
-    /// they take, nothing without citations.
-    fn lay_out_chips(&self, padding: CGFloat, inner: CGFloat, bottom: CGFloat) -> CGFloat {
+    /// The chips wrapped into rows `inner` wide.
+    fn chip_rows(&self, inner: CGFloat) -> Vec<Vec<Retained<NSButton>>> {
         let chips = self.chips.borrow();
-        self.sources.setHidden(chips.is_empty());
-        if chips.is_empty() {
-            return 0.0;
-        }
-        let mut rows: Vec<Vec<&Retained<NSButton>>> = vec![Vec::new()];
+        let mut rows: Vec<Vec<Retained<NSButton>>> = vec![Vec::new()];
         let mut used = 0.0;
         for chip in chips.iter() {
             let chip_width = chip.frame().size.width.min(inner);
@@ -620,11 +717,30 @@ impl AgentAnswerPanel {
             }
             used += chip_width + space::SM;
             if let Some(row) = rows.last_mut() {
-                row.push(chip);
+                row.push(chip.clone());
             }
         }
+        rows
+    }
+
+    /// The height of the sources caption and the chips; nothing without citations.
+    fn chips_height(&self, inner: CGFloat) -> CGFloat {
+        if self.chips.borrow().is_empty() {
+            return 0.0;
+        }
+        let rows = CGFloat::from(u32::try_from(self.chip_rows(inner).len()).unwrap_or(1));
+        rows * (CHIP_HEIGHT + space::XS) + self.sources.frame().size.height + space::MD
+    }
+
+    /// Places the sources caption and the chips, wrapping, above `bottom`.
+    fn lay_out_chips(&self, padding: CGFloat, inner: CGFloat, bottom: CGFloat) {
+        let empty = self.chips.borrow().is_empty();
+        self.sources.setHidden(empty);
+        if empty {
+            return;
+        }
         let mut y = bottom;
-        for row in rows.iter().rev() {
+        for row in self.chip_rows(inner).iter().rev() {
             let mut x = padding;
             for chip in row {
                 let chip_width = chip.frame().size.width.min(inner);
@@ -640,41 +756,6 @@ impl AgentAnswerPanel {
         self.sources.setFrame(NSRect::new(
             NSPoint::new(padding, y),
             NSSize::new(inner, caption),
-        ));
-        y + caption + space::MD - bottom
-    }
-
-    fn lay_out_empty(&self, padding: CGFloat, inner: CGFloat, top: CGFloat) {
-        let mut top = top - space::XL;
-        let title_height = self.empty.title.frame().size.height;
-        place(&self.empty.title, padding, top, inner, title_height);
-        top -= title_height + space::MD;
-        self.empty.body.setPreferredMaxLayoutWidth(inner);
-        let fitting = self
-            .empty
-            .body
-            .cell()
-            .map_or(60.0, |cell| {
-                cell.cellSizeForBounds(NSRect::new(
-                    NSPoint::new(0.0, 0.0),
-                    NSSize::new(inner, 1000.0),
-                ))
-                .height
-            })
-            .ceil();
-        self.empty.body.setFrame(NSRect::new(
-            NSPoint::new(padding, top - fitting),
-            NSSize::new(inner, fitting),
-        ));
-        top -= fitting + space::XL;
-        let settings = self.empty.settings.frame().size;
-        self.empty
-            .settings
-            .setFrameOrigin(NSPoint::new(padding, top - settings.height));
-        let detect = self.empty.detect.frame().size;
-        self.empty.detect.setFrameOrigin(NSPoint::new(
-            padding + settings.width + space::MD,
-            top - detect.height,
         ));
     }
 }

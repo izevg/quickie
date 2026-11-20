@@ -7,7 +7,7 @@ mod shields;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use objc2::MainThreadMarker;
 use quickie_application::DownloadToken;
@@ -38,8 +38,17 @@ struct Links {
 
 impl Popovers {
     pub fn new(folder: PathBuf, mtm: MainThreadMarker) -> Self {
+        let downloads = DownloadsPopover::new(mtm);
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let shown = home
+            .and_then(|home| folder.strip_prefix(home).ok().map(Path::to_path_buf))
+            .map_or_else(
+                || folder.display().to_string(),
+                |rest| format!("~/{}", rest.display()),
+            );
+        downloads.set_folder(&shown);
         Self {
-            downloads: DownloadsPopover::new(mtm),
+            downloads,
             shields: ShieldsPopover::new(mtm),
             folder,
             links: RefCell::new(Links::default()),

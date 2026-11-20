@@ -9,7 +9,7 @@
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
-use objc2_app_kit::{NSBezelStyle, NSButton, NSImage, NSImageView, NSTextField, NSView};
+use objc2_app_kit::{NSBezelStyle, NSButton, NSColor, NSImage, NSImageView, NSTextField, NSView};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSInteger, NSPoint, NSRect, NSSize, NSString};
 use quickie_domain_shields::FilterListId;
@@ -66,6 +66,7 @@ impl ShieldsState {
 /// turns them on.
 struct Card {
     plate: Retained<Plate>,
+    tile: Retained<Plate>,
     icon: Retained<NSImageView>,
     title: Retained<NSTextField>,
     detail: Retained<NSTextField>,
@@ -73,24 +74,29 @@ struct Card {
 }
 
 impl Card {
-    const ICON: CGFloat = 28.0;
+    /// The tile the symbol sits on.
+    const ICON: CGFloat = 36.0;
 
     fn new(target: &SettingsTarget, mtm: MainThreadMarker) -> Self {
         let plate = Plate::new(None, None, radius::ROW, mtm);
+        let badge = Plate::new(None, None, radius::ROW, mtm);
+        badge.setFrameSize(NSSize::new(Self::ICON, Self::ICON));
         let icon = NSImageView::initWithFrame(
             NSImageView::alloc(mtm),
             NSRect::new(NSPoint::ZERO, NSSize::new(Self::ICON, Self::ICON)),
         );
+        badge.addSubview(&icon);
         let title = label("", TextRole::Headline, &color::label(), mtm);
         let detail = paragraph("", mtm);
         detail.setTextColor(Some(&color::secondary_label()));
         let enable = button("Enable", sel!(enableLists:), target, mtm);
         enable.sizeToFit();
-        for view in [&*icon as &NSView, &title, &detail, &enable] {
+        for view in [&*badge as &NSView, &title, &detail, &enable] {
             plate.addSubview(view);
         }
         Self {
             plate,
+            tile: badge,
             icon,
             title,
             detail,
@@ -102,7 +108,7 @@ impl Card {
         let (symbol_name, tint, title) = if state.protected() {
             (
                 "checkmark.shield.fill",
-                color::success(),
+                NSColor::whiteColor(),
                 "Protection is on",
             )
         } else if state.any_enabled() {
@@ -122,8 +128,11 @@ impl Card {
         if state.protected() {
             self.plate
                 .set_paint(Some(color::success_fill), Some(color::success_line));
+            self.tile.set_paint(Some(color::success), None);
         } else {
             self.plate
+                .set_paint(Some(color::group_fill), Some(color::separator));
+            self.tile
                 .set_paint(Some(color::group_fill), Some(color::separator));
         }
         let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
@@ -133,7 +142,7 @@ impl Card {
         self.icon.setImage(image.as_deref());
         self.icon.setSymbolConfiguration(Some(
             &objc2_app_kit::NSImageSymbolConfiguration::configurationWithPointSize_weight(
-                Self::ICON - space::XS,
+                Self::ICON / 2.0,
                 0.0,
             ),
         ));
@@ -174,7 +183,7 @@ impl Card {
             .max(Self::ICON + space::LG * 2.0);
         self.plate
             .setFrame(NSRect::new(origin, NSSize::new(INNER, height)));
-        self.icon.setFrameOrigin(NSPoint::new(
+        self.tile.setFrameOrigin(NSPoint::new(
             space::LG,
             ((height - Self::ICON) / 2.0).round(),
         ));
@@ -277,6 +286,12 @@ impl Shields {
     /// Shows `state` and lays the pane out.
     pub fn update(&self, state: &ShieldsState) {
         self.card.update(state);
+        let success = color::success();
+        self.page.set_status(state.protected().then_some((
+            "Protection is on",
+            "checkmark.shield",
+            &*success,
+        )));
         for (id, row, refresh) in &self.lists {
             let list = state.lists.iter().find(|list| list.id == *id);
             let enabled = list.is_some_and(|list| list.enabled);

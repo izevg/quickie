@@ -1,6 +1,9 @@
 //! The toast stack: E1 pills centered at the bottom of the window, newest lowest. Each fades in
 //! with `fade-fast`, stays `toast-hold` (3 s), and fades out; at most [`MAX_TOASTS`] show, the
 //! oldest giving way. Toasts are E1, so they never dim the page and may show under an E2.
+//! What a toast says is a [`Toast`]: a status symbol and text, a count, a detail, keys.
+
+mod toast;
 
 use std::cell::{Cell, RefCell};
 use std::ptr::NonNull;
@@ -14,10 +17,12 @@ use objc2_foundation::{NSPoint, NSTimer};
 use quickie_ui_shared::tokens::space;
 use quickie_ui_shared::{Pill, Trigger, motion};
 
+pub use toast::{Toast, ToastKind};
+
 /// How many toasts show at once.
 pub const MAX_TOASTS: usize = 3;
 
-struct Toast {
+struct Shown {
     id: u64,
     /// What a newer toast of the same tag replaces, such as the page zoom.
     tag: Option<&'static str>,
@@ -28,7 +33,7 @@ struct Toast {
 }
 
 pub struct ToastStack {
-    toasts: RefCell<Vec<Toast>>,
+    toasts: RefCell<Vec<Shown>>,
     next_id: Cell<u64>,
     this: Weak<Self>,
     mtm: MainThreadMarker,
@@ -45,14 +50,14 @@ impl ToastStack {
         })
     }
 
-    /// Shows `text` at the bottom of `host` for `toast-hold`.
-    pub fn show(&self, host: &NSView, text: &str) {
-        self.push(host, text, None);
+    /// Shows `toast` at the bottom of `host` for `toast-hold`; plain text is an info toast.
+    pub fn show(&self, host: &NSView, toast: impl Into<Toast>) {
+        self.push(host, &toast.into(), None);
     }
 
-    /// Shows `text` in place of the toast of the same `tag`, which leaves at once: a value that
-    /// changes key by key, such as the page zoom, shows once, never stacked.
-    pub fn show_tagged(&self, host: &NSView, text: &str, tag: &'static str) {
+    /// Shows `toast` in place of the toast of the same `tag`, which leaves at once: a value
+    /// that changes key by key, such as the page zoom, shows once, never stacked.
+    pub fn show_tagged(&self, host: &NSView, toast: impl Into<Toast>, tag: &'static str) {
         let replaced: Vec<u64> = self
             .toasts
             .borrow()
@@ -63,13 +68,13 @@ impl ToastStack {
         for id in replaced {
             self.remove(id);
         }
-        self.push(host, text, Some(tag));
+        self.push(host, &toast.into(), Some(tag));
     }
 
-    fn push(&self, host: &NSView, text: &str, tag: Option<&'static str>) {
+    fn push(&self, host: &NSView, toast: &Toast, tag: Option<&'static str>) {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
-        let pill = Pill::new(text, self.mtm);
+        let pill = Pill::with_parts(&toast.parts(), toast.tone(), self.mtm);
         pill.view().setAutoresizingMask(
             NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMaxXMargin,
         );
@@ -77,10 +82,10 @@ impl ToastStack {
         motion::show(pill.view(), motion::FADE_FAST, Trigger::App);
         let overflow = {
             let mut toasts = self.toasts.borrow_mut();
-            toasts.push(Toast {
+            toasts.push(Shown {
                 id,
                 tag,
-                text: text.to_owned(),
+                text: toast.text.clone(),
                 pill,
                 host: host.retain(),
                 leaving: false,
