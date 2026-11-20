@@ -1,7 +1,12 @@
 # Architecture
 
-> Status: v0.3 (2026-11-19). Languages: **C++ where it is Chromium; Rust everywhere else.**
+> Status: v0.4 (2026-11-20). Languages: **C++ where it is the engine; Rust everywhere else.**
 > Items marked **[verify]** rest on an unverified source or on inference.
+>
+> **Engine decision (2026-11-20): our own WebKit, not Chromium.** See "Decision: our own WebKit" in
+> §4.1. Sections that still describe the Chromium build (§1 rows Engine/Build/boundary, §3, §4.3,
+> §4.4, §6 `engine/`, §7) describe the parked Chromium path; they are rewritten as the WebKit fork
+> lands, and the Chromium scaffold stays in the tree as reference until then.
 
 ## 0. Principles
 
@@ -20,7 +25,8 @@
 
 | Layer | Technology | Why |
 |---|---|---|
-| Engine | Chromium Extended Stable + ungoogled-chromium patches + ours | CDP, DevTools, MV3, compatibility |
+| Engine | **Our WebKit fork** (macOS: WebKit; Linux: WebKitGTK from the same tree) with our patches; the system `WKWebView` until the fork ships | Lighter than Chromium to build and run, system codecs, Playwright-style automation by patch. Chromium below is the parked path |
+| Engine (parked) | Chromium Extended Stable + ungoogled-chromium patches + ours | CDP, DevTools, MV3, compatibility |
 | Build | `gn` + `siso` (`autoninja`); Rust in-tree via `rust_static_library`; optional EngFlow remote execution | Rust is first-class in the Chromium tree |
 | Chromium boundary | `cxx` (C++ ↔ Rust) plus thin `.mm` files where Chromium's macOS code needs Objective-C++ | No intermediate Objective-C API |
 | Shell | Rust 2024, `objc2-app-kit`, `objc2-quartz-core`, `objc2-foundation`, `block2`, `dispatch2` | The same AppKit/CA that Swift would call |
@@ -198,23 +204,69 @@ browser's own traffic bypassed the engine's network stack.
   typed. No `dyn Engine`, no `enum AnyEngine`.
 - **Act mode is two ports.** `Automation` (read the DOM and the accessibility tree, trusted input,
   navigate) is implemented on WebKit with scripts in an isolated world and synthetic `NSEvent`s,
-  and on CEF or Chromium with the DevTools protocol, inside the process. `RequestGate` (hold a
-  request, show its payload, let it go) only exists where the DevTools protocol does. The Act use
+  and on our WebKit fork with a Playwright-style protocol patch, inside the process. `RequestGate`
+  (hold a request, show its payload, let it go) only exists where such a protocol does: on the
+  fork, not on the system WebKit. The Act use
   case requires `Automation`; with `RequestGate` it approves the real request, without it it asks
   before the DOM action (form submit, a destructive button) and says that it cannot see the
-  request. The shape of both follows the DevTools protocol, which CEF and the fork both speak.
+  request. Both follow the shape of Playwright's WebKit protocol (`Input`, `Network` interception,
+  `Page`), so the system-WebKit stopgap and the fork expose the same port.
 - **Engine choice is a cargo feature at the composition root**: one alias per profile. CI also
   type-checks the shell against a second engine, so a call that only one engine supports breaks
   the build instead of a release.
 - **One conformance suite.** `application` ships behavioral tests (feature `conformance`) that
   every engine adapter runs, with the fake as the reference: navigation, opened pages, dialogs,
-  find, link hints, jars, downloads, the content blocker, and on CEF automation and renderer
+  find, link hints, jars, downloads, the content blocker, and on the fork automation and renderer
   crashes. Pixels, print panels, the inspector and real focus stay with the harness.
 
-Engines in this plan: `engine-webkit` for the main profile now; `engine-cef` (official prebuilt
-CEF, no proprietary codecs) for the agent profile; an ungoogled-chromium fork after the MVP,
-built on CI, which then hosts both profiles. Third-party CEF builds with codecs were audited and
-rejected (provenance); codecs come from our own CI build if they are ever needed.
+#### Decision: our own WebKit (2026-11-20)
+
+**Quickie's engine is a fork of WebKit that we patch and build ourselves, on macOS and on Linux.**
+Until the fork ships, both profiles run on the system `WKWebView` through `engine-webkit`; then
+both profiles move to the fork. Chromium and CEF are parked.
+
+Why:
+- **It fits the hardware and the team.** A WebKit build is about a third of Chromium's (~50 GB,
+  1–2 h on Apple Silicon **[verify on our CI]**); a Chromium fork needs a 64 GB machine and a
+  night per security update.
+- **The gaps that made Chromium attractive are patchable.** Playwright's open WebKit patches add
+  a protocol with trusted input, request interception, isolated contexts and screencasting; we
+  take the same approach for `Automation` and `RequestGate`, a programmatic inspector, per-request
+  blocking with counts, and anything else the ports need.
+- **What WebKit already does well stays:** system media codecs (H.264, AAC, HEVC through
+  AVFoundation / GStreamer), power and memory use, no Google services to strip.
+- **One engine, both profiles.** `main` and `agent` run on the same fork, so there are never two
+  WebKits in one process and `RequestGate` is available to the agent from the fork's first
+  release. Until then the agent's `Automation` runs on the system WebKit with scripts in an
+  isolated world and synthetic input, without `RequestGate`.
+
+What we accept:
+- **We own security updates.** The system WebKit updates with macOS; the fork does not. We track
+  WebKit security releases (Apple security notes, WebKitGTK/WPE security advisories) and ship a
+  rebuilt fork for every one; the patch-gap target in §7 applies to WebKit instead of Chromium.
+- **Apple-only parts are gone in the fork:** FairPlay DRM, Apple Pay, Apple's Safe Browsing.
+  Passwords and passkeys are entitlements, not engine code: the fork changes nothing there.
+- **Licenses:** WebCore and JavaScriptCore are LGPL-2.1, WebKit2 is BSD. The engine is the one
+  allowed exception to "no GPL family" (AGENTS.md); our changes to LGPL parts are published with
+  the source, which the public repository already does. Crates stay permissive.
+- **No Chrome-only web APIs** (WebUSB, Serial, HID, Bluetooth), and no Chrome Web Store MV3 beyond
+  what Web Extensions on WebKit run.
+
+How it is built:
+- **One pinned WebKit revision for both platforms**: a release branch Apple ships in Safari for
+  macOS and the matching WebKitGTK stable branch for Linux, chosen so our patches apply to both.
+- **Patches grouped by meaning** under `engine/` (rule of four), each with its reason; the macOS
+  port links the result into the app bundle (frameworks and their XPC services, as Playwright and
+  Safari Technology Preview do), the Linux port into the GTK build.
+- **Built on CI, never on the developer's laptop**, for macOS (arm64) and Linux (x86_64, arm64);
+  each build carries a sha256 and an attestation from the same runner that built it. The engine
+  conformance suite runs against the fork on both platforms before a release.
+- **Linux is a first-class target of the fork**: every patch is checked on WebKitGTK too, and a
+  patch that only works on one port says so and is kept small.
+
+Parked: an ungoogled-chromium fork and prebuilt CEF were evaluated (16 GB build machine, no MV3
+with an owned window, provenance of third-party codec builds: rejected). The `engine/` Chromium
+scaffold and `engine-chromium` stay as reference until the WebKit fork replaces them.
 
 ### 4.2 UI: Feature-Sliced Design as crates
 
@@ -404,7 +456,7 @@ build: [engine/README.md](../engine/README.md).
 | quickie-services | optional | Component proxy, filter-list mirror, CRX proxy (the Helium / Brave `go-update` pattern) |
 | LLM | optional | Local Ollama/LM Studio or any OpenAI-compatible endpoint; key in the Keychain |
 | Crash | local | Crashpad writes dumps to disk only |
-| Patch-gap metric | yes | Target ≤ 72 h from a Chromium security fix to our release |
+| Patch-gap metric | yes | Target ≤ 72 h from a WebKit security fix (Apple security notes, WebKitGTK/WPE advisories) to our release |
 
 ## 8. Security
 
@@ -425,8 +477,8 @@ build: [engine/README.md](../engine/README.md).
 | Phase | Result | Done when |
 |---|---|---|
 | P0 | Cargo-built app on `engine-webkit`: palette, MRU switcher, glass E0–E3, swipes, keymap | I live in it for a week as my main browser (without extensions) |
-| P1 | Engine ports per the "Engines" section; `engine-cef` (prebuilt CEF) for the agent profile; Act mode on WebKit through `Automation` | Engines swap by one alias; the conformance suite passes on WebKit and CEF; the agent acts in its own profile |
-| post-MVP | ungoogled-chromium fork built on CI (`//quickie`, `BrowserWindow` host, `cxx` bridge), hosting both profiles | The same UI on the fork, DevTools, MV3 |
+| P1 | Engine ports per the "Engines" section; Act mode through `Automation` on the system WebKit; the WebKit fork built on CI for macOS and Linux with the automation and request-gate patches | Engines swap by one alias; the conformance suite passes on the system WebKit and on the fork (macOS and WebKitGTK); the agent acts in its own profile with real request approval |
+| parked | Chromium (ungoogled fork) or prebuilt CEF | Only if the WebKit fork proves unworkable |
 | P2 | Shields + privacy patches + egress test in CI | A fresh profile: zero unsolicited hosts in 10 minutes |
 | P3 | Native E3 sheets instead of Views bubbles, link hints, tab overview, keymap editor | — |
 | P4 | Agents: built-in (OpenAI-compatible, Ask then Act), MCP for external ones, approvals, audit | `?` in the palette answers through Ollama; Claude Code drives a tab in the agent profile |

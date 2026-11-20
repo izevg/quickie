@@ -66,24 +66,26 @@ Keeps the tree shallow enough to read and deep enough to mean something.
   `helpers`, and don't add a meaningless nesting level.
 - A Rust module directory counts `mod.rs` as one of its four files. Prefer `foo.rs` + `foo/` only
   if the parent still fits the limit.
-- Large external trees are **never tracked**: the Chromium checkout, the fetched
-  ungoogled-chromium patch series, and vendored crates live in `.build/` (ignored) and are fetched
-  by pinned revision. Our own Chromium patches are grouped by meaning, four per directory.
+- Large external trees are **never tracked**: the WebKit checkout (and the parked Chromium one)
+  and vendored crates live in `.build/` (ignored) and are fetched by pinned revision. Engine
+  patches live as commits in our WebKit fork; this repository pins the fork's commit.
 - Enforced by `cargo xtask structure`.
 
 ## Stack
 
-- **C++ where it is Chromium; Rust everywhere else.** No Swift, no SwiftUI. AppKit and Core
-  Animation through `objc2`; the Chromium boundary through `cxx`; thin `.mm` files only where
-  Chromium's macOS code demands Objective-C++.
-- Rust stable, edition 2024, one Cargo workspace (development builds without Chromium); GN builds
-  the product.
+- **C++ where it is the engine; Rust everywhere else.** The engine is our WebKit fork (macOS,
+  and WebKitGTK on Linux; see `docs/architecture.md`, "Decision: our own WebKit"); Chromium is
+  parked. No Swift, no SwiftUI. AppKit and Core Animation through `objc2`; engine patches in C++ /
+  Objective-C++ only where the engine demands it.
+- Rust stable, edition 2024, one Cargo workspace. The engine is built on CI, never on a laptop;
+  every engine patch is checked on macOS and Linux.
 - Development tools are pinned in `.mise.toml` and installed with [mise](https://mise.jdx.dev)
   into `~/.local`. Run them through mise (`mise run <task>`, `mise exec -- cargo ...`). Don't
   install toolchains system-wide or with `sudo`.
 - Keep dependencies few and justified. Add a crate only when writing the code yourself would be
-  worse. Licenses: permissive or MPL-2.0 only, never GPL/LGPL/AGPL (`cargo deny`).
-- All network traffic of the product goes through Chromium's network stack (no second HTTP
+  worse. Licenses: permissive or MPL-2.0 only, never GPL/LGPL/AGPL (`cargo deny`). The one
+  exception is the engine: WebKit's LGPL-2.1 parts, whose modified sources we publish.
+- All network traffic of the product goes through the engine's network stack (no second HTTP
   stack), so the egress test sees it.
 
 ## Architecture: DDD + Clean + Hexagonal, FSD for the UI
