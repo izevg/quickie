@@ -48,7 +48,10 @@ pub(crate) const FOCUS_HANDLER: &str = "quickieFocus";
 /// Installed in every frame at document start: tells whether the focused element takes text,
 /// on every focus change. A frame whose focus is inside a child frame stays silent; the child
 /// reports. The last report wins, and focus leaving one frame for another reports `false`
-/// before the other's `true`.
+/// before the other's `true`. On load (and on a return from the back-forward cache) only the
+/// main frame and a frame that has focus report: a frame added or loaded while a field
+/// elsewhere has focus would otherwise report `false` over the field's `true`, and keys typed
+/// into the field would become the shell's.
 pub(crate) const FOCUS_SCRIPT: &str = r"(() => {
   const textless = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio',
     'range', 'reset', 'submit']);
@@ -61,10 +64,11 @@ pub(crate) const FOCUS_SCRIPT: &str = r"(() => {
     if (el && (el.tagName === 'IFRAME' || el.tagName === 'FRAME')) return;
     try { window.webkit.messageHandlers.quickieFocus.postMessage(editable(el)); } catch (_) {}
   };
+  const loaded = () => { if (window === window.top || document.hasFocus()) post(); };
   addEventListener('focusin', post, true);
   addEventListener('focusout', () => setTimeout(post, 0), true);
-  addEventListener('pageshow', post, true);
-  post();
+  addEventListener('pageshow', loaded, true);
+  loaded();
 })();";
 
 /// Each page's last report of whether its focused element takes text, by [`view_key`].

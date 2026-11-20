@@ -193,6 +193,7 @@ impl MemoryEngine {
                     .titled(tab, format!("cookies:{}", cookies.unwrap_or_default()));
             }
             Act::FocusField => page.field_focused = true,
+            Act::AddFrame(path) => self.events.titled(tab, format!("framed:{path}")),
             Act::ShowScripts => {
                 let rules = self.rules.borrow();
                 let ran = page

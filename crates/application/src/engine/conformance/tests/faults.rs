@@ -684,7 +684,13 @@ fn an_answer_nobody_waits_for_that_is_taken_fails() {
 fn a_page_whose_field_takes_the_keys_unsaid_fails() {
     let report = run(&mut Faulty(Fault::Focused(false)));
 
-    assert_eq!(failed(&report), ["a_page_says_when_a_text_field_has_focus"]);
+    assert_eq!(
+        failed(&report),
+        [
+            "a_page_says_when_a_text_field_has_focus",
+            "a_frame_added_while_a_field_has_focus_keeps_it_focused"
+        ]
+    );
 }
 
 #[test]

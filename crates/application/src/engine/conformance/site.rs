@@ -98,6 +98,9 @@ pub enum Act {
     ShowWidth,
     /// Puts a text field on the page and gives it focus, so a key typed now is the page's.
     FocusField,
+    /// Adds a frame showing a path, without moving focus; its title becomes `framed:` and the
+    /// path once the frame has loaded.
+    AddFrame(&'static str),
 }
 
 impl Act {
@@ -126,6 +129,11 @@ impl Act {
             Self::FocusField => "const field=document.createElement('input');\
                                  document.body.appendChild(field);field.focus();"
                 .to_owned(),
+            Self::AddFrame(path) => format!(
+                "const frame=document.createElement('iframe');\
+                 frame.onload=()=>{{document.title='framed:{path}'}};\
+                 frame.src='{path}';document.body.appendChild(frame);"
+            ),
         }
     }
 }
@@ -267,6 +275,10 @@ pub const SITE: &[(&str, Resource)] = &[
     (
         "field",
         Resource::Page(acting("Field", &[Act::FocusField, Act::Retitle("Focused")])),
+    ),
+    (
+        "field-framed",
+        Resource::Page(acting("Field", &[Act::FocusField, Act::AddFrame("plain")])),
     ),
     (
         "tracked",
