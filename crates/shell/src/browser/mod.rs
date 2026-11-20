@@ -304,9 +304,15 @@ impl Browser {
         self.notify(Toast::info(text));
     }
 
-    /// Shows `toast` in the current window.
+    /// Shows `toast` in the current window; nothing while a page fills it, full screen.
     fn notify(&self, toast: Toast) {
-        if let Some(host) = self.current().and_then(|(_, window)| window.contentView()) {
+        let Some((id, window)) = self.current() else {
+            return;
+        };
+        if self.page_fullscreen(id) {
+            return;
+        }
+        if let Some(host) = window.contentView() {
             self.toasts.show(&host, toast);
         }
     }

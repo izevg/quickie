@@ -6,8 +6,10 @@
 //! follows a link hint focuses or clicks the element the user picked.
 //!
 //! Here: the world, the focus reports, and the page text the agent reads. [`hints`]: the
-//! link-hint scripts and their answers.
+//! link-hint scripts and their answers. [`fullscreen`]: the Fullscreen API in the tab's own
+//! window, the one script that runs in the page's world.
 
+pub(crate) mod fullscreen;
 pub(crate) mod hints;
 
 use std::cell::RefCell;

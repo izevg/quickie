@@ -32,6 +32,8 @@ pub struct PageWidgets {
     lines: RefCell<BTreeMap<WindowId, LoadProgressLine>>,
     /// Per window, the active tab and its committed URL when last looked at.
     seen: RefCell<BTreeMap<WindowId, (TabId, Url)>>,
+    /// Per window, the page that fills it, full screen.
+    in_window: RefCell<BTreeMap<WindowId, fullscreen::PageFullscreen>>,
     mtm: MainThreadMarker,
 }
 
@@ -45,6 +47,7 @@ impl PageWidgets {
             chip: OriginChip::new(mtm),
             lines: RefCell::new(BTreeMap::new()),
             seen: RefCell::new(BTreeMap::new()),
+            in_window: RefCell::new(BTreeMap::new()),
             mtm,
         }
     }
@@ -77,6 +80,7 @@ impl Browser {
             line.reset();
         }
         self.page.seen.borrow_mut().remove(&window);
+        self.forget_page_fullscreen(window);
     }
 
     /// A tab's page loaded more, or stopped: the progress line of every window it is active in.
@@ -106,6 +110,23 @@ impl Browser {
                 })
                 .collect()
         };
+        // A page in full screen whose tab is no longer in front (another tab, or it closed)
+        // leaves, and its window with it.
+        let behind: Vec<WindowId> = self
+            .page
+            .in_window
+            .borrow()
+            .iter()
+            .filter(|(window, page)| {
+                !active
+                    .iter()
+                    .any(|(shown, tab, _)| shown == *window && *tab == page.tab)
+            })
+            .map(|(&window, _)| window)
+            .collect();
+        for window in behind {
+            self.forget_page_fullscreen(window);
+        }
         for (window, tab, url) in active {
             let before = self.page.seen.borrow().get(&window).cloned();
             let change = change(before.as_ref(), tab, &url);
@@ -130,6 +151,9 @@ impl Browser {
     }
 
     fn show_origin(&self, window: WindowId, url: &Url) {
+        if self.page_fullscreen(window) {
+            return;
+        }
         let host = self.window(window).and_then(|window| window.contentView());
         match (Origin::of(url), host) {
             (Some(origin), Some(host)) => self.page.chip.show(&host, &origin, url.path(), None),
@@ -151,6 +175,7 @@ impl Browser {
         let Some(host) = self.window(window).and_then(|window| window.contentView()) else {
             return;
         };
+        let progress = progress.filter(|_| !self.page_fullscreen(window));
         let mut lines = self.page.lines.borrow_mut();
         let line = lines
             .entry(window)

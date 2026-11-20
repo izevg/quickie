@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use block2::RcBlock;
 use objc2::runtime::Bool;
-use quickie_application::{Answer, Ask, AskKind, Dialog, EngineEvent, ReplyToken};
+use quickie_application::{Answer, Ask, AskKind, Dialog, EngineEvent, Fullscreen, ReplyToken};
 use quickie_domain_browsing::{Focus, Profile, TabId};
 use url::Url;
 
@@ -171,6 +171,8 @@ fn page_events_become_engine_events_for_their_tab_in_order() {
     Inbox::record(&weak, &page, PageEvent::Progress(Some(0.5)));
     Inbox::record(&weak, &page, PageEvent::TitleChanged(Some("A".to_owned())));
     Inbox::record(&weak, &page, PageEvent::Fullscreen(false));
+    Inbox::record(&weak, &page, PageEvent::FullscreenInWindow(true));
+    Inbox::record(&weak, &page, PageEvent::FullscreenInWindow(false));
     Inbox::record(&weak, &page, PageEvent::Crashed);
     Inbox::record(&weak, &page, PageEvent::Progress(None));
     Inbox::record(&weak, &page, PageEvent::Closed);
@@ -184,14 +186,25 @@ fn page_events_become_engine_events_for_their_tab_in_order() {
                 url: url("https://a.example/"),
                 title: "A".to_owned()
             },
-            EngineEvent::Fullscreen { tab, entered: true },
+            EngineEvent::Fullscreen {
+                tab,
+                state: Fullscreen::OwnWindow
+            },
             EngineEvent::Loading {
                 tab,
                 progress: None
             },
             EngineEvent::Fullscreen {
                 tab,
-                entered: false
+                state: Fullscreen::Left
+            },
+            EngineEvent::Fullscreen {
+                tab,
+                state: Fullscreen::InWindow
+            },
+            EngineEvent::Fullscreen {
+                tab,
+                state: Fullscreen::Left
             },
             EngineEvent::Crashed { tab },
             EngineEvent::ClosedByPage { tab },
