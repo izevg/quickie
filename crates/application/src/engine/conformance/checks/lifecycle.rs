@@ -51,6 +51,11 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             field_focused,
         ),
         case(
+            Group::Surface,
+            "a_frame_added_while_a_field_has_focus_keeps_it_focused",
+            field_focused_past_frame,
+        ),
+        case(
             Group::Events,
             "a_commit_comes_before_the_title_changes_it",
             commit_before_title,
@@ -257,6 +262,20 @@ fn field_focused<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     })?;
     ensure(!run.engine.input_focused(tab(1)), || {
         "a page without a text field says one has focus".to_owned()
+    })
+}
+
+fn field_focused_past_frame<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "field-framed", Jar::Main)?;
+    run.engine
+        .show(WINDOW, tab(1))
+        .map_err(|error| format!("showing failed: {error}"))?;
+    run.wait_title(1, "framed:plain")?;
+
+    run.harness.idle(&mut run.engine);
+
+    ensure(run.engine.input_focused(tab(1)), || {
+        "a frame loaded while a text field has focus took the focus report from it".to_owned()
     })
 }
 
