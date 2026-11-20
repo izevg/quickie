@@ -4,15 +4,15 @@
 //! tab, `⌘⏎` in a new one, `⌥⏎` in a new throwaway one; an open tab is switched to wherever.
 //! `⎋` brings the page back, then closes.
 
-use quickie_application::{Clock, Target};
+use quickie_application::{Clock, Engine, Target};
 use quickie_domain_browsing::Destination;
 use quickie_ui_widgets::palette::command_palette;
 use url::Url;
 
 use super::Browser;
 use super::palette::Opening;
-use crate::SystemClock;
 use crate::input::keystroke::OverlayKey;
+use crate::{MainEngine, SystemClock};
 
 /// What `⏎` does on the page's URL, untouched, with the first action selected: `true` runs
 /// that action (Copy URL, as in the mockup); `false` loads the URL again, as before the
@@ -56,15 +56,16 @@ impl Browser {
             browsing.session().tab(tab).map(|tab| tab.url.clone())
         });
         let url = url.filter(|url| *url != self.home);
-        // What WebKit's content rule lists counted on this page, while Shields protect its
-        // site; no count otherwise, rather than a guess.
+        // What the engine's content blocker counted on this page, while Shields protect its
+        // site; no count otherwise, nor on an engine that counts nothing, rather than a guess.
         let blocked = url
             .as_ref()
             .zip(self.active(window))
             .and_then(|(url, tab)| {
                 let shields = self.shields.borrow();
                 let protected = shields.policy(url).is_some_and(|policy| policy.shields);
-                protected.then(|| shields.blocked_count(tab))
+                (protected && <MainEngine as Engine>::CAPS.blocked_counts)
+                    .then(|| shields.blocked_count(tab))
             });
         self.address.show(
             &host,

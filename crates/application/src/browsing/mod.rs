@@ -109,7 +109,13 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         self.pages.contains(&tab)
     }
 
-    /// The engine adapter, for the shell to reach its views.
+    /// The engine adapter, for the shell to ask its pages' views what they show.
+    #[must_use]
+    pub fn engine(&self) -> &E {
+        &self.engine
+    }
+
+    /// The engine adapter, for the shell to drive its pages' views.
     pub fn engine_mut(&mut self) -> &mut E {
         &mut self.engine
     }

@@ -1,6 +1,7 @@
 //! The tab overview: the window's tabs in opening order, with the pictures the engine keeps.
 //! Pictures arrive asynchronously; the overview and the switcher never wait for one.
 
+use quickie_application::PageSurface;
 use quickie_domain_browsing::{Focus, JarChoice, PinnedSlot, TabId, WindowId};
 use quickie_domain_commands::{Key, KeyStroke, Modifiers};
 use quickie_ui_shared::Trigger;
@@ -146,7 +147,7 @@ impl Browser {
 
     /// `ids` as cards: title, host, pinned slot, and the picture the engine keeps.
     pub(in crate::browser) fn tab_cards(&self, ids: &[TabId]) -> Vec<TabCard> {
-        let mut browsing = self.browsing.borrow_mut();
+        let browsing = self.browsing.borrow();
         let session = browsing.session();
         let mut cards: Vec<TabCard> = ids
             .iter()
@@ -162,9 +163,9 @@ impl Browser {
                 }
             })
             .collect();
-        let engine = browsing.engine_mut();
+        let engine = browsing.engine();
         for (&id, card) in ids.iter().zip(&mut cards) {
-            card.thumbnail = engine.thumbnail(id);
+            card.thumbnail = engine.picture(id);
         }
         cards
     }
@@ -177,7 +178,7 @@ impl Browser {
         let mut browsing = self.browsing.borrow_mut();
         let engine = browsing.engine_mut();
         for &tab in ids {
-            if Some(tab) != active && engine.thumbnail(tab).is_some() {
+            if Some(tab) != active && engine.picture(tab).is_some() {
                 continue;
             }
             engine.capture(tab);
@@ -202,10 +203,10 @@ impl Browser {
         if in_overview.is_none() && in_switcher.is_none() {
             return;
         }
-        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+        let Ok(browsing) = self.browsing.try_borrow() else {
             return;
         };
-        let image = browsing.engine_mut().thumbnail(tab);
+        let image = browsing.engine().picture(tab);
         drop(browsing);
         if let Some(index) = in_overview {
             self.navigation

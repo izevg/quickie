@@ -21,7 +21,7 @@ use objc2_app_kit::{
     NSBackingStoreType, NSBitmapImageRep, NSImage, NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize};
-use quickie_application::{EngineEvent, EnginePort};
+use quickie_application::{Engine, EngineEvent, EnginePort, PageSurface};
 use quickie_domain_browsing::{Jar, Profile, TabId, WindowId};
 use quickie_engine_webkit::{OpenedPage, THUMBNAIL_SIZE, WebKitEngine};
 use url::Url;
@@ -90,7 +90,7 @@ fn hidden_and_shown_pages_are_pictured(mtm: MainThreadMarker) -> Outcome {
 
     for (tab, name) in [(red, "red"), (green, "green")] {
         let picture = engine
-            .thumbnail(tab)
+            .picture(tab)
             .ok_or_else(|| format!("the {name} page has no picture"))?;
         check(
             picture.size() == THUMBNAIL_SIZE,
@@ -120,11 +120,11 @@ fn closed_tab_keeps_none(mtm: MainThreadMarker) -> Outcome {
     let late = pictured_within(&mut engine, drawing, IDLE);
 
     check(
-        engine.thumbnail(shown).is_none(),
+        engine.picture(shown).is_none(),
         "a closed tab kept its picture",
     )?;
     check(
-        !late && engine.thumbnail(drawing).is_none(),
+        !late && engine.picture(drawing).is_none(),
         "a picture drawn while its tab closed came back",
     )
 }
@@ -166,7 +166,7 @@ fn engine(mtm: MainThreadMarker) -> Result<(WebKitEngine, Retained<NSWindow>), S
     };
     let host = NSView::initWithFrame(NSView::alloc(mtm), frame);
     window.setContentView(Some(&host));
-    engine.attach_host(WINDOW, &host);
+    engine.attach_host(WINDOW, &host).map_err(|error| error.0)?;
     Ok((engine, window))
 }
 

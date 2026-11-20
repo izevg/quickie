@@ -7,6 +7,7 @@ mod opened;
 use objc2::rc::Retained;
 use objc2_app_kit::NSWindow;
 use objc2_foundation::NSPoint;
+use quickie_application::PageSurface;
 use quickie_domain_browsing::{Focus, JarChoice, TabId, WindowId};
 
 use super::Browser;
@@ -93,12 +94,7 @@ impl Browser {
             }
             None => ns_window.center(),
         }
-        if let Some(host) = ns_window.contentView() {
-            self.browsing
-                .borrow_mut()
-                .engine_mut()
-                .attach_host(window, &host);
-        }
+        self.attach_host(window, &ns_window);
         self.windows.borrow_mut().insert(window, ns_window.clone());
         ns_window
     }

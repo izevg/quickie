@@ -6,12 +6,12 @@
 //! A page whose web content process crashed keeps its tab: a toast says so and how to reload,
 //! at once when it is on screen, else when it next comes forward.
 
-use quickie_application::{AppError, EngineEvent};
+use quickie_application::{AppError, Engine, EngineEvent};
 use quickie_domain_browsing::{TabId, WindowId};
-use quickie_engine_webkit::OpenedPage;
 use url::Url;
 
 use super::Browser;
+use crate::OpenedPage;
 
 /// What the engine reports.
 pub type Event = EngineEvent<OpenedPage>;

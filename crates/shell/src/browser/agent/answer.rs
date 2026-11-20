@@ -15,7 +15,6 @@ use quickie_application::{
 };
 use quickie_domain_agents::{PageText, Question, Request, Skill, SkillId};
 use quickie_domain_browsing::{Focus, JarChoice};
-use quickie_engine_webkit::UrlSessionHttp;
 use quickie_llm::OpenAiClient;
 use quickie_ui_shared::Trigger;
 use quickie_ui_widgets::{
@@ -177,11 +176,12 @@ impl Browser {
     fn stream(&self, asking: Asking, generation: u64, stop: StopSignal) -> bool {
         let shared = self.shared();
         let secrets = self.agent_ui.secrets.clone();
+        let http = self.http.clone();
         thread::Builder::new()
             .name("quickie-agent-answer".to_owned())
             .spawn(move || {
                 let inbox = Arc::new(Mutex::new(Inbox::default()));
-                let llm = OpenAiClient::new(UrlSessionHttp::new());
+                let llm = OpenAiClient::new(http);
                 asking.run(&llm, &secrets, &SystemClock, &stop, &mut |event| {
                     let schedule = inbox.lock().is_ok_and(|mut inbox| {
                         inbox.events.push(event);

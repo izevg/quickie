@@ -75,6 +75,7 @@ rust_static_library("engine_chromium") {
     "$_engine_chromium/engine.rs",
     "$_engine_chromium/engine/inbox.rs",
     "$_engine_chromium/engine/reports.rs",
+    "$_engine_chromium/engine/requests.rs",
     "$_engine_chromium/ffi.rs",
     "$_engine_chromium/lib.rs",
   ]
@@ -91,8 +92,9 @@ rust_static_library("engine_chromium") {
 
   # The generated C++ includes bridge/quickie_bridge.h.
   # TODO(verify): the crate now also depends on quickie-application, quickie-domain-browsing,
-  # quickie-domain-settings and url (crates/adapters/engine-chromium/Cargo.toml); each needs a GN
-  # target here, the workspace crates as rust_static_library and url through gnrt
-  # (engine/chromium/README.md, open question 7).
+  # quickie-domain-settings, url, objc2 and objc2-app-kit
+  # (crates/adapters/engine-chromium/Cargo.toml); each needs a GN target here, the workspace
+  # crates as rust_static_library and the others through gnrt (engine/chromium/README.md, open
+  # question 7).
   deps = [ ":bridge_header" ]
 }

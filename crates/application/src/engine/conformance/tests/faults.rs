@@ -11,12 +11,13 @@ use url::Url;
 
 use super::{Memory, failed};
 use crate::conformance::{
-    Driven, Event, Group, Harness, MemoryEngine, MemoryPage, NotDriven, Outcome, PageSource, run,
+    Driven, Group, Harness, MemoryBlocker, MemoryEngine, MemoryHttp, MemoryPage, MemoryView,
+    NotDriven, Outcome, PageSource, run,
 };
 use crate::{
-    Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, Downloads,
-    EngineError, EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageAsks,
-    PageContent, PageRect, PageZoom, ReplyToken, Ticket,
+    Answer, Ask, AskKind, BlockerRules, Capabilities, Dialog, DownloadEvent, DownloadToken,
+    Downloads, Engine, EngineError, EngineEvent, EnginePort, FindStep, Followed, LinkTarget,
+    Navigation, PageAsks, PageContent, PageRect, PageSurface, PageZoom, ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -52,6 +53,12 @@ enum Fault {
     IgnoresZoom,
     /// A zoom set before its tab has a page waits for the page.
     ZoomsAhead,
+    /// Every tab says a text field has focus, or every tab says none has.
+    Focused(bool),
+    /// Every tab says it loaded this far.
+    Loading(Option<f64>),
+    /// Capturing a page does nothing.
+    NoPicture,
 }
 
 /// The reference engine with a fault.
@@ -189,6 +196,105 @@ impl PageContent for Broken {
     }
 }
 
+impl PageSurface for Broken {
+    type View = MemoryView;
+    type Picture = Url;
+
+    fn attach_host(&mut self, window: WindowId, host: &MemoryView) -> Result<(), EngineError> {
+        self.engine.attach_host(window, host)
+    }
+
+    fn detach_host(&mut self, window: WindowId) {
+        self.engine.detach_host(window);
+    }
+
+    fn view(&self, tab: TabId) -> Option<&MemoryView> {
+        self.engine.view(tab)
+    }
+
+    fn input_focused(&self, tab: TabId) -> bool {
+        match self.fault {
+            Fault::Focused(focused) => focused,
+            _ => self.engine.input_focused(tab),
+        }
+    }
+
+    fn loading(&self, tab: TabId) -> Option<f64> {
+        match self.fault {
+            Fault::Loading(loading) => loading,
+            _ => self.engine.loading(tab),
+        }
+    }
+
+    fn capture(&mut self, tab: TabId) {
+        match self.fault {
+            Fault::NoPicture => {}
+            _ => self.engine.capture(tab),
+        }
+    }
+
+    fn picture(&self, tab: TabId) -> Option<Url> {
+        self.engine.picture(tab)
+    }
+
+    fn print(&mut self, tab: TabId) -> Result<(), EngineError> {
+        self.engine.print(tab)
+    }
+
+    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError> {
+        self.engine.inspect(tab)
+    }
+}
+
+impl Engine for Broken {
+    type Http = MemoryHttp;
+    type Blocker = MemoryBlocker;
+
+    const CAPS: Capabilities = <MemoryEngine as Engine>::CAPS;
+
+    fn http(&self) -> MemoryHttp {
+        self.engine.http()
+    }
+
+    fn content_blocker(&mut self, directory: &Path) -> Result<MemoryBlocker, EngineError> {
+        self.engine.content_blocker(directory)
+    }
+
+    fn set_waker(&mut self, wake: Box<dyn Fn()>) {
+        let ignored = match self.fault {
+            Fault::NoWake => true,
+            Fault::FirstWakerOnly => self.wakers > 0,
+            Fault::FirstWakerIgnored => self.wakers == 0,
+            _ => false,
+        };
+        self.wakers += 1;
+        if !ignored {
+            let wake: Rc<dyn Fn()> = Rc::from(wake);
+            let shared = Rc::clone(&wake);
+            self.engine.set_waker(Box::new(move || shared()));
+            self.wake = Some(wake);
+        }
+    }
+
+    fn drain(&mut self, into: &mut Vec<EngineEvent<MemoryPage>>) {
+        into.append(&mut self.later);
+        let mut fresh = Vec::new();
+        self.engine.drain(&mut fresh);
+        for event in fresh {
+            match (self.fault, event) {
+                (Fault::Events(fault), event) => into.push(fault(event)),
+                (Fault::LateEnd, event @ EngineEvent::Download(DownloadEvent::Finished { .. })) => {
+                    self.next_turn.push(event);
+                }
+                (_, event) => into.push(event),
+            }
+        }
+        if let Fault::Lingers { asks } = self.fault {
+            into.extend(self.closed.iter().map(|&tab| lingering(tab, asks)));
+        }
+    }
+}
+
 /// The reference harness over a broken engine.
 struct Faulty(Fault);
 
@@ -228,40 +334,6 @@ impl Harness for Faulty {
 
     fn idle(&mut self, engine: &mut Broken) {
         Memory.idle(&mut engine.engine);
-    }
-
-    fn set_waker(engine: &mut Broken, wake: Box<dyn Fn()>) {
-        let ignored = match engine.fault {
-            Fault::NoWake => true,
-            Fault::FirstWakerOnly => engine.wakers > 0,
-            Fault::FirstWakerIgnored => engine.wakers == 0,
-            _ => false,
-        };
-        engine.wakers += 1;
-        if !ignored {
-            let wake: Rc<dyn Fn()> = Rc::from(wake);
-            let shared = Rc::clone(&wake);
-            engine.engine.set_waker(Box::new(move || shared()));
-            engine.wake = Some(wake);
-        }
-    }
-
-    fn drain(engine: &mut Broken, into: &mut Vec<Event<Self>>) {
-        into.append(&mut engine.later);
-        let mut fresh = Vec::new();
-        engine.engine.drain(&mut fresh);
-        for event in fresh {
-            match (engine.fault, event) {
-                (Fault::Events(fault), event) => into.push(fault(event)),
-                (Fault::LateEnd, event @ EngineEvent::Download(DownloadEvent::Finished { .. })) => {
-                    engine.next_turn.push(event);
-                }
-                (_, event) => into.push(event),
-            }
-        }
-        if let Fault::Lingers { asks } = engine.fault {
-            into.extend(engine.closed.iter().map(|&tab| lingering(tab, asks)));
-        }
     }
 
     fn click(
@@ -600,4 +672,64 @@ fn an_answer_nobody_waits_for_that_is_taken_fails() {
             "closing_a_tab_declines_what_its_page_asked"
         ]
     );
+}
+
+#[test]
+fn a_page_whose_field_takes_the_keys_unsaid_fails() {
+    let report = run(&mut Faulty(Fault::Focused(false)));
+
+    assert_eq!(failed(&report), ["a_page_says_when_a_text_field_has_focus"]);
+}
+
+#[test]
+fn a_tab_that_always_takes_the_keys_fails() {
+    let report = run(&mut Faulty(Fault::Focused(true)));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "a_page_has_a_view_until_it_closes",
+            "a_page_says_when_a_text_field_has_focus"
+        ]
+    );
+}
+
+#[test]
+fn a_page_that_never_says_it_loads_fails() {
+    let report = run(&mut Faulty(Fault::Loading(None)));
+
+    assert_eq!(failed(&report), ["a_page_is_loading_until_it_has_loaded"]);
+}
+
+#[test]
+fn a_page_that_never_stops_loading_fails() {
+    let report = run(&mut Faulty(Fault::Loading(Some(0.5))));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "a_page_has_a_view_until_it_closes",
+            "a_page_is_loading_until_it_has_loaded"
+        ]
+    );
+}
+
+#[test]
+fn a_page_loaded_past_the_end_fails() {
+    let report = run(&mut Faulty(Fault::Loading(Some(1.5))));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "a_page_has_a_view_until_it_closes",
+            "a_page_is_loading_until_it_has_loaded"
+        ]
+    );
+}
+
+#[test]
+fn a_page_never_pictured_fails() {
+    let report = run(&mut Faulty(Fault::NoPicture));
+
+    assert_eq!(failed(&report), ["a_captured_page_has_a_picture"]);
 }

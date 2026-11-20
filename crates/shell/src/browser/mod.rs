@@ -38,8 +38,8 @@ use std::rc::{Rc, Weak};
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
-use objc2_app_kit::{NSApplication, NSWindow};
-use quickie_application::{AppError, PaletteIndex, PaletteItem};
+use objc2_app_kit::{NSApplication, NSView, NSWindow};
+use quickie_application::{AppError, Engine, PageSurface, PaletteIndex, PaletteItem};
 use quickie_domain_browsing::{Session, TabId, WindowId};
 use quickie_domain_commands::{Catalog, CommandId, Keymap, Modifiers};
 use quickie_store::{KeybindingsFile, PendingWrites};
@@ -58,7 +58,7 @@ use crate::input::keystroke::Passed;
 use crate::input::keystroke::chord::PendingChord;
 use crate::input::keystroke::log::KeyLog;
 use crate::window::{browser_window, set_title};
-use crate::{Addons, Agents, App, Guard, Lib, Palette, Zooms};
+use crate::{Addons, Agents, App, Guard, Lib, MacEngine, Network, Palette, Zooms};
 use navigation::NavigationOverlays;
 
 /// What the browser runs on, composed by `main`.
@@ -91,6 +91,9 @@ pub struct Services {
 }
 
 pub struct Browser {
+    /// The engine's network, for the browser's own requests (filter lists, the agent's endpoint,
+    /// extension packages): every request of the product goes through the engine's stack.
+    http: Network,
     browsing: RefCell<App>,
     library: RefCell<Lib>,
     shields: RefCell<Guard>,
@@ -194,7 +197,9 @@ impl Browser {
                 .and_then(Addons::corrupt_on_start)
                 .map(|corrupt| format!("Extensions started fresh: {corrupt}")),
         );
+        let http = services.browsing.engine().http();
         let browser = Rc::new_cyclic(|this| Self {
+            http,
             browsing: RefCell::new(services.browsing),
             library: RefCell::new(services.library),
             shields: RefCell::new(services.shields),
@@ -244,18 +249,22 @@ impl Browser {
         browser.wire_popovers();
         browser.wire_agent();
         browser.wire_shields();
-        let weak = Rc::downgrade(&browser);
-        browser
-            .browsing
-            .borrow_mut()
-            .engine_mut()
-            .set_waker(move || {
-                if let Some(browser) = weak.upgrade() {
-                    browser.drain();
-                }
-            });
+        browser.wire_engine();
         browser.wire_extensions();
         browser
+    }
+
+    /// What pages report reaches the browser: the engine's waker drains it.
+    fn wire_engine(&self) {
+        let this = self.this.clone();
+        self.browsing
+            .borrow_mut()
+            .engine_mut()
+            .set_waker(Box::new(move || {
+                if let Some(browser) = this.upgrade() {
+                    browser.drain();
+                }
+            }));
     }
 
     pub fn show(&self) {
@@ -312,9 +321,9 @@ impl Browser {
     fn settle(&self, window: WindowId) {
         self.present_asks();
         let view = {
-            let mut browsing = self.browsing.borrow_mut();
+            let browsing = self.browsing.borrow();
             let active = browsing.session().active(window);
-            active.and_then(|tab| browsing.engine_mut().view(tab).map(Message::retain))
+            active.and_then(|tab| page_view(browsing.engine(), tab))
         };
         let overlay = self.address.is_open()
             || self.command_palette.is_open()
@@ -352,13 +361,24 @@ impl Browser {
                 continue;
             }
             let window = browser_window(self.mtm);
-            if let Some(host) = window.contentView() {
-                self.browsing
-                    .borrow_mut()
-                    .engine_mut()
-                    .attach_host(id, &host);
-            }
+            self.attach_host(id, &window);
             self.windows.borrow_mut().insert(id, window);
+        }
+    }
+
+    /// Registers `ns_window`'s content view with the engine as the host session window
+    /// `window`'s pages fill.
+    fn attach_host(&self, window: WindowId, ns_window: &NSWindow) {
+        let Some(host) = ns_window.contentView() else {
+            return;
+        };
+        let attached = self
+            .browsing
+            .borrow_mut()
+            .engine_mut()
+            .attach_host(window, &host);
+        if let Err(error) = attached {
+            self.report(&error.into());
         }
     }
 
@@ -393,6 +413,12 @@ impl Browser {
         self.hide_popovers();
         self.cancel_cycle();
     }
+}
+
+/// The view of a tab's page, kept, to hand the keyboard to or to find its window; `None` for a
+/// tab without a page.
+fn page_view<E: MacEngine>(engine: &E, tab: TabId) -> Option<Retained<NSView>> {
+    engine.view(tab).map(Message::retain)
 }
 
 /// What the switcher calls a tab: its title, else its host, else its URL.

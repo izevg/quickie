@@ -22,7 +22,6 @@ use quickie_domain_browsing::{Direction, Focus, JarChoice, PinnedSlot, WindowId}
 use quickie_domain_commands::{CommandId, KeyStroke, Modifiers};
 use quickie_domain_settings::ZoomStep;
 use quickie_domain_shields::FilterListId;
-use quickie_engine_webkit::UrlSessionHttp;
 use quickie_ui_shared::Trigger;
 use url::Url;
 
@@ -493,10 +492,11 @@ impl Browser {
             return;
         }
         let browser = MainThreadBound::new(self.this.clone(), self.mtm);
+        let http = self.http.clone();
         let spawned = thread::Builder::new()
             .name("quickie-filter-lists".to_owned())
             .spawn(move || {
-                let answers = fetch_lists(&UrlSessionHttp::new(), &fetches);
+                let answers = fetch_lists(&http, &fetches);
                 DispatchQueue::main().exec_async(move || {
                     let Some(mtm) = MainThreadMarker::new() else {
                         return;
