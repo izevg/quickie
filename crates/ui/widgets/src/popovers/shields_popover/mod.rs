@@ -1,7 +1,9 @@
 //! The shields popover (`docs/design/mocks/system/shields/`): an E2 surface at the top right
-//! with what Quickie does on the active page's site. Shields on or off, HTTPS-only and
-//! JavaScript (kept for the site; they take effect in a later version, and the rows say so),
-//! how many requests the page had blocked when the engine counts them (`—` when it does not),
+//! with what Quickie does on the active page's site. A status line in green while shields are
+//! up; tiles of measured numbers, how many requests the page had blocked when the engine counts
+//! them (`—` when it does not) and how many filter lists are on; the per-site protections,
+//! shields, HTTPS-only, and JavaScript (kept for the site; the last two take effect in a later
+//! version, and the rows say so),
 //! the enabled filter lists with when each was fetched, a button to fetch them again, and what
 //! the content blocker made of them ("Rules active: …", "Compiling rules…", "Failed: …").
 //! With no list on, the header and the lists say so, and one click enables them.
@@ -13,6 +15,7 @@
 //! [`ShieldsPopover::update`].
 
 mod filter_list_row;
+mod stat_tile;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -28,12 +31,24 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use quickie_domain_shields::{FilterListId, SitePolicy, Timestamp};
 use quickie_ui_shared::tokens::{TextRole, color, overlay, space};
-use quickie_ui_shared::{Elevation, GlassSurface, Scrim, ToggleRow, Trigger, hint_bar, motion};
+use quickie_ui_shared::{
+    Elevation, GlassSurface, Scrim, ToggleRow, Trigger, hint_bar, motion, symbol,
+};
 
 use filter_list_row::{FilterListRow, ROW_HEIGHT};
+use stat_tile::{StatTile, TILE_HEIGHT};
+
+/// The symbol before each switch, as the mock draws them.
+const TOGGLE_SYMBOLS: [(SiteToggle, &str); 3] = [
+    (SiteToggle::Shields, "eye.slash"),
+    (SiteToggle::HttpsOnly, "lock"),
+    (SiteToggle::JavaScript, "curlybraces"),
+];
+/// Room the symbols take left of the switches.
+const ICON_COLUMN: CGFloat = 24.0;
 
 /// What toggles on the site's shields are honest about: stored now, enforced later.
-const LATER: &str = "Saved for this site; applies in a later version";
+const LATER: &str = "Saved; enforced in a later version";
 
 /// What the popover shows about the active page.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,7 +148,9 @@ pub struct ShieldsPopover {
     glyph: Retained<NSImageView>,
     site: Retained<NSTextField>,
     status: Retained<NSTextField>,
-    blocked: Retained<NSTextField>,
+    tiles: [StatTile; 2],
+    protections: Retained<NSTextField>,
+    icons: Vec<Retained<NSImageView>>,
     toggles: [(SiteToggle, ToggleRow); 3],
     separators: [Retained<NSBox>; 2],
     lists_title: Retained<NSTextField>,
@@ -179,7 +196,14 @@ impl ShieldsPopover {
             glyph: NSImageView::new(mtm),
             site: text(TextRole::RowTitle, &color::label(), mtm),
             status: text(TextRole::RowDetail, &color::secondary_label(), mtm),
-            blocked: text(TextRole::RowDetail, &color::secondary_label(), mtm),
+            tiles: [StatTile::new(mtm), StatTile::new(mtm)],
+            protections: text(TextRole::Caption, &color::secondary_label(), mtm),
+            icons: TOGGLE_SYMBOLS
+                .iter()
+                .filter_map(|(_, name)| {
+                    symbol(name, "", TextRole::RowTitle, &color::secondary_label(), mtm)
+                })
+                .collect(),
             toggles,
             separators: [separator(mtm), separator(mtm)],
             lists_title: text(TextRole::Caption, &color::secondary_label(), mtm),
@@ -199,7 +223,14 @@ impl ShieldsPopover {
         popover.site.setFont(Some(&TextRole::RowTitle.mono_font()));
         popover
             .lists_title
-            .setStringValue(&NSString::from_str("Filter lists"));
+            .setStringValue(&NSString::from_str("FILTER LISTS"));
+        popover
+            .protections
+            .setStringValue(&NSString::from_str("PER-SITE PROTECTIONS"));
+        for caption in [&popover.lists_title, &popover.protections] {
+            caption.setFont(Some(&TextRole::Caption.mono_font()));
+            caption.sizeToFit();
+        }
         popover
             .no_lists
             .setStringValue(&NSString::from_str("No filter lists enabled"));
@@ -211,7 +242,9 @@ impl ShieldsPopover {
             &*popover.glyph as &NSView,
             &popover.site,
             &popover.status,
-            &popover.blocked,
+            &popover.protections,
+            popover.tiles[0].view(),
+            popover.tiles[1].view(),
             &popover.lists_title,
             &popover.refresh,
             &popover.enable,
@@ -223,6 +256,9 @@ impl ShieldsPopover {
         }
         for separator in &popover.separators {
             content.addSubview(separator);
+        }
+        for icon in &popover.icons {
+            content.addSubview(icon);
         }
         for (_, row) in &popover.toggles {
             content.addSubview(row.view());
@@ -340,7 +376,18 @@ impl ShieldsPopover {
         self.glyph.setContentTintColor(Some(&tint));
         set(&self.site, summary.site.as_deref().unwrap_or("This page"));
         set(&self.status, status);
-        set(&self.blocked, &blocked(summary.blocked));
+        self.status.setTextColor(Some(&tint));
+        let blocked_tint = if summary.blocked.is_some_and(|count| count > 0) {
+            color::success()
+        } else {
+            color::label()
+        };
+        self.tiles[0].set(summary.blocked, "Blocked on this page", &blocked_tint);
+        self.tiles[1].set(
+            u32::try_from(summary.lists.len()).ok(),
+            "Filter lists on",
+            &color::label(),
+        );
         for (toggle, row) in &self.toggles {
             let on = summary.policy.is_some_and(|policy| match toggle {
                 SiteToggle::Shields => policy.shields,
@@ -387,14 +434,16 @@ impl ShieldsPopover {
             self.rules.frame().size.height + space::SM
         };
         let hint_height = self.hints.borrow().frame().size.height;
-        let blocked_height = self.blocked.frame().size.height;
+        let caption_height = self.protections.frame().size.height;
         let height = padding
             + header
-            + space::XS
-            + blocked_height
+            + space::MD
+            + TILE_HEIGHT
             + space::MD
             + 1.0
-            + space::SM
+            + space::MD
+            + caption_height
+            + space::XS
             + ToggleRow::HEIGHT * 3.0
             + space::SM
             + 1.0
@@ -426,20 +475,36 @@ impl ShieldsPopover {
             NSPoint::new(left, top - site_height - status_height),
             NSSize::new(inner - glyph - space::SM, status_height),
         ));
-        top -= header + space::XS;
-        self.blocked.setFrame(NSRect::new(
-            NSPoint::new(padding, top - blocked_height),
-            NSSize::new(inner, blocked_height),
-        ));
-        top -= blocked_height + space::MD;
+        top -= header + space::MD;
+        let tile_width = ((inner - space::SM) / 2.0).floor();
+        for (index, tile) in self.tiles.iter().enumerate() {
+            let x = padding + as_float(index) * (tile_width + space::SM);
+            tile.place(NSPoint::new(x, top - TILE_HEIGHT), tile_width);
+        }
+        top -= TILE_HEIGHT + space::MD;
         self.separators[0].setFrame(NSRect::new(
             NSPoint::new(padding, top - 1.0),
             NSSize::new(inner, 1.0),
         ));
-        top -= 1.0 + space::SM;
-        for (_, row) in &self.toggles {
+        top -= 1.0 + space::MD;
+        self.protections.setFrame(NSRect::new(
+            NSPoint::new(padding, top - caption_height),
+            NSSize::new(inner, caption_height),
+        ));
+        top -= caption_height + space::XS;
+        for (index, (_, row)) in self.toggles.iter().enumerate() {
             top -= ToggleRow::HEIGHT;
-            row.place(NSPoint::new(padding, top), inner);
+            row.place(
+                NSPoint::new(padding + ICON_COLUMN, top),
+                inner - ICON_COLUMN,
+            );
+            if let Some(icon) = self.icons.get(index) {
+                let size = icon.frame().size;
+                icon.setFrameOrigin(NSPoint::new(
+                    padding,
+                    top + ((ToggleRow::HEIGHT - size.height) / 2.0).round(),
+                ));
+            }
         }
         top -= space::SM;
         self.separators[1].setFrame(NSRect::new(
@@ -530,14 +595,6 @@ fn status(
     }
 }
 
-/// The blocked count line: measured, or `—` when the engine does not count.
-fn blocked(count: Option<u32>) -> String {
-    match count {
-        Some(count) => format!("Blocked on this page: {count}"),
-        None => "Blocked on this page: —".to_owned(),
-    }
-}
-
 fn as_float(count: usize) -> CGFloat {
     CGFloat::from(u32::try_from(count).unwrap_or(u32::MAX))
 }
@@ -601,7 +658,7 @@ fn image(name: &str, description: &str, role: TextRole) -> Option<Retained<NSIma
 mod tests {
     use quickie_domain_shields::SitePolicy;
 
-    use super::{blocked, status};
+    use super::status;
 
     #[test]
     fn the_header_says_where_the_shields_stand() {
@@ -618,12 +675,5 @@ mod tests {
         assert_eq!(status(Some(down), true).2, "Shields are down on this site");
         assert_eq!(status(None, true).2, "Shields apply to web pages only");
         assert_eq!(status(Some(down), false).0, "shield.slash");
-    }
-
-    #[test]
-    fn an_uncounted_page_shows_a_dash_not_a_zero() {
-        assert_eq!(blocked(None), "Blocked on this page: —");
-        assert_eq!(blocked(Some(0)), "Blocked on this page: 0");
-        assert_eq!(blocked(Some(12)), "Blocked on this page: 12");
     }
 }
