@@ -50,8 +50,10 @@ touch `engine/webkit/`, the workflow, or its disk cleanup script. One job, `webk
    on CI) that stops the build and exits 124 before the 6-hour job limit. The heartbeat makes a
    run that ran out of time still say how far it got.
 6. **Package** ([package](webkit/scripts/package)): `WebKitBuild/Release/*.framework`,
-   `*.dylib` and any top-level `*.xpc` (the XPC services live inside `WebKit.framework`) plus
-   `BUILD-INFO` into `webkit-macos-arm64-<commit12>.tar.gz`, with its `.sha256`.
+   `*.dylib` and `*.xpc` plus `BUILD-INFO` into `webkit-macos-arm64-<commit12>.tar.gz`, with its
+   `.sha256`. The XPC services sit next to the frameworks;
+   `WebKit.framework/Versions/A/XPCServices/*.xpc` are relative links to them, so the archive is
+   unpacked as one directory and never split.
 7. **Attest and upload**, in the same job that built the archive: a build provenance
    attestation of the archive (`actions/attest-build-provenance`), then the artifact
    `webkit-macos-arm64-<commit12>` (archive, sha256, `BUILD-INFO`), kept 30 days.
@@ -65,7 +67,7 @@ None of them changes what a web page sees; each is explained next to it in
 |---|---|
 | `--release` | Optimized, assertions off |
 | `--only=Everything up to WebKit` | The frameworks and their XPC services only; the default scheme also builds MiniBrowser, WebKitTestRunner, DumpRenderTree and TestWebKitAPI |
-| `--lto-mode=none` | WebKit's Release default is ThinLTO; its link does not fit 7 GB of RAM comfortably and costs time. Revisit for shipping builds |
+| `--lto-mode=none` | WebKit's Release default is ThinLTO, whose links are the heaviest steps in memory and time on a 7 GB runner (not measured yet). Revisit for shipping builds |
 | `GCC_GENERATE_DEBUGGING_SYMBOLS=NO`, `DEBUG_INFORMATION_FORMAT=dwarf` | No debug info and no dSYM step: less disk and time |
 | `COMPILATION_CACHE_CAS_PATH=.build/webkit-cas` | Xcode's compilation cache (on in WebKit's configurations) kept where it is measured and can be handed on |
 
@@ -73,15 +75,21 @@ No `--no-<feature>` flags: turning features off would change web behaviour.
 
 ### Numbers
 
-Measured on CI; see the workflow runs for the current ones.
+The first green build, at `a6331649` on 2026-11-20
+([run 44666598719](https://github.com/izevg/quickie/actions/runs/44666598719)), on `xcode-27`
+(macOS 27.0.1, Xcode 27.2, SDK 27.2, 3 CPUs, 7 GB RAM):
 
 | | |
 |---|---|
-| Free disk before / after cleanup | TODO(measure) |
-| Sparse checkout | TODO(measure) |
-| Build time | TODO(measure) |
-| `WebKitBuild` / compilation cache | TODO(measure) |
-| Archive | TODO(measure) |
+| Free disk before / after cleanup | 36.8 GB / 128.1 GB (180 GB volume): Xcodes +6.8, simulators +58.9, the rest +25.6; 1 min 40 s |
+| Sparse checkout | 1.9 GB, 1 min 24 s |
+| Build | 2 h 17 min, 5,499 objects, peak swap 0.45 GB, 17 GB of disk used |
+| `WebKitBuild` / compilation cache | 9.0 GB / 4.8 GB |
+| Archive | 77.6 MB (291 MB unpacked: WebCore 108 MB, WebKit 62 MB, JavaScriptCore 45 MB, libwebrtc 14 MB) |
+| Whole job | 2 h 21 min of the 6 h limit |
+
+The archive also carries `libWebCoreTestSupport.dylib`, which `Everything up to WebKit` builds;
+the app bundle leaves it out.
 
 ## Bumping the pin
 
@@ -128,10 +136,15 @@ attestation. `sync` is already portable; `build` and `package` grow a GTK branch
 
 ## Open questions
 
-1. Can the free runner finish a Release build inside one 6-hour job? If not: chained jobs that
-   hand the build tree and the compilation cache to the next job, a larger runner, or splitting
-   the build by project (JavaScriptCore and WTF first, then WebCore, then WebKit).
-2. Install names for the app bundle: `@rpath` build settings or WebKit's staged frameworks.
-3. ThinLTO for shipping builds once the build fits; it changes speed, not behaviour.
-4. Which Safari release branch the fork follows for macOS and which WebKitGTK stable branch for
+1. Headroom: a clean build takes 2 h 17 min of the 6 h limit. If WebKit grows past the budget
+   (300 min), the plan is chained jobs that hand `WebKitBuild/` and the compilation cache
+   (14 GB together) to the next job as an artifact; Xcode's compilation cache turns the rebuild
+   after a fresh checkout into cache hits. A larger runner is the paid alternative.
+2. WebKit main's clean build races on `availability-overlay.yaml` (JavaScriptCore's
+   `testLibJSCToolsHelper` does not depend on bmalloc, which writes it); [build](webkit/scripts/build)
+   writes the file first. Fix upstream, or in the fork, and drop the workaround.
+3. Install names for the app bundle: `@rpath` build settings or WebKit's staged frameworks.
+4. ThinLTO for shipping builds: with 3.5 h of headroom it may fit; measure its time and memory
+   first. It changes speed, not behaviour.
+5. Which Safari release branch the fork follows for macOS and which WebKitGTK stable branch for
    Linux, so one patch series applies to both (the decision's "one pinned WebKit revision").

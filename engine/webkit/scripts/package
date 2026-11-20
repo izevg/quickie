@@ -1,7 +1,8 @@
 #!/bin/sh
 # Packs what engine/webkit/scripts/build produced into one archive for engine-webkit to consume:
-# the frameworks of WebKitBuild/Release (their XPC services are inside WebKit.framework), the
-# dylibs next to them, and BUILD-INFO (pin, toolchain, flags). Writes <name>.tar.gz and
+# the frameworks of WebKitBuild/Release, the dylibs and the XPC services next to them
+# (WebKit.framework/Versions/A/XPCServices links to those by relative paths, so the layout is kept
+# as it is), and BUILD-INFO (pin, toolchain, host). Writes <name>.tar.gz and
 # <name>.tar.gz.sha256 into the output directory and prints both paths.
 #
 #   engine/webkit/scripts/package [output-dir]     default output-dir: <build>/webkit-package
