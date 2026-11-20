@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use quickie_domain_browsing::{Jar, Profile, TabId};
 use url::Url;
 
-use super::{DownloadEvent, DownloadToken, ReplyToken};
+use super::{DownloadEvent, DownloadToken, ReplyToken, Ticket};
 
 #[test]
 fn every_download_event_names_its_download() {
@@ -51,4 +51,6 @@ fn tokens_minted_from_different_numbers_differ() {
     assert_ne!(DownloadToken::new(1), DownloadToken::new(2));
     assert_eq!(ReplyToken::new(3), ReplyToken::new(3));
     assert_ne!(ReplyToken::new(3), ReplyToken::new(4));
+    assert_eq!(Ticket::new(5), Ticket::new(5));
+    assert_ne!(Ticket::new(5), Ticket::new(6));
 }

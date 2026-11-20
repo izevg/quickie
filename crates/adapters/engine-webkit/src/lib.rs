@@ -6,23 +6,27 @@
 //! dropped with the jar. The shell registers each window's host view; [`EnginePort::show`]
 //! puts a tab's page into it, under any overlays.
 //!
-//! Page events flow back without re-entering the use cases: pages record what they committed,
-//! the engine schedules the shell's waker on the main run loop, and the shell drains
-//! [`WebKitEngine::take_navigations`] into `Browsing::navigated`.
+//! Everything pages report flows back as one stream of [`EngineEvent`]s, without re-entering
+//! the use cases: pages record what they did in one queue, the engine schedules the shell's
+//! waker ([`WebKitEngine::set_waker`]) on the main run loop, and the shell drains the queue
+//! ([`WebKitEngine::drain`]). Answers to requests (a find, link targets, page text, a picture)
+//! come the same way, never through a callback.
 //!
 //! Pages open pages of their own (`window.open`, `target=_blank`, `⌘`-click): the engine makes
 //! them at once, from the configuration `WebKit` passes, so they share the opener's process and
-//! jar, and the shell hands each one ([`WebKitEngine::take_opened`]) to `Browsing::adopt`. A
-//! page's dialogs and permission requests wait as [`Ask`]s until the shell answers them.
+//! jar, and the shell hands each one ([`EngineEvent::Opened`]) to `Browsing::adopt`. A page's
+//! dialogs and permission requests wait as asks ([`EngineEvent::Asked`]) until the shell
+//! answers them. A page whose web content process died is reported ([`EngineEvent::Crashed`])
+//! and stays blank until it is reloaded.
 //!
 //! Every page shares one user content controller, so the [`WebKitContentBlocker`] the engine
 //! hands out ([`WebKitEngine::content_blocker`]) blocks on all of them. [`UrlSessionHttp`] is the
 //! network for the browser's own requests, such as fetching filter lists.
 //!
 //! Navigations that become downloads go to one download center, which saves them into the
-//! folder [`WebKitEngine::set_download_directory`] names and reports through
-//! [`WebKitEngine::take_download_reports`]; a page saved as a PDF
-//! ([`WebKitEngine::save_pdf`]) is written there too, under a free name.
+//! folder [`WebKitEngine::set_download_directory`] names and reports
+//! [`EngineEvent::Download`]s; a page saved as a PDF ([`WebKitEngine::save_pdf`]) is written
+//! there too, under a free name.
 //!
 //! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from the
 //! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it.
@@ -40,14 +44,13 @@ mod downloads;
 mod inbox;
 mod network;
 mod page;
-mod reports;
 mod scheme;
 mod shields;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
@@ -55,15 +58,15 @@ use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrdering
 use objc2_foundation::{NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
-    Answer, Ask, DownloadEvent, DownloadToken, EngineError, EnginePort, FindStep, Followed, Found,
-    LinkTarget, Navigated, Navigation, ReplyToken,
+    Answer, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found, Navigation,
+    ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
 
 use downloads::DownloadCenter;
-use inbox::{Inbox, Owner};
-pub use inbox::{Opened, OpenedPage};
+pub use inbox::OpenedPage;
+use inbox::{Event, Inbox, Owner};
 pub use network::UrlSessionHttp;
 use page::WebPage;
 use scheme::InternalPages;
@@ -112,9 +115,9 @@ impl WebKitEngine {
         page::install_focus_script(&content, Rc::clone(&inbox.focus), mtm);
         let waiting = Rc::downgrade(&inbox);
         let downloads = DownloadCenter::new(
-            move || {
+            move |event| {
                 if let Some(inbox) = waiting.upgrade() {
-                    inbox.downloaded.set(true);
+                    inbox.push(EngineEvent::Download(event));
                     Inbox::schedule(&inbox);
                 }
             },
@@ -148,65 +151,81 @@ impl WebKitEngine {
         self.thumbnails.borrow().get(&tab).cloned()
     }
 
-    /// Takes a new picture of the tab's page; `done` runs on the main thread once it is in
-    /// [`Self::thumbnail`]. The page is drawn off the main thread.
-    pub fn capture(&self, tab: TabId, done: impl FnOnce() + 'static) {
+    /// Takes a new picture of the tab's page, drawn off the main thread; once it is in
+    /// [`Self::thumbnail`], [`EngineEvent::Pictured`] says so.
+    pub fn capture(&self, tab: TabId) {
         let Some(page) = self.pages.get(&tab) else {
             return;
         };
         let thumbnails = Rc::downgrade(&self.thumbnails);
+        let inbox = Rc::downgrade(&self.inbox);
         page.snapshot(THUMBNAIL_WIDTH, move |image| {
             let (Some(image), Some(thumbnails)) = (image, thumbnails.upgrade()) else {
                 return;
             };
             thumbnails.borrow_mut().insert(tab, image);
-            done();
+            report(&inbox, EngineEvent::Pictured { tab });
         });
     }
 
-    /// Finds the links and controls on screen in the tab's page, for link hints. `done` gets
-    /// them in document order, placed in the page view, which fills its window's host.
-    pub fn link_targets(&self, tab: TabId, done: impl FnOnce(Vec<LinkTarget>) + 'static) {
-        if let Some(page) = self.pages.get(&tab) {
-            page.link_targets(done);
-        }
+    /// Finds the links and controls on screen in the tab's page, for link hints:
+    /// [`EngineEvent::Targets`] with the ticket returned brings them in document order, placed
+    /// in the page view, which fills its window's host. `None` when the tab has no page.
+    #[must_use = "the ticket tells the answer apart"]
+    pub fn link_targets(&self, tab: TabId) -> Option<Ticket> {
+        let page = self.pages.get(&tab)?;
+        let ticket = self.inbox.ticket();
+        let inbox = Rc::downgrade(&self.inbox);
+        page.link_targets(move |targets| {
+            report(
+                &inbox,
+                EngineEvent::Targets {
+                    tab,
+                    ticket,
+                    targets,
+                },
+            );
+        });
+        Some(ticket)
     }
 
     /// Follows target `index` of the tab's last [`Self::link_targets`]: the page clicks or
-    /// focuses it, or `done` hears of a link to open in another tab (in the background when
-    /// `background`).
-    pub fn follow_link(
-        &self,
-        tab: TabId,
-        index: usize,
-        background: bool,
-        done: impl FnOnce(Followed) + 'static,
-    ) {
-        if let Some(page) = self.pages.get(&tab) {
-            page.follow(index, background, done);
-        }
+    /// focuses it, or [`EngineEvent::Followed`] with the ticket returned brings a link to open
+    /// in another tab (in the background when `background`). `None` when the tab has no page.
+    #[must_use = "the ticket tells the answer apart"]
+    pub fn follow_link(&self, tab: TabId, index: usize, background: bool) -> Option<Ticket> {
+        let page = self.pages.get(&tab)?;
+        let ticket = self.inbox.ticket();
+        let inbox = Rc::downgrade(&self.inbox);
+        page.follow(index, background, move |followed| {
+            report(
+                &inbox,
+                EngineEvent::Followed {
+                    tab,
+                    ticket,
+                    followed,
+                },
+            );
+        });
+        Some(ticket)
     }
 
-    /// Reads the rendered text of the tab's page (its main frame), for the agent; `done` gets
-    /// it on the main thread, or `None` at once when the tab has no page. The script runs in
-    /// Quickie's isolated content world, never in the page's own.
-    pub fn page_text(&self, tab: TabId, done: impl FnOnce(Option<String>) + 'static) {
-        match self.pages.get(&tab) {
-            Some(page) => page.text(move |text| done(Some(text))),
-            None => done(None),
-        }
+    /// Reads the rendered text of the tab's page (its main frame), for the agent:
+    /// [`EngineEvent::Text`] with the ticket returned brings it. `None` when the tab has no
+    /// page. The script runs in Quickie's isolated content world, never in the page's own.
+    #[must_use = "the ticket tells the answer apart"]
+    pub fn page_text(&self, tab: TabId) -> Option<Ticket> {
+        let page = self.pages.get(&tab)?;
+        let ticket = self.inbox.ticket();
+        let inbox = Rc::downgrade(&self.inbox);
+        page.text(move |text| report(&inbox, EngineEvent::Text { tab, ticket, text }));
+        Some(ticket)
     }
 
     /// Saves downloads into `directory` from now on; it is created when the first one comes.
     /// Until this is called, every download is refused.
     pub fn set_download_directory(&self, directory: PathBuf) {
         self.downloads.set_directory(directory);
-    }
-
-    /// What downloads did since the last call, oldest first.
-    pub fn take_download_reports(&mut self) -> Vec<DownloadEvent> {
-        self.inbox.downloaded.set(false);
-        self.downloads.take_reports()
     }
 
     /// Stops a running download and deletes the part of its file already written; nothing
@@ -273,35 +292,55 @@ impl WebKitEngine {
         self.pages.get(&tab).map(WebPage::view)
     }
 
-    /// Sets what runs, later on the main run loop and never inside an engine call, when pages
-    /// have reported navigations, loading progress, the matches of a find, or downloads. It
-    /// should drain [`Self::take_navigations`], [`Self::take_progressed`],
-    /// [`Self::take_found`], and [`Self::take_download_reports`].
-    pub fn on_navigated(&mut self, wake: impl Fn() + 'static) {
+    /// Sets what runs, later on the main run loop and never inside an engine call, when events
+    /// wait: it should [`Self::drain`] them. Events already waiting wake it at once.
+    pub fn set_waker(&mut self, wake: impl Fn() + 'static) {
         *self.inbox.wake.borrow_mut() = Some(Rc::new(wake));
         Inbox::schedule(&self.inbox);
     }
 
-    /// Navigations committed and titles changed since the last call, one per tab.
-    pub fn take_navigations(&mut self) -> Vec<Navigated> {
-        self.inbox.reports.borrow_mut().take()
-    }
-
-    /// True when some page's loading progress changed since the last call; read it with
-    /// [`Self::progress`].
-    pub fn take_progressed(&mut self) -> bool {
-        self.inbox.progressed.replace(false)
+    /// Moves what pages did since the last call to the end of `events`, oldest first. A link a
+    /// page opened in another tab gets its page now, in its opener's data store; one whose
+    /// opener has closed is dropped.
+    pub fn drain(&mut self, events: &mut Vec<EngineEvent<OpenedPage>>) {
+        let links = std::mem::take(&mut *self.inbox.links.borrow_mut());
+        for link in links {
+            let (Some(opener), Ok(url)) = (self.pages.get(&link.opener), Url::parse(&link.url))
+            else {
+                continue;
+            };
+            let owner = Owner::default();
+            let page = WebPage::with_configuration(
+                &opener.configuration(),
+                Inbox::hooks(&self.inbox, &owner, self.mtm),
+                Rc::clone(&self.inbox.focus),
+                self.mtm,
+            );
+            if page.load(&url).is_ok() {
+                self.inbox.push(EngineEvent::Opened {
+                    opener: link.opener,
+                    page: OpenedPage {
+                        page,
+                        owner,
+                        opener: link.opener,
+                    },
+                    url,
+                    focus: link.focus,
+                });
+            }
+        }
+        self.inbox.drain(events);
     }
 
     /// How much of a tab's page has loaded, `0.0 ..= 1.0`, while it loads; `None` when it is
-    /// not loading or has no page.
+    /// not loading or has no page. [`EngineEvent::Loading`] tells when it moves.
     #[must_use]
     pub fn progress(&self, tab: TabId) -> Option<f64> {
         self.pages.get(&tab).and_then(WebPage::progress)
     }
 
     /// Selects a match of `query` in a tab's page as `step` says, marks every match, and
-    /// reports them through [`Self::take_found`]. An empty query clears the marks.
+    /// reports them as [`EngineEvent::Found`]. An empty query clears the marks.
     pub fn find(&self, tab: TabId, query: &str, step: FindStep) {
         let Some(page) = self.pages.get(&tab) else {
             return;
@@ -309,21 +348,15 @@ impl WebKitEngine {
         let inbox = Rc::downgrade(&self.inbox);
         let asked = query.to_owned();
         page.find(query, step, move |matches| {
-            let Some(inbox) = inbox.upgrade() else {
-                return;
-            };
-            inbox.found.borrow_mut().push(Found {
-                tab,
-                query: asked.clone(),
-                matches,
-            });
-            Inbox::schedule(&inbox);
+            report(
+                &inbox,
+                EngineEvent::Found(Found {
+                    tab,
+                    query: asked.clone(),
+                    matches,
+                }),
+            );
         });
-    }
-
-    /// The finds answered since the last call, oldest first.
-    pub fn take_found(&mut self) -> Vec<Found> {
-        std::mem::take(&mut *self.inbox.found.borrow_mut())
     }
 
     /// A tab's page zoom, `1.0` for actual size; `None` for a tab without a page.
@@ -357,8 +390,11 @@ impl WebKitEngine {
     }
 
     /// Saves a tab's page as a PDF in the downloads folder, under its title and a free name;
-    /// it is reported through [`Self::take_download_reports`] as [`DownloadEvent::Saved`], or
+    /// it is reported as [`EngineEvent::Download`] of [`DownloadEvent::Saved`], or of
     /// [`DownloadEvent::Refused`] when it could not be made or written.
+    ///
+    /// [`DownloadEvent::Saved`]: quickie_application::DownloadEvent::Saved
+    /// [`DownloadEvent::Refused`]: quickie_application::DownloadEvent::Refused
     ///
     /// # Errors
     ///
@@ -380,56 +416,7 @@ impl WebKitEngine {
         Ok(())
     }
 
-    /// The pages pages opened since the last call, oldest first, each to adopt into a tab.
-    /// A link opened in another tab gets its page now, in its opener's data store; one whose
-    /// opener has closed is dropped.
-    pub fn take_opened(&mut self) -> Vec<Opened> {
-        let links = std::mem::take(&mut *self.inbox.links.borrow_mut());
-        for link in links {
-            let (Some(opener), Ok(url)) = (self.pages.get(&link.opener), Url::parse(&link.url))
-            else {
-                continue;
-            };
-            let owner = Owner::default();
-            let page = WebPage::with_configuration(
-                &opener.configuration(),
-                Inbox::hooks(&self.inbox, &owner, self.mtm),
-                Rc::clone(&self.inbox.focus),
-                self.mtm,
-            );
-            if page.load(&url).is_ok() {
-                self.inbox.opened.borrow_mut().push(Opened {
-                    opener: link.opener,
-                    page: OpenedPage {
-                        page,
-                        owner,
-                        opener: link.opener,
-                    },
-                    url,
-                    focus: link.focus,
-                });
-            }
-        }
-        std::mem::take(&mut *self.inbox.opened.borrow_mut())
-    }
-
-    /// The tabs whose pages closed themselves (`window.close()`) since the last call.
-    pub fn take_closed(&mut self) -> Vec<TabId> {
-        std::mem::take(&mut *self.inbox.closed.borrow_mut())
-    }
-
-    /// The tabs whose pages entered (`true`) or left full screen since the last call, in order.
-    pub fn take_fullscreen(&mut self) -> Vec<(TabId, bool)> {
-        std::mem::take(&mut *self.inbox.fullscreen.borrow_mut())
-    }
-
-    /// The dialogs and permission requests pages made since the last call, oldest first. Each
-    /// waits until [`Self::answer`]; closing its tab declines it.
-    pub fn take_asks(&mut self) -> Vec<Ask> {
-        self.inbox.take_asks()
-    }
-
-    /// Answers an ask; false when its page no longer waits.
+    /// Answers an ask ([`EngineEvent::Asked`]); false when its page no longer waits.
     pub fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
         self.inbox.answer(token, answer)
     }
@@ -464,10 +451,11 @@ impl WebKitEngine {
 }
 
 impl EnginePort for WebKitEngine {
-    /// A page a page opened, from [`WebKitEngine::take_opened`].
+    /// A page a page opened, from [`EngineEvent::Opened`].
     type Page = OpenedPage;
 
-    /// From now on the page reports for `tab`; what it committed before is reported now.
+    /// From now on the page reports for `tab`; what it committed and asked before is reported
+    /// now.
     fn adopt(&mut self, page: Self::Page, tab: TabId) -> Result<(), EngineError> {
         if self.pages.contains_key(&tab) {
             return Err(EngineError(format!("{tab} already has a page")));
@@ -482,12 +470,10 @@ impl EnginePort for WebKitEngine {
         owner.set(Some(tab));
         self.lay_out(&page);
         if let Some((url, title)) = page.committed() {
-            self.inbox
-                .reports
-                .borrow_mut()
-                .committed(tab, Some(&url), title);
-            Inbox::schedule(&self.inbox);
+            self.inbox.committed(tab, Some(&url), title);
         }
+        self.inbox.release_asks();
+        Inbox::schedule(&self.inbox);
         self.pages.insert(tab, page);
         Ok(())
     }
@@ -523,7 +509,7 @@ impl EnginePort for WebKitEngine {
             && let Some(page) = self.pages.get(&previous)
         {
             // The page as the user left it, for the tab overview; drawn while still laid out.
-            self.capture(previous, || {});
+            self.capture(previous);
             page.view().removeFromSuperview();
         }
         if let Some(host) = self.hosts.get(&window) {
@@ -559,6 +545,15 @@ impl EnginePort for WebKitEngine {
         // Releasing the last reference to a non-persistent store discards its data.
         self.jars.remove(&jar);
         Ok(())
+    }
+}
+
+/// Queues an answer that arrived from `WebKit` and wakes the shell for it; nothing when the
+/// engine is gone.
+fn report(inbox: &Weak<Inbox>, event: Event) {
+    if let Some(inbox) = inbox.upgrade() {
+        inbox.push(event);
+        Inbox::schedule(&inbox);
     }
 }
 

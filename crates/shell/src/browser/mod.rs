@@ -2,6 +2,8 @@
 //! that drive them. Every change goes through a use case; this module only routes keys to
 //! commands, commands to use cases, and puts the outcome on screen.
 //!
+//! - [`events`]: what the engine reports, drained in one `match` and routed to the use cases
+//!   and the widgets; a page whose process crashed.
 //! - [`keys`]: key events → the keymap → a command; the overlays' fixed keys; the `⌃⇥` hold.
 //! - [`commands`]: the dispatcher, from a command id to the use case that does it; page zoom,
 //!   printing, and saving a page as a PDF.
@@ -16,6 +18,7 @@
 
 mod agent;
 mod commands;
+mod events;
 mod keys;
 mod navigation;
 mod page;
@@ -25,7 +28,7 @@ mod system;
 mod windows;
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
@@ -89,6 +92,10 @@ pub struct Browser {
     toasts: Rc<ToastStack>,
     page: page::PageWidgets,
     popovers: popovers::Popovers,
+    /// The engine's events while they are routed, kept between drains for its allocation.
+    events: RefCell<Vec<events::Event>>,
+    /// Tabs whose page crashed while in the background: told when they come forward.
+    crashed: RefCell<BTreeSet<TabId>>,
     /// The palette's answer on screen, in its order.
     results: RefCell<Vec<PaletteItem>>,
     cycle: RefCell<Option<CycleHold>>,
@@ -160,6 +167,8 @@ impl Browser {
             toasts: ToastStack::new(mtm),
             page: page::PageWidgets::new(mtm),
             popovers: popovers::Popovers::new(services.downloads_folder, mtm),
+            events: RefCell::new(Vec::new()),
+            crashed: RefCell::new(BTreeSet::new()),
             results: RefCell::new(Vec::new()),
             cycle: RefCell::new(None),
             cycle_modifiers: Cell::new(Modifiers::CONTROL),
@@ -185,7 +194,7 @@ impl Browser {
             .browsing
             .borrow_mut()
             .engine_mut()
-            .on_navigated(move || {
+            .set_waker(move || {
                 if let Some(browser) = weak.upgrade() {
                     browser.drain();
                 }
@@ -218,72 +227,6 @@ impl Browser {
             self.dispatch(&id, None);
             self.drain();
         }
-    }
-
-    /// Adopts the pages pages opened and closes those that closed themselves, records what
-    /// pages committed since the last time, puts the pages' loading, finds, origins, asks, and
-    /// full screen on screen, records downloads, and tells of a save that failed on a writer
-    /// thread. Runs from the engine's waker on the main run loop, and after every command.
-    pub fn drain(&self) {
-        self.adopt_opened();
-        self.close_closed_pages();
-        self.record_navigations();
-        self.page_reports();
-        self.download_reports();
-        self.take_asks();
-        self.present_asks();
-        self.fullscreen_changes();
-        for writes in &self.writes {
-            if let Some(error) = writes.take_error() {
-                self.toast(&format!("Not saved: {error}"));
-            }
-        }
-    }
-
-    /// Pages' reports into the session, and, for a commit, a visit into history; a later title
-    /// renames the visit.
-    fn record_navigations(&self) {
-        let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
-            return;
-        };
-        let navigations = browsing.engine_mut().take_navigations();
-        if navigations.is_empty() {
-            return;
-        }
-        let mut failures = Vec::new();
-        let mut loaded = Vec::new();
-        for navigated in navigations {
-            if navigated.committed {
-                loaded.push(navigated.tab);
-                self.asks_navigated(navigated.tab);
-            }
-            let (url, title) = (navigated.url.clone(), navigated.title.clone());
-            if let Err(error) = browsing.navigated(navigated.tab, navigated.url, navigated.title) {
-                failures.push(error);
-                continue;
-            }
-            let Some(jar) = browsing.session().tab(navigated.tab).map(|tab| tab.jar) else {
-                continue;
-            };
-            let mut library = self.library.borrow_mut();
-            let recorded = if navigated.committed {
-                library.record_visit(&url, &title, jar).map(drop)
-            } else {
-                library.retitle_visit(&url, &title, jar).map(drop)
-            };
-            if let Err(error) = recorded {
-                failures.push(error);
-            }
-        }
-        drop(browsing);
-        for error in failures {
-            self.report(&error);
-        }
-        self.show_zooms(Some(&loaded));
-        for tab in loaded {
-            self.applied(tab);
-        }
-        self.refresh_titles();
     }
 
     /// Shows `text` as a toast in the current window.

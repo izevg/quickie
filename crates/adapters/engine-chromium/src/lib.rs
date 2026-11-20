@@ -8,9 +8,9 @@
 //! on top of the bridge is tested against a fake bridge.
 //!
 //! Page events flow back without re-entering the use cases: the C++ side reports them, the
-//! engine records them and posts a wake to Chromium's UI thread, and the shell's waker drains
-//! [`ChromiumEngine::take_navigations`] into `Browsing::navigated`, the same shape as the
-//! `WebKit` engine's.
+//! engine records them as the application's `EngineEvent`s in one queue and posts a wake to
+//! Chromium's UI thread, and the shell's waker drains them ([`ChromiumEngine::drain`]), the
+//! same shape as the `WebKit` engine's.
 #![expect(
     unsafe_code,
     reason = "FFI: the cxx bridge to Chromium and the NSView pointer of a shell window"
@@ -21,4 +21,4 @@ mod engine;
 mod ffi;
 
 pub use bridge::KeyEquivalent;
-pub use engine::{ChromiumEngine, OpenedPage, PageHandle};
+pub use engine::{ChromiumEngine, PageHandle};

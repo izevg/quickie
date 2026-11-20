@@ -3,13 +3,20 @@ use std::rc::Rc;
 
 use block2::RcBlock;
 use objc2::runtime::Bool;
-use quickie_application::{Answer, AskKind, Dialog};
+use quickie_application::{Answer, Ask, AskKind, Dialog, EngineEvent, ReplyToken};
 use quickie_domain_browsing::{Focus, Profile, TabId};
 use url::Url;
 
-use super::{Inbox, Owner};
+use super::{Event, Inbox, OpenedPage, Owner};
 use crate::page::PageEvent;
 use crate::page::asks::Reply;
+
+/// Two opened pages are the same when they are the same view.
+impl PartialEq for OpenedPage {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.page.web_view(), other.page.web_view())
+    }
+}
 
 fn owner(tab: Option<u64>) -> Owner {
     Rc::new(Cell::new(
@@ -35,6 +42,23 @@ fn confirm(heard: &Rc<RefCell<Vec<bool>>>) -> Reply {
     }))
 }
 
+fn drained(inbox: &Inbox) -> Vec<Event> {
+    let mut events = Vec::new();
+    inbox.drain(&mut events);
+    events
+}
+
+/// The asks among what the inbox holds now.
+fn asks(inbox: &Inbox) -> Vec<Ask> {
+    drained(inbox)
+        .into_iter()
+        .filter_map(|event| match event {
+            EngineEvent::Asked(ask) => Some(ask),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn asks_wait_until_their_page_has_a_tab() {
     let inbox = Rc::new(Inbox::default());
@@ -55,24 +79,27 @@ fn asks_wait_until_their_page_has_a_tab() {
         confirm(&heard),
     );
 
-    let first: Vec<(TabId, AskKind)> = inbox
-        .take_asks()
+    let first: Vec<(TabId, AskKind)> = asks(&inbox)
         .into_iter()
         .map(|ask| (ask.tab, ask.kind))
         .collect();
+    inbox.release_asks();
+    let unreleased = asks(&inbox);
     popup.set(Some(TabId::new(Profile::Main, 7)));
-    let second: Vec<(TabId, Url)> = inbox
-        .take_asks()
+    inbox.release_asks();
+    let second: Vec<(TabId, Url)> = asks(&inbox)
         .into_iter()
         .map(|ask| (ask.tab, ask.origin))
         .collect();
 
     assert_eq!(first, [(TabId::new(Profile::Main, 1), alert("now"))]);
+    assert_eq!(unreleased, []);
     assert_eq!(
         second,
         [(TabId::new(Profile::Main, 7), url("https://a.example/"))]
     );
-    assert_eq!(inbox.take_asks(), Vec::new());
+    inbox.release_asks();
+    assert_eq!(asks(&inbox), []);
 }
 
 #[test]
@@ -86,7 +113,7 @@ fn an_answer_reaches_its_page_once() {
         alert("one"),
         confirm(&heard),
     );
-    let token = inbox.take_asks()[0].token;
+    let token = asks(&inbox)[0].token;
 
     assert!(inbox.answer(token, &Answer::Accept(None)));
     assert!(!inbox.answer(token, &Answer::Decline));
@@ -114,34 +141,76 @@ fn a_closed_tab_declines_its_asks_and_keeps_the_others() {
         alert("staying"),
         confirm(&other),
     );
-    let kept = inbox.take_asks().pop().map(|ask| ask.token);
 
     inbox.forget(TabId::new(Profile::Main, 1));
+    let kept: Vec<ReplyToken> = asks(&inbox).into_iter().map(|ask| ask.token).collect();
 
     assert_eq!(*heard.borrow(), [false, false]);
     assert!(other.borrow().is_empty());
-    assert!(kept.is_some_and(|token| inbox.answer(token, &Answer::Accept(None))));
+    assert_eq!(kept.len(), 1);
+    assert!(inbox.answer(kept[0], &Answer::Accept(None)));
     assert_eq!(*other.borrow(), [true]);
 }
 
 #[test]
-fn page_events_land_in_their_queues_for_their_tab() {
+fn page_events_become_engine_events_for_their_tab_in_order() {
     let inbox = Rc::new(Inbox::default());
     let weak = Rc::downgrade(&inbox);
     let page = owner(Some(3));
+    let tab = TabId::new(Profile::Main, 3);
 
     Inbox::record(
         &weak,
         &page,
+        PageEvent::Committed {
+            url: Some("https://a.example/".to_owned()),
+            title: None,
+        },
+    );
+    Inbox::record(&weak, &page, PageEvent::Fullscreen(true));
+    Inbox::record(&weak, &page, PageEvent::Progress(Some(0.5)));
+    Inbox::record(&weak, &page, PageEvent::TitleChanged(Some("A".to_owned())));
+    Inbox::record(&weak, &page, PageEvent::Fullscreen(false));
+    Inbox::record(&weak, &page, PageEvent::Crashed);
+    Inbox::record(&weak, &page, PageEvent::Progress(None));
+    Inbox::record(&weak, &page, PageEvent::Closed);
+    Inbox::record(&weak, &owner(None), PageEvent::Closed);
+
+    assert_eq!(
+        drained(&inbox),
+        [
+            EngineEvent::Committed {
+                tab,
+                url: url("https://a.example/"),
+                title: "A".to_owned()
+            },
+            EngineEvent::Fullscreen { tab, entered: true },
+            EngineEvent::Loading {
+                tab,
+                progress: None
+            },
+            EngineEvent::Fullscreen {
+                tab,
+                entered: false
+            },
+            EngineEvent::Crashed { tab },
+            EngineEvent::ClosedByPage { tab },
+        ]
+    );
+}
+
+#[test]
+fn a_link_to_open_elsewhere_waits_for_the_engine_to_make_its_page() {
+    let inbox = Rc::new(Inbox::default());
+
+    Inbox::record(
+        &Rc::downgrade(&inbox),
+        &owner(Some(3)),
         PageEvent::OpenLink {
             url: "https://a.example/next".to_owned(),
             focus: Focus::Background,
         },
     );
-    Inbox::record(&weak, &page, PageEvent::Fullscreen(true));
-    Inbox::record(&weak, &page, PageEvent::Fullscreen(false));
-    Inbox::record(&weak, &page, PageEvent::Closed);
-    Inbox::record(&weak, &owner(None), PageEvent::Closed);
 
     let links: Vec<(TabId, String, Focus)> = inbox
         .links
@@ -157,12 +226,23 @@ fn page_events_land_in_their_queues_for_their_tab() {
             Focus::Background
         )]
     );
-    assert_eq!(
-        *inbox.fullscreen.borrow(),
-        [
-            (TabId::new(Profile::Main, 3), true),
-            (TabId::new(Profile::Main, 3), false)
-        ]
-    );
-    assert_eq!(*inbox.closed.borrow(), [TabId::new(Profile::Main, 3)]);
+    assert!(!inbox.is_quiet());
+    assert_eq!(drained(&inbox), []);
+}
+
+#[test]
+fn a_commit_whose_url_does_not_parse_is_dropped() {
+    let inbox = Inbox::default();
+
+    inbox.committed(TabId::new(Profile::Main, 1), Some("not a url"), None);
+    inbox.committed(TabId::new(Profile::Main, 1), None, Some("A".to_owned()));
+
+    assert!(inbox.is_quiet());
+}
+
+#[test]
+fn tickets_differ() {
+    let inbox = Inbox::default();
+
+    assert_ne!(inbox.ticket(), inbox.ticket());
 }

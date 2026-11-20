@@ -4,15 +4,13 @@
 //! thread takes them at most once a frame: however fast tokens come, the panel does one edit
 //! per frame, of the line still coming in.
 
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
 use objc2::MainThreadMarker;
-use quickie_application::{AnswerEvent, Asking, FindStep, StopSignal};
+use quickie_application::{AnswerEvent, Asking, FindStep, StopSignal, Ticket};
 use quickie_domain_agents::{PageScope, PageText, Question, Request, Skill, SkillId};
 use quickie_domain_browsing::{Focus, JarChoice, TabId, WindowId};
 use quickie_engine_webkit::UrlSessionHttp;
@@ -37,6 +35,22 @@ struct Inbox {
 }
 
 type Shared = Arc<MainThreadBound<std::rc::Weak<Browser>>>;
+
+/// The pages an ask reads, in the order the prompt lists them, until every text is in.
+pub(super) struct Reading {
+    generation: u64,
+    request: Request,
+    pages: Vec<ReadPage>,
+}
+
+/// One page of a [`Reading`].
+struct ReadPage {
+    url: Url,
+    title: String,
+    /// The engine's request for its text, while it is on its way.
+    ticket: Option<Ticket>,
+    text: Option<String>,
+}
 
 impl Browser {
     /// `⏎` on a skill's row: runs it on the current page, or on the open tabs it compares.
@@ -111,34 +125,71 @@ impl Browser {
             .collect()
     }
 
-    /// Reads each page's text; the last to arrive hands them all on.
+    /// Asks the engine for each page's text; [`Self::page_read`] collects them as they come.
+    /// A tab without a page reads as empty at once.
     fn read_pages(&self, generation: u64, request: Request, pages: Vec<(TabId, Url, String)>) {
-        let texts: Rc<RefCell<Vec<Option<PageText>>>> =
-            Rc::new(RefCell::new(vec![None; pages.len()]));
-        let left = Rc::new(Cell::new(pages.len()));
-        let request = Rc::new(request);
-        for (index, (tab, url, title)) in pages.into_iter().enumerate() {
-            let (this, texts, left, request) = (
-                self.this.clone(),
-                Rc::clone(&texts),
-                Rc::clone(&left),
-                Rc::clone(&request),
-            );
-            let done = move |text: Option<String>| {
-                if let Some(slot) = texts.borrow_mut().get_mut(index) {
-                    *slot = Some(PageText::new(url, title, text.unwrap_or_default()));
+        let pages = pages
+            .into_iter()
+            .map(|(tab, url, title)| {
+                let ticket = self.browsing.borrow_mut().engine_mut().page_text(tab);
+                ReadPage {
+                    url,
+                    title,
+                    ticket,
+                    text: ticket.map_or_else(|| Some(String::new()), |_| None),
                 }
-                left.set(left.get().saturating_sub(1));
-                if left.get() > 0 {
-                    return;
-                }
-                let pages: Vec<PageText> = texts.take().into_iter().flatten().collect();
-                if let Some(browser) = this.upgrade() {
-                    browser.pages_read(generation, &request, &pages);
-                }
+            })
+            .collect();
+        *self.agent_ui.reading.borrow_mut() = Some(Reading {
+            generation,
+            request,
+            pages,
+        });
+        self.pages_ready();
+    }
+
+    /// A page's text arrived ([`EngineEvent::Text`]); once the read has every one, they go on
+    /// to the agent. A text for an older read is dropped.
+    ///
+    /// [`EngineEvent::Text`]: quickie_application::EngineEvent::Text
+    pub(in crate::browser) fn page_read(&self, ticket: Ticket, text: String) {
+        {
+            let mut reading = self.agent_ui.reading.borrow_mut();
+            let Some(page) = reading.as_mut().and_then(|reading| {
+                reading
+                    .pages
+                    .iter_mut()
+                    .find(|page| page.ticket == Some(ticket))
+            }) else {
+                return;
             };
-            self.browsing.borrow_mut().engine_mut().page_text(tab, done);
+            page.ticket = None;
+            page.text = Some(text);
         }
+        self.pages_ready();
+    }
+
+    /// Hands the read on once every page's text is in.
+    fn pages_ready(&self) {
+        let reading = {
+            let mut reading = self.agent_ui.reading.borrow_mut();
+            if reading
+                .as_ref()
+                .is_some_and(|reading| reading.pages.iter().any(|page| page.text.is_none()))
+            {
+                return;
+            }
+            reading.take()
+        };
+        let Some(reading) = reading else {
+            return;
+        };
+        let pages: Vec<PageText> = reading
+            .pages
+            .into_iter()
+            .map(|page| PageText::new(page.url, page.title, page.text.unwrap_or_default()))
+            .collect();
+        self.pages_read(reading.generation, &reading.request, &pages);
     }
 
     /// The pages are read: the prompt is assembled here, and the answer streams on a worker.

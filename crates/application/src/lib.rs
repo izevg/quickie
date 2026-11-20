@@ -20,8 +20,8 @@ mod site;
 pub use agent::{Agent, AnswerEvent, AskError, Asking, LocalFound, detect_local, list_models};
 pub use browsing::Browsing;
 pub use engine::{
-    Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, FindStep, Followed, Found,
-    LinkTarget, Navigated, PageRect, ReplyToken,
+    Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, EventQueue, FindStep,
+    Followed, Found, LinkTarget, PageRect, ReplyToken, Ticket,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, SecretError, StoreError,
