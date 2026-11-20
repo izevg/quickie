@@ -8,7 +8,7 @@
 //! browser command first takes the page out of full screen, then runs. `⎋` takes it out; so do
 //! the window leaving full screen, another tab coming forward, and the tab closing. Leaving
 //! puts the window back where it was (`AppKit` keeps its frame) and the page where it was (the
-//! engine keeps its scroll).
+//! engine keeps its scroll). The window's page frame drops the inset meanwhile.
 
 use objc2::rc::Retained;
 use objc2_app_kit::{NSView, NSWindow, NSWindowStyleMask};
@@ -45,6 +45,12 @@ impl Browser {
                     self.forget_page_fullscreen(window);
                 }
             }
+        }
+        // The window's page frame drops the inset while a page is full screen.
+        if let Some(window) = self.window_of(tab)
+            && let Some(frame) = self.frames.borrow().get(&window)
+        {
+            frame.set_page_full_screen(state != Fullscreen::Left);
         }
     }
 

@@ -113,6 +113,8 @@ pub enum SettingsAction {
     MakeDefaultBrowser,
     /// Show the downloads folder in Finder.
     ShowDownloads,
+    /// Turn *Inset page* on or off: the page as a card inside the window.
+    InsetPage(bool),
     /// Turn a filter list on or off.
     SetList(FilterListId, bool),
     /// Turn every filter list on, which fetches them.

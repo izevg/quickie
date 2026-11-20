@@ -46,7 +46,7 @@ use quickie_store::{KeybindingsFile, PendingWrites};
 use quickie_system::{ExtensionFiles, KeychainSecrets};
 use quickie_ui_screens::SettingsScreen;
 use quickie_ui_widgets::{
-    AddressOverlay, CommandPalette, KeyLogPanel, TabSwitcher, Toast, ToastStack,
+    AddressOverlay, CommandPalette, KeyLogPanel, PageFrame, TabSwitcher, Toast, ToastStack,
 };
 use url::Url;
 
@@ -58,7 +58,7 @@ use crate::input::keystroke::Passed;
 use crate::input::keystroke::chord::PendingChord;
 use crate::input::keystroke::log::KeyLog;
 use crate::window::{browser_window, set_title};
-use crate::{Addons, Agents, App, Guard, Lib, MacEngine, Network, Palette, Zooms};
+use crate::{Addons, Agents, App, Guard, Lib, Looks, MacEngine, Network, Palette, Zooms};
 use navigation::NavigationOverlays;
 
 /// What the browser runs on, composed by `main`.
@@ -70,6 +70,7 @@ pub struct Services {
     /// The Keychain, for the worker threads that ask the endpoint.
     pub secrets: KeychainSecrets,
     pub zoom: Zooms,
+    pub appearance: Looks,
     pub palette: Palette,
     pub catalog: Catalog,
     pub keymap: Keymap,
@@ -119,6 +120,10 @@ pub struct Browser {
     downloads_folder: PathBuf,
     writes: Vec<PendingWrites>,
     windows: RefCell<BTreeMap<WindowId, Retained<NSWindow>>>,
+    /// Where each window's page sits: edge to edge, or inset as a card.
+    frames: RefCell<BTreeMap<WindowId, PageFrame>>,
+    /// The appearance choices, *Inset page* among them.
+    appearance: RefCell<Looks>,
     address: AddressOverlay,
     command_palette: CommandPalette,
     switcher: TabSwitcher,
@@ -219,6 +224,8 @@ impl Browser {
             downloads_folder: services.downloads_folder.clone(),
             writes: services.writes,
             windows: RefCell::new(BTreeMap::new()),
+            frames: RefCell::new(BTreeMap::new()),
+            appearance: RefCell::new(services.appearance),
             address: AddressOverlay::new(mtm),
             command_palette: CommandPalette::new(mtm),
             switcher: TabSwitcher::new(mtm),
@@ -359,33 +366,42 @@ impl Browser {
         }
     }
 
-    /// One `NSWindow` per session window, its content view registered with the engine.
+    /// One `NSWindow` per session window, its page frame's host registered with the engine.
     fn open_windows(&self) {
         let ids: Vec<WindowId> = self.browsing.borrow().session().windows().collect();
         for id in ids {
             if self.windows.borrow().contains_key(&id) {
                 continue;
             }
-            let window = browser_window(self.mtm);
-            self.attach_host(id, &window);
-            self.windows.borrow_mut().insert(id, window);
+            self.make_window(id);
         }
     }
 
-    /// Registers `ns_window`'s content view with the engine as the host session window
-    /// `window`'s pages fill.
-    fn attach_host(&self, window: WindowId, ns_window: &NSWindow) {
-        let Some(host) = ns_window.contentView() else {
-            return;
-        };
+    /// A new, hidden `NSWindow` for session window `window`: its page frame laid out as the
+    /// appearance says, and its host registered with the engine as the view the window's pages
+    /// fill.
+    fn make_window(&self, window: WindowId) -> Retained<NSWindow> {
+        let (ns_window, frame) = browser_window(self.mtm);
+        frame.set_inset(self.inset_page());
         let attached = self
             .browsing
             .borrow_mut()
             .engine_mut()
-            .attach_host(window, &host);
+            .attach_host(window, frame.host());
         if let Err(error) = attached {
             self.report(&error.into());
         }
+        self.frames.borrow_mut().insert(window, frame);
+        self.windows.borrow_mut().insert(window, ns_window.clone());
+        ns_window
+    }
+
+    /// The view a window's page fills: inside its page frame, under the overlays.
+    fn page_host(&self, window: WindowId) -> Option<Retained<NSView>> {
+        self.frames
+            .borrow()
+            .get(&window)
+            .map(|frame| frame.host().retain())
     }
 
     /// The window commands act on: the key window, else the first one.
