@@ -52,7 +52,7 @@ pub struct TabOverview {
     heading: Retained<NSTextField>,
     count: Badge,
     field: Retained<NSTextField>,
-    hints: Retained<NSTextField>,
+    hints: Retained<NSView>,
     grid: Retained<NSView>,
     tabs: RefCell<Vec<TabCard>>,
     /// The pool: cards for the rows on screen, and spare ones hidden.

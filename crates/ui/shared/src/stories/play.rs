@@ -285,28 +285,54 @@ pub(super) fn accessibility(view: &NSView) -> String {
 fn walk(children: &NSArray, depth: usize, out: &mut String) {
     for child in children {
         let mut line = "  ".repeat(depth);
-        line.push_str(&text(&child, sel!(accessibilityRole)).unwrap_or_else(|| "?".to_owned()));
-        for (name, selector) in [
-            ("title", sel!(accessibilityTitle)),
-            ("label", sel!(accessibilityLabel)),
-            ("value", sel!(accessibilityValue)),
+        line.push_str(
+            &attribute(&child, sel!(accessibilityRole), "AXRole").unwrap_or_else(|| "?".to_owned()),
+        );
+        for (name, selector, legacy) in [
+            ("title", sel!(accessibilityTitle), "AXTitle"),
+            ("label", sel!(accessibilityLabel), "AXDescription"),
+            ("value", sel!(accessibilityValue), "AXValue"),
         ] {
-            if let Some(value) = text(&child, selector).filter(|value| !value.is_empty()) {
+            if let Some(value) =
+                attribute(&child, selector, legacy).filter(|value| !value.is_empty())
+            {
                 let _ = write!(line, " {name}={value:?}");
             }
         }
         out.push_str(&line);
         out.push('\n');
-        if responds(&child, sel!(accessibilityChildren)) {
-            // SAFETY: the element answers `accessibilityChildren`, which returns an array of
-            // elements or nil.
-            let grandchildren: Option<Retained<NSArray>> =
-                unsafe { msg_send![&*child, accessibilityChildren] };
-            if let Some(grandchildren) = grandchildren {
-                walk(&grandchildren, depth + 1, out);
-            }
+        let grandchildren: Option<Retained<NSArray>> =
+            if responds(&child, sel!(accessibilityChildren)) {
+                // SAFETY: the element answers `accessibilityChildren`, which returns an array of
+                // elements or nil.
+                unsafe { msg_send![&*child, accessibilityChildren] }
+            } else {
+                legacy(&child, "AXChildren").and_then(|value| value.downcast::<NSArray>().ok())
+            };
+        if let Some(grandchildren) = grandchildren {
+            walk(&grandchildren, depth + 1, out);
         }
     }
+}
+
+/// What `selector` answers on `object`, or, for an element of the older informal protocol
+/// (a table's rows), its attribute `legacy`, as text.
+fn attribute(object: &AnyObject, selector: Sel, legacy_name: &str) -> Option<String> {
+    if responds(object, selector) {
+        return text(object, selector);
+    }
+    legacy(object, legacy_name).map(|value| describe(&value))
+}
+
+/// The attribute `name` of an element of the older informal protocol, if it answers it.
+fn legacy(object: &AnyObject, name: &str) -> Option<Retained<AnyObject>> {
+    if !responds(object, sel!(accessibilityAttributeValue:)) {
+        return None;
+    }
+    let name = NSString::from_str(name);
+    // SAFETY: `accessibilityAttributeValue:` takes an attribute name and returns an object or
+    // nil; the object answers it.
+    unsafe { msg_send![object, accessibilityAttributeValue: &*name] }
 }
 
 fn responds(object: &AnyObject, selector: Sel) -> bool {
@@ -324,11 +350,15 @@ fn text(object: &AnyObject, selector: Sel) -> Option<String> {
     // SAFETY: the accessibility getters return an object or nil, and the object responds.
     let value: Option<Retained<AnyObject>> =
         unsafe { msg_send![object, performSelector: selector] };
-    let value = value?;
+    value.map(|value| describe(&value))
+}
+
+/// `value` as text: an `NSString` itself, anything else by its description.
+fn describe(value: &AnyObject) -> String {
     if let Some(string) = value.downcast_ref::<NSString>() {
-        return Some(string.to_string());
+        return string.to_string();
     }
     // SAFETY: every object answers `description` with a string.
-    let description: Retained<NSString> = unsafe { msg_send![&*value, description] };
-    Some(description.to_string())
+    let description: Retained<NSString> = unsafe { msg_send![value, description] };
+    description.to_string()
 }

@@ -160,7 +160,7 @@ pub struct ShieldsPopover {
     list_rows: RefCell<Vec<FilterListRow>>,
     rules: Retained<NSTextField>,
     reload: Retained<NSButton>,
-    hints: RefCell<Retained<NSTextField>>,
+    hints: RefCell<Retained<NSView>>,
     target: Retained<ShieldsTarget>,
     summary: RefCell<Option<ShieldsSummary>>,
     open: Cell<bool>,

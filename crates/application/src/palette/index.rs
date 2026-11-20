@@ -12,7 +12,7 @@ use quickie_domain_palette::{Kind, Mode, Query, Ranker};
 use quickie_domain_settings::ExtensionId;
 use url::Url;
 
-use super::{ASK_DETAIL, ASK_TITLE, INSTALL_TITLE, PaletteItem, Sources, Target};
+use super::{ASK_DETAIL, ASK_TITLE, INSTALL_TITLE, PageFacts, PaletteItem, Sources, Target};
 pub use address::{AddressSuggestions, InlineCompletion, Suggestion, SuggestionKind};
 use shelf::Shelf;
 
@@ -87,6 +87,7 @@ impl PaletteIndex {
                 glyphs: Vec::new(),
                 title_matches: Vec::new(),
                 detail_matches: Vec::new(),
+                facts: PageFacts::default(),
             });
         }
         items.extend(answer(&mut self.ranker, query, &self.go_to, room));
@@ -108,6 +109,7 @@ impl PaletteIndex {
                 glyphs: Vec::new(),
                 title_matches: Vec::new(),
                 detail_matches: Vec::new(),
+                facts: PageFacts::default(),
             });
         }
         items

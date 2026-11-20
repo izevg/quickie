@@ -4,7 +4,7 @@
 use quickie_domain_palette::{Candidate, Kind, Ranked, TextSpan, Texts};
 use url::Url;
 
-use crate::palette::{PaletteItem, Target};
+use crate::palette::{PageFacts, PaletteItem, Target};
 
 /// What choosing a candidate on the shelf does.
 #[derive(Debug)]
@@ -32,6 +32,7 @@ struct Offer {
     detail: TextSpan,
     frecency: u64,
     aim: Aim,
+    facts: PageFacts,
 }
 
 /// The candidates of one mode, under their position as key.
@@ -45,6 +46,19 @@ impl Shelf {
     /// Puts a candidate on the shelf. One without a title, such as a page that reported none,
     /// shows its detail (the page's URL) as title, kept once.
     pub(super) fn push(&mut self, aim: Aim, kind: Kind, title: &str, detail: &str, frecency: u64) {
+        self.push_page(aim, kind, title, detail, frecency, PageFacts::default());
+    }
+
+    /// Puts a page on the shelf, with what is known of it.
+    pub(super) fn push_page(
+        &mut self,
+        aim: Aim,
+        kind: Kind,
+        title: &str,
+        detail: &str,
+        frecency: u64,
+        facts: PageFacts,
+    ) {
         let detail = self.texts.keep(detail);
         let title = if title.is_empty() {
             detail.clone()
@@ -57,6 +71,7 @@ impl Shelf {
             detail,
             frecency,
             aim,
+            facts,
         });
     }
 
@@ -111,6 +126,7 @@ impl Shelf {
             glyphs,
             title_matches: ranked.title_matches,
             detail_matches: ranked.detail_matches,
+            facts: offer.facts,
         })
     }
 }

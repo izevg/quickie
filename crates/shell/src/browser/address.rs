@@ -4,12 +4,14 @@
 //! tab, `⌘⏎` in a new one, `⌥⏎` in a new throwaway one; an open tab is switched to wherever.
 //! `⎋` brings the page back, then closes.
 
-use quickie_application::Target;
+use quickie_application::{Clock, Target};
 use quickie_domain_browsing::Destination;
+use quickie_ui_widgets::palette::command_palette;
 use url::Url;
 
 use super::Browser;
 use super::palette::Opening;
+use crate::SystemClock;
 use crate::input::keystroke::OverlayKey;
 
 /// What `⏎` does on the page's URL, untouched, with the first action selected: `true` runs
@@ -72,7 +74,10 @@ impl Browser {
         );
         self.palette_sources_changed();
         let actions = self.with_index(|index| index.page_actions());
-        self.address.set_actions(actions);
+        let now = SystemClock.now();
+        // The actions are commands: the palette's own rows, so they look the same in both.
+        self.address
+            .set_actions(actions, |item| command_palette::row(item, now, &|_| None));
     }
 
     /// Answers what the user typed.
