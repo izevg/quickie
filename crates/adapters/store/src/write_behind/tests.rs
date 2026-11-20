@@ -9,8 +9,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use quickie_application::{
-    AgentRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
-    SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
+    AgentRepo, AppearanceRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo,
+    LibrarySnapshot, SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::{NextIds, Profile, Session, SessionSnapshot};
@@ -19,7 +19,7 @@ use quickie_domain_library::{
     SearchShortcuts, SearchShortcutsSnapshot, Timestamp,
 };
 use quickie_domain_settings::{
-    InstalledExtensionsSnapshot, SiteZooms, SiteZoomsSnapshot, ZoomStep,
+    AppearanceSnapshot, InstalledExtensionsSnapshot, SiteZooms, SiteZoomsSnapshot, ZoomStep,
 };
 use quickie_domain_shields::{
     FilterListId, FilterListSet, FilterListSetSnapshot, Site, SitePolicies, SitePoliciesSnapshot,
@@ -210,6 +210,16 @@ impl ZoomRepo for Recorder {
     }
 }
 
+impl AppearanceRepo for Recorder {
+    fn load_appearance(&self) -> Result<AppearanceSnapshot, StoreError> {
+        self.store.load_appearance()
+    }
+
+    fn save_appearance(&mut self, appearance: AppearanceSnapshot) -> Result<(), StoreError> {
+        self.store.save_appearance(appearance)
+    }
+}
+
 impl AgentRepo for Recorder {
     fn load_endpoint(&self) -> Result<Option<EndpointSnapshot>, StoreError> {
         self.store.load_endpoint()
@@ -249,6 +259,23 @@ fn extensions_reach_the_disk_and_come_back_through_the_writer() {
     drop(store);
     assert_eq!(
         SqliteStore::open(&path).unwrap().load_extensions(),
+        Ok(saved)
+    );
+}
+
+#[test]
+fn the_appearance_reaches_the_disk_and_comes_back_through_the_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shell.sqlite");
+    let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let saved = AppearanceSnapshot { inset_page: true };
+
+    store.save_appearance(saved).unwrap();
+
+    assert_eq!(store.load_appearance(), Ok(saved));
+    drop(store);
+    assert_eq!(
+        SqliteStore::open(&path).unwrap().load_appearance(),
         Ok(saved)
     );
 }

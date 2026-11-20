@@ -11,7 +11,6 @@ use quickie_application::PageSurface;
 use quickie_domain_browsing::{Focus, JarChoice, TabId, WindowId};
 
 use super::Browser;
-use crate::window::browser_window;
 
 impl Browser {
     /// `⌘N`: a new window on the start page, cascaded from the current one, with the address
@@ -82,11 +81,12 @@ impl Browser {
         self.browsing.borrow().session().window_of(tab)
     }
 
-    /// An `NSWindow` for session window `window`, its content view registered with the
+    /// An `NSWindow` for session window `window`, its page frame's host registered with the
     /// engine, placed a step down and right of the current window.
     pub(super) fn add_window(&self, window: WindowId) -> Retained<NSWindow> {
-        let ns_window = browser_window(self.mtm);
-        match self.current() {
+        let current = self.current();
+        let ns_window = self.make_window(window);
+        match current {
             Some((_, current)) => {
                 let top_left = current.frame().origin;
                 let top = NSPoint::new(top_left.x, top_left.y + current.frame().size.height);
@@ -94,8 +94,6 @@ impl Browser {
             }
             None => ns_window.center(),
         }
-        self.attach_host(window, &ns_window);
-        self.windows.borrow_mut().insert(window, ns_window.clone());
         ns_window
     }
 
@@ -105,6 +103,7 @@ impl Browser {
             return;
         };
         self.browsing.borrow_mut().engine_mut().detach_host(window);
+        self.frames.borrow_mut().remove(&window);
         self.forget_window_page(window);
         ns_window.orderOut(None);
         ns_window.close();

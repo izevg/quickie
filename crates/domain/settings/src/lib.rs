@@ -3,6 +3,8 @@
 //! - [`SiteZooms`]: the page zoom of each site the user zoomed, in Safari's steps
 //!   ([`ZoomLevel`]), 50 % to 300 %. A site never zoomed, or zoomed back to 100 %, is not
 //!   listed.
+//! - [`Appearance`]: how the browser looks; for now how the page sits in its window
+//!   ([`PageLayout`]): edge to edge, the default, or inset as a card (*Inset page*).
 //! - [`InstalledExtensions`]: the web extensions the user installed in the main profile, what
 //!   each may do ([`Grants`]), the sites the user allowed or blocked each on
 //!   ([`SiteAccess`]), and whether updates come on their own.
@@ -17,9 +19,11 @@
 //! Each preference is an aggregate the store saves in one transaction, through a plain snapshot
 //! that comes back through a validated `restore`. Pure: no I/O, no async.
 
+mod appearance;
 mod extensions;
 mod zoom;
 
+pub use appearance::{Appearance, AppearanceSnapshot, PageLayout};
 pub use extensions::{
     CorruptExtensions, ExtensionError, ExtensionId, ExtensionIdError, ExtensionSnapshot,
     ExtensionSource, ExtensionVersion, Grants, Installed, InstalledExtension, InstalledExtensions,
