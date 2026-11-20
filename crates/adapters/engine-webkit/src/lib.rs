@@ -47,6 +47,7 @@ mod network;
 mod page;
 mod scheme;
 mod shields;
+mod thumbnails;
 mod user_agent;
 
 use std::cell::{Cell, RefCell};
@@ -57,7 +58,7 @@ use std::rc::{Rc, Weak};
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrderingMode};
-use objc2_foundation::{NSString, NSURL};
+use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
     Answer, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found, Navigation,
@@ -74,11 +75,12 @@ use page::WebPage;
 use scheme::InternalPages;
 pub use shields::{BlockerStatus, WebKitContentBlocker};
 
-/// How wide, in points, the tab overview's thumbnails are drawn.
-pub const THUMBNAIL_WIDTH: f64 = 480.0;
+/// The size, in points, of the tab overview's pictures until the shell sets its own
+/// ([`WebKitEngine::set_thumbnail_size`]): the overview's widest card, 16:10.
+pub const THUMBNAIL_SIZE: NSSize = NSSize::new(320.0, 200.0);
 
-/// Thumbnails by tab, filled by snapshot callbacks.
-type Thumbnails = Rc<RefCell<HashMap<TabId, Retained<NSImage>>>>;
+/// The pictures of live pages, filled by snapshot callbacks.
+type Thumbnails = Rc<RefCell<thumbnails::Thumbnails<Retained<NSImage>>>>;
 
 /// The `WebKit` engine. Lives on the main thread, like every view it owns.
 pub struct WebKitEngine {
@@ -94,6 +96,8 @@ pub struct WebKitEngine {
     inbox: Rc<Inbox>,
     /// The last picture of each page, taken when it was hidden or asked for.
     thumbnails: Thumbnails,
+    /// The size pictures are drawn at, in points; the screen's scale multiplies it.
+    thumbnail_size: NSSize,
 }
 
 impl std::fmt::Debug for WebKitEngine {
@@ -137,6 +141,7 @@ impl WebKitEngine {
             downloads,
             inbox,
             thumbnails: Rc::default(),
+            thumbnail_size: THUMBNAIL_SIZE,
         }
     }
 
@@ -150,23 +155,40 @@ impl WebKitEngine {
     /// The tab's last picture, `None` before its page was first drawn or for a tab not loaded.
     #[must_use]
     pub fn thumbnail(&self, tab: TabId) -> Option<Retained<NSImage>> {
-        self.thumbnails.borrow().get(&tab).cloned()
+        self.thumbnails.borrow().get(tab)
     }
 
-    /// Takes a new picture of the tab's page, drawn off the main thread; once it is in
-    /// [`Self::thumbnail`], [`EngineEvent::Pictured`] says so.
+    /// Sets the size, in points, pictures are drawn at from now on: the largest the overview
+    /// shows one. A picture is cropped to its shape and is never bigger, so each costs at most
+    /// `size` at the screen's scale.
+    pub fn set_thumbnail_size(&mut self, size: NSSize) {
+        self.thumbnail_size = size;
+    }
+
+    /// Takes a new picture of the tab's page, painted by its web content process; once it is
+    /// in [`Self::thumbnail`], [`EngineEvent::Pictured`] says so. Nothing for a tab without a
+    /// page or a page not laid out yet. A picture of a page that closes meanwhile is dropped.
     pub fn capture(&self, tab: TabId) {
         let Some(page) = self.pages.get(&tab) else {
             return;
         };
+        let size = self.thumbnail_size;
+        let Some(rect) = thumbnails::crop(page.size(), size) else {
+            return;
+        };
         let thumbnails = Rc::downgrade(&self.thumbnails);
         let inbox = Rc::downgrade(&self.inbox);
-        page.snapshot(THUMBNAIL_WIDTH, move |image| {
+        page.snapshot(rect, size.width, move |image| {
+            let image = image.filter(|image| {
+                let size = image.size();
+                size.width > 0.0 && size.height > 0.0
+            });
             let (Some(image), Some(thumbnails)) = (image, thumbnails.upgrade()) else {
                 return;
             };
-            thumbnails.borrow_mut().insert(tab, image);
-            report(&inbox, EngineEvent::Pictured { tab });
+            if thumbnails.borrow_mut().store(tab, image) {
+                report(&inbox, EngineEvent::Pictured { tab });
+            }
         });
     }
 
@@ -397,6 +419,7 @@ impl EnginePort for WebKitEngine {
         self.inbox.jars.borrow_mut().insert(tab, jar);
         owner.set(Some(tab));
         self.lay_out(&page);
+        self.thumbnails.borrow_mut().open(tab);
         if let Some((url, title)) = page.committed() {
             self.inbox.committed(tab, Some(&url), title);
         }
@@ -423,6 +446,7 @@ impl EnginePort for WebKitEngine {
             self.mtm,
         );
         self.lay_out(&page);
+        self.thumbnails.borrow_mut().open(tab);
         let loaded = page.load(url);
         self.pages.insert(tab, page);
         loaded
@@ -462,7 +486,7 @@ impl EnginePort for WebKitEngine {
     fn close(&mut self, tab: TabId) -> Result<(), EngineError> {
         self.shown.retain(|_, shown| *shown != tab);
         self.inbox.forget(tab);
-        self.thumbnails.borrow_mut().remove(&tab);
+        self.thumbnails.borrow_mut().close(tab);
         match self.pages.remove(&tab) {
             Some(_page) => Ok(()),
             None => Err(EngineError(format!("no page for {tab}"))),
