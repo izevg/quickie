@@ -122,9 +122,17 @@ fn serve_redirect(status: &'static str, location: String) -> Url {
         let (stream, _) = listener.accept().unwrap();
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
+        let mut length = 0;
         while reader.read_line(&mut line).unwrap() > 2 {
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap_or(0);
+            }
             line.clear();
         }
+        // Read the POST body too: closing a socket with unread input sends a reset, which can
+        // reach the client before the response and make the test flaky.
+        let mut request_body = vec![0; length];
+        let _ = reader.read_exact(&mut request_body);
         let mut stream = reader.into_inner();
         let body = b"moved";
         let _ = write!(
@@ -133,7 +141,8 @@ fn serve_redirect(status: &'static str, location: String) -> Url {
              Connection: close\r\n\r\n",
             body.len()
         )
-        .and_then(|()| stream.write_all(body));
+        .and_then(|()| stream.write_all(body))
+        .and_then(|()| stream.shutdown(std::net::Shutdown::Write));
     });
     Url::parse(&format!("http://127.0.0.1:{port}/v1/chat/completions")).unwrap()
 }

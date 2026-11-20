@@ -1,21 +1,11 @@
 //! What pages reported since the shell last asked: committed navigations and title changes,
 //! folded into one [`Navigated`] per tab.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use quickie_application::Navigated;
 use quickie_domain_browsing::TabId;
 use url::Url;
-
-/// A tab's committed URL and current title, for `Browsing::navigated`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Navigated {
-    /// The tab whose page navigated.
-    pub tab: TabId,
-    /// The URL its page committed last.
-    pub url: Url,
-    /// The page's title; empty until the page sets one.
-    pub title: String,
-}
 
 /// Page reports waiting for the shell, in the order tabs first changed.
 #[derive(Debug, Default)]
@@ -24,6 +14,8 @@ pub(crate) struct Reports {
     current: HashMap<TabId, (Url, String)>,
     /// Tabs that changed since the last [`Reports::take`].
     changed: Vec<TabId>,
+    /// Tabs that committed a navigation since the last [`Reports::take`].
+    committed: HashSet<TabId>,
 }
 
 impl Reports {
@@ -43,6 +35,7 @@ impl Reports {
             .remove(&tab)
             .map_or_else(String::new, |(_, title)| title);
         self.current.insert(tab, (url, title));
+        self.committed.insert(tab);
         self.mark(tab);
     }
 
@@ -60,6 +53,7 @@ impl Reports {
     /// The tab's page is gone; nothing more is reported for it.
     pub(crate) fn forget(&mut self, tab: TabId) {
         self.current.remove(&tab);
+        self.committed.remove(&tab);
         self.changed.retain(|&changed| changed != tab);
     }
 
@@ -79,6 +73,7 @@ impl Reports {
                     tab,
                     url: url.clone(),
                     title: title.clone(),
+                    committed: self.committed.remove(&tab),
                 })
             })
             .collect()

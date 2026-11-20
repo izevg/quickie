@@ -101,7 +101,9 @@ run = "lychee --offline --no-progress --include-fragments --exclude-path target 
 description = "Mutation testing of domain and application (changed code when an upstream exists)"
 run = '''
 set -eu
-mkdir -p target
+# Build copies go next to the repository, not into the system disk's temp directory.
+mkdir -p target/mutants-tmp
+export TMPDIR="$PWD/target/mutants-tmp"
 if base=$(git rev-parse --verify --quiet '@{upstream}'); then
   git diff "$base"...HEAD > target/push.diff
   if [ -s target/push.diff ]; then

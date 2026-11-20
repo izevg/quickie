@@ -10,35 +10,8 @@ use objc2::runtime::Bool;
 use objc2_app_kit::NSEventModifierFlags;
 use objc2_foundation::NSString;
 use objc2_web_kit::WKPermissionDecision;
-use quickie_application::Permission;
+use quickie_application::Answer;
 use quickie_domain_browsing::Focus;
-
-/// A JavaScript dialog.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Dialog {
-    /// `alert()`: a message and OK.
-    Alert { message: String },
-    /// `confirm()`: OK or Cancel.
-    Confirm { message: String },
-    /// `prompt()`: a line of text, OK or Cancel.
-    Prompt { message: String, default: String },
-}
-
-/// What a page asks the user.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AskKind {
-    Dialog(Dialog),
-    Permission(Permission),
-}
-
-/// The user's answer to an ask.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Answer {
-    /// OK, or allow; a prompt's text.
-    Accept(Option<String>),
-    /// Cancel, or deny: the safe default.
-    Decline,
-}
 
 /// How a page waits for an answer. `WebKit` requires every reply to be sent exactly once, so a
 /// reply dropped unanswered (its tab closed) declines.

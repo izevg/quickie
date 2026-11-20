@@ -4,5 +4,7 @@
 
 examine_globs = ["crates/domain/**/*.rs", "crates/application/**/*.rs"]
 output = "target"
+# Copy only what git tracks: agent worktrees under .claude/worktrees carry whole target dirs.
+gitignore = true
 profile = "mutants"
 timeout_multiplier = 3

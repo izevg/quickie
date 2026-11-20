@@ -11,6 +11,7 @@ use objc2::runtime::AnyObject;
 use objc2::{MainThreadMarker, MainThreadOnly, Message};
 use objc2_foundation::{NSDictionary, NSError, NSNumber, NSString};
 use objc2_web_kit::{WKContentWorld, WKFindConfiguration, WKFindResult, WKWebView};
+use quickie_application::FindStep;
 use quickie_domain_browsing::FindMatches;
 
 /// What hears the matches of a find.
@@ -21,18 +22,6 @@ const SCRIPT: &str = include_str!("find.js");
 
 /// The content world Quickie's scripts run in, apart from the page's own.
 const WORLD: &str = "quickie";
-
-/// Where a find goes from the current selection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FindStep {
-    /// The query changed: the first match from the start of the selection, so typing on
-    /// keeps the match under the selection when it still matches.
-    Refine,
-    /// The match after the selection.
-    Next,
-    /// The match before the selection.
-    Previous,
-}
 
 /// Selects a match of `query` in `view` as `step` says, wrapping at the ends, then calls `done`
 /// with the matches. An empty query clears the marks and finds nothing.
