@@ -66,6 +66,11 @@ define_class!(
             self.ask(SettingsAction::RefreshLists);
         }
 
+        #[unsafe(method(enableLists:))]
+        fn enable_lists(&self, _sender: Option<&NSButton>) {
+            self.ask(SettingsAction::EnableLists);
+        }
+
         /// A list's own refresh button: its tag is the list's place in [`FilterListId::ALL`].
         #[unsafe(method(refreshList:))]
         fn refresh_list(&self, sender: Option<&NSButton>) {

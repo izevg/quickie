@@ -44,6 +44,7 @@ pub const STORIES: &[Story] = &[
     shields("off-the-web", LIGHT, shields_off_the_web),
     shields("lists-off", LIGHT, shields_lists_off),
     shields("reload", LIGHT, shields_reload),
+    shields("rules-failed", LIGHT, shields_rules_failed),
 ];
 
 fn download(id: u64, name: &str, state: DownloadState) -> Download {
@@ -156,6 +157,11 @@ fn summary(site: Option<&str>, lists: bool) -> ShieldsSummary {
         },
         now: NOW,
         reload_offered: false,
+        rules: if lists {
+            "Rules active: 81,203 rules in 1 list, compiled 3 min ago".to_owned()
+        } else {
+            String::new()
+        },
     }
 }
 
@@ -201,8 +207,39 @@ fn shields_off_the_web(scene: &mut Scene) {
     shields_show(scene, summary(None, true));
 }
 
+/// No list on: the header and the lists say so, and Enable asks for them.
 fn shields_lists_off(scene: &mut Scene) {
-    shields_show(scene, summary(Some("lenta.ru"), false));
+    let popover = shields_show(scene, summary(Some("lenta.ru"), false));
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let log = Rc::clone(&asked);
+    popover.on_request(move |request| log.borrow_mut().push(request));
+    scene.check(
+        scene
+            .accessibility()
+            .contains("Shields are up, but no filter list is on"),
+        "the header says nothing blocks",
+    );
+    match scene.view_labelled("Enable") {
+        Some(button) => scene.click(&button),
+        None => scene.check(false, "the Enable button is labelled"),
+    }
+    scene.check_eq(
+        asked.borrow().clone(),
+        vec![ShieldsRequest::EnableLists],
+        "Enable asks to turn the lists on",
+    );
+}
+
+/// The rules could not be compiled: the popover says why, measured.
+fn shields_rules_failed(scene: &mut Scene) {
+    shields_show(
+        scene,
+        ShieldsSummary {
+            rules: "Failed: rule list 2 of 2 (148,211 rules): Rule list compilation failed"
+                .to_owned(),
+            ..summary(Some("example.com"), true)
+        },
+    );
 }
 
 fn shields_reload(scene: &mut Scene) {

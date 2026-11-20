@@ -18,6 +18,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -26,11 +27,12 @@ use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSBackingStoreType, NSView, NSWindow, NSWindowStyleMask};
 use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize};
 use quickie_application::{
-    Access, EngineEvent, EnginePort, ExtensionEvent, ExtensionHost, ExtensionInfo, PageContent,
-    WindowTabs,
+    Access, BlockerRules, ContentBlockerPort, EngineEvent, EnginePort, ExtensionEvent,
+    ExtensionHost, ExtensionInfo, ListRules, PageContent, WindowTabs,
 };
-use quickie_domain_browsing::{Jar, Profile, TabId, WindowId};
+use quickie_domain_browsing::{Jar, JarId, Profile, TabId, WindowId};
 use quickie_domain_settings::{ExtensionId, ExtensionVersion};
+use quickie_domain_shields::{ContentHash, FilterListId};
 use quickie_engine_webkit::{OpenedPage, WebKitEngine, WebKitExtensions};
 use url::Url;
 
@@ -112,6 +114,14 @@ fn run(mtm: MainThreadMarker) -> Outcome {
         active: Some(main),
     }]);
     wait_for_text(&mut engine, main, RAN, "the content script never ran")?;
+    let throwaway = TabId::new(Profile::Main, 2);
+    open(&mut engine, throwaway, &page, Jar::Throwaway(JarId::new(1)))?;
+    absent(
+        &mut engine,
+        throwaway,
+        "the content script ran in a throwaway page",
+    )?;
+    shields_keep_content_scripts(&mut engine, &page)?;
 
     // The background worker starts with the first event, and an event that comes before its
     // listener is lost: the command is given again until the page shows it.
@@ -230,6 +240,43 @@ fn wait_for_read(
 }
 
 /// Opens `tab` on `url` in `jar`, shows it, and waits until it has loaded.
+/// The shields put their scripts in the same controller as the extension's content scripts and
+/// replace them whenever a site with its own filters loads: the content scripts must survive
+/// that. A page on a host with its own cosmetic rule makes the shields replace their scripts; a
+/// page opened after it still runs the content script.
+fn shields_keep_content_scripts(engine: &mut WebKitEngine, page: &Url) -> Outcome {
+    const LIST: &str = "127.0.0.1##.quickie-test-ad\n";
+    let dir = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let mut blocker = engine
+        .content_blocker(dir.path())
+        .map_err(|error| error.0)?;
+    blocker
+        .install(&BlockerRules {
+            lists: vec![ListRules {
+                list: FilterListId::EasyList,
+                hash: ContentHash::of(LIST.as_bytes()),
+                body: Arc::from(LIST.as_bytes()),
+            }],
+            unshielded: Vec::new(),
+        })
+        .map_err(|error| error.0)?;
+    let give_up = Instant::now() + PATIENCE;
+    while !blocker.cosmetics_ready() {
+        check(Instant::now() < give_up, "the cosmetic filters never built")?;
+        spin();
+    }
+    let first = TabId::new(Profile::Main, 4);
+    open(engine, first, page, Jar::Main)?;
+    let second = TabId::new(Profile::Main, 5);
+    open(engine, second, page, Jar::Main)?;
+    wait_for_text(
+        engine,
+        second,
+        RAN,
+        "the content script was lost when the shields replaced their scripts",
+    )
+}
+
 fn open(engine: &mut WebKitEngine, tab: TabId, url: &Url, jar: Jar) -> Outcome {
     engine.create(tab, url, jar).map_err(|error| error.0)?;
     engine.show(WINDOW, tab).map_err(|error| error.0)?;

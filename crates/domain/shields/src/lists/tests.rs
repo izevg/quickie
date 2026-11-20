@@ -57,6 +57,11 @@ mod sources {
                 "https://ublockorigin.github.io/uAssets/filters/filters.txt",
             ),
             (
+                "ublock-quick-fixes",
+                "uBlock quick fixes",
+                "https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt",
+            ),
+            (
                 "peter-lowe",
                 "Peter Lowe's list",
                 "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext",
@@ -69,6 +74,19 @@ mod sources {
             .collect();
 
         assert_eq!(described, expected);
+    }
+
+    #[test]
+    fn only_ublock_origins_own_lists_are_trusted() {
+        let trusted: Vec<_> = FilterListId::ALL
+            .into_iter()
+            .filter(|id| id.trusted())
+            .collect();
+
+        assert_eq!(
+            trusted,
+            [FilterListId::UblockFilters, FilterListId::UblockQuickFixes]
+        );
     }
 
     #[test]

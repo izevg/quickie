@@ -30,6 +30,8 @@ struct Drained {
     failures: Vec<AppError>,
     /// A download moved: the popover catches up.
     downloads: bool,
+    /// A page's blocked count changed: the shields popover catches up.
+    blocked: bool,
 }
 
 impl Browser {
@@ -59,6 +61,8 @@ impl Browser {
         match event {
             EngineEvent::Committed { tab, url, title } => {
                 drained.committed.push(tab);
+                self.shields.borrow_mut().page_left(tab);
+                drained.blocked = true;
                 self.crashed.borrow_mut().remove(&tab);
                 self.asks_navigated(tab);
                 self.record_navigation(tab, &url, &title, true, drained);
@@ -90,6 +94,10 @@ impl Browser {
             } => self.followed(tab, ticket, followed),
             EngineEvent::Text { ticket, text, .. } => self.page_read(ticket, text),
             EngineEvent::Pictured { tab } => self.thumbnail_ready(tab),
+            EngineEvent::Blocked { tab, requests } => {
+                self.shields.borrow_mut().record_blocked(tab, requests);
+                drained.blocked = true;
+            }
             EngineEvent::Download(event) => {
                 drained.downloads = true;
                 self.download_report(event);
@@ -145,6 +153,9 @@ impl Browser {
         }
         if drained.downloads {
             self.refresh_downloads();
+        }
+        if drained.blocked {
+            self.refresh_shields_popover();
         }
         self.present_asks();
         self.page_changes();

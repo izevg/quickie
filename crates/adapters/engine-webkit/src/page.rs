@@ -41,7 +41,17 @@ use asks::delegate::PageUi;
 /// Where a page's reports and requests go. Called on the main thread, sometimes from inside a
 /// call into the view: a hook records, it never calls back into the engine.
 pub(crate) struct Hooks {
-    /// Navigations, titles, loading, links to open elsewhere, closing, full screen, crashes.
+    /// A navigation of the page or of one of its frames is about to start, to this URL.
+    pub(crate) on_navigation: Box<dyn Fn(&Url)>,
+    /// A frame's response arrived; its document loads once the shields have its host's
+    /// filters, which the second argument is called for.
+    #[expect(
+        clippy::type_complexity,
+        reason = "a hook and the continuation it calls, written out where it is held"
+    )]
+    pub(crate) before_document: Box<dyn Fn(&Url, Box<dyn FnOnce()>)>,
+    /// Navigations, titles, loading, links to open elsewhere, closing, full screen, crashes,
+    /// blocked loads.
     pub(crate) on_event: Box<dyn Fn(PageEvent)>,
     /// A dialog or a permission, from the origin in the URL, waiting for its reply.
     pub(crate) on_ask: Box<dyn Fn(Url, AskKind, Reply)>,

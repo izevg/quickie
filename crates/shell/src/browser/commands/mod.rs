@@ -463,8 +463,10 @@ impl Browser {
     /// request is what opens the connections.
     pub(super) fn enable_lists(&self) {
         let enabled = self.shields.borrow_mut().enable_lists(&FilterListId::ALL);
-        if let Err(error) = enabled {
-            return self.report(&error);
+        match enabled {
+            Err(error) => return self.report(&error),
+            Ok(enabled) if !enabled.is_empty() => self.lists_changed_by_user(),
+            Ok(_) => {}
         }
         let due = self.shields.borrow().due_fetches();
         if due.is_empty() {
@@ -502,6 +504,12 @@ impl Browser {
 
     fn lists_fetched(&self, fetched: Vec<FetchedList>) {
         let refreshed = self.shields.borrow_mut().lists_fetched(fetched);
+        if refreshed
+            .as_ref()
+            .is_ok_and(|refreshed| !refreshed.updated.is_empty())
+        {
+            self.lists_changed_by_user();
+        }
         let said = match refreshed {
             Ok(refreshed) if refreshed.failed.is_empty() => format!(
                 "Filter lists: {} updated, {} unchanged",

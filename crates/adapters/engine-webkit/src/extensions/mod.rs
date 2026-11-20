@@ -4,10 +4,10 @@
 //! One `WKWebExtensionController` with the default, persistent configuration serves the main
 //! profile: every page of the main jar gets it in its configuration, pages of throwaway jars
 //! do not, and a context never has access to private data; the agent's profile is an engine
-//! of its own and never gets one. Throwaway pages share the main jar's user content controller
-//! (the content blocker installs its rules there), and `WebKit` injects content scripts
-//! through that controller, so content scripts still reach them; giving throwaway jars a
-//! controller of their own needs the content blocker to install into both.
+//! of its own and never gets one. `WebKit` injects content scripts through the user content
+//! controller of the pages it serves; throwaway pages have a controller of their own (the
+//! content blocker installs the same rules and shields scripts in both), so content scripts
+//! never reach them.
 //!
 //! Each running extension is a context whose unique identifier and base URL
 //! (`webkit-extension://<id>/`) are its id, so its storage survives restarts and updates.
