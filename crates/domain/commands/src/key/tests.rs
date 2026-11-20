@@ -1,6 +1,10 @@
 use super::{
     Chord, ChordError, Digit, FunctionKey, Key, KeyStroke, KeyStrokeError, Letter, Modifiers,
+    Platform,
 };
+
+const MAC: Platform = Platform::MacOs;
+const LINUX: Platform = Platform::Linux;
 
 fn stroke(text: &str) -> KeyStroke {
     KeyStroke::try_from(text).unwrap()
@@ -10,49 +14,61 @@ fn letter(c: char) -> Key {
     Key::Letter(Letter::new(c).unwrap())
 }
 
-/// Every named key with its `keybindings.json` name and its glyph.
-const NAMED: [(Key, &str, &str); 25] = [
-    (Key::Tab, "tab", "⇥"),
-    (Key::Enter, "enter", "↩"),
-    (Key::Escape, "escape", "⎋"),
-    (Key::Space, "space", "Space"),
-    (Key::Backspace, "backspace", "⌫"),
-    (Key::Delete, "delete", "⌦"),
-    (Key::Up, "up", "↑"),
-    (Key::Down, "down", "↓"),
-    (Key::Left, "left", "←"),
-    (Key::Right, "right", "→"),
-    (Key::Home, "home", "↖"),
-    (Key::End, "end", "↘"),
-    (Key::PageUp, "pageup", "⇞"),
-    (Key::PageDown, "pagedown", "⇟"),
-    (Key::BracketLeft, "[", "["),
-    (Key::BracketRight, "]", "]"),
-    (Key::Minus, "-", "-"),
-    (Key::Equal, "=", "="),
-    (Key::Comma, ",", ","),
-    (Key::Period, ".", "."),
-    (Key::Slash, "/", "/"),
-    (Key::Backslash, "\\", "\\"),
-    (Key::Semicolon, ";", ";"),
-    (Key::Quote, "'", "'"),
-    (Key::Backquote, "`", "`"),
+/// Every named key with its `keybindings.json` name, its macOS glyph, and its Linux label.
+const NAMED: [(Key, &str, &str, &str); 25] = [
+    (Key::Tab, "tab", "⇥", "Tab"),
+    (Key::Enter, "enter", "↩", "Enter"),
+    (Key::Escape, "escape", "⎋", "Esc"),
+    (Key::Space, "space", "Space", "Space"),
+    (Key::Backspace, "backspace", "⌫", "Backspace"),
+    (Key::Delete, "delete", "⌦", "Delete"),
+    (Key::Up, "up", "↑", "Up"),
+    (Key::Down, "down", "↓", "Down"),
+    (Key::Left, "left", "←", "Left"),
+    (Key::Right, "right", "→", "Right"),
+    (Key::Home, "home", "↖", "Home"),
+    (Key::End, "end", "↘", "End"),
+    (Key::PageUp, "pageup", "⇞", "Page Up"),
+    (Key::PageDown, "pagedown", "⇟", "Page Down"),
+    (Key::BracketLeft, "[", "[", "["),
+    (Key::BracketRight, "]", "]", "]"),
+    (Key::Minus, "-", "-", "-"),
+    (Key::Equal, "=", "=", "="),
+    (Key::Comma, ",", ",", ","),
+    (Key::Period, ".", ".", "."),
+    (Key::Slash, "/", "/", "/"),
+    (Key::Backslash, "\\", "\\", "\\"),
+    (Key::Semicolon, ";", ";", ";"),
+    (Key::Quote, "'", "'", "'"),
+    (Key::Backquote, "`", "`", "`"),
 ];
 
 // ---- keys --------------------------------------------------------------------------------------
 
 #[test]
-fn every_named_key_has_its_name_and_glyph() {
-    for (key, name, glyph) in NAMED {
+fn every_named_key_has_its_name() {
+    for (key, name, _, _) in NAMED {
         assert_eq!(key.name(), name, "{key:?}");
-        assert_eq!(key.glyph(), glyph, "{key:?}");
-        assert_eq!(key.to_string(), glyph, "{key:?}");
+    }
+}
+
+#[test]
+fn every_named_key_has_its_macos_glyph() {
+    for (key, _, glyph, _) in NAMED {
+        assert_eq!(key.glyph(MAC), glyph, "{key:?}");
+    }
+}
+
+#[test]
+fn every_named_key_has_its_linux_label() {
+    for (key, _, _, label) in NAMED {
+        assert_eq!(key.glyph(LINUX), label, "{key:?}");
     }
 }
 
 #[test]
 fn every_named_key_parses_from_its_name() {
-    for (key, name, _) in NAMED {
+    for (key, name, _, _) in NAMED {
         assert_eq!(Key::from_name(name), Some(key), "{name}");
     }
 }
@@ -70,7 +86,8 @@ fn a_letter_is_named_lowercase_and_shown_uppercase() {
 
     assert_eq!(key, letter('p'));
     assert_eq!(key.name(), "p");
-    assert_eq!(key.glyph(), "P");
+    assert_eq!(key.glyph(MAC), "P");
+    assert_eq!(key.glyph(LINUX), "P");
 }
 
 #[test]
@@ -79,7 +96,8 @@ fn a_digit_is_its_own_name_and_glyph() {
 
     assert_eq!(key, Key::Digit(Digit::new('7').unwrap()));
     assert_eq!(key.name(), "7");
-    assert_eq!(key.glyph(), "7");
+    assert_eq!(key.glyph(MAC), "7");
+    assert_eq!(key.glyph(LINUX), "7");
 }
 
 #[test]
@@ -88,7 +106,8 @@ fn a_function_key_is_named_with_a_lowercase_f_and_shown_with_a_capital() {
 
     assert_eq!(key, Key::Function(FunctionKey::new(12).unwrap()));
     assert_eq!(key.name(), "f12");
-    assert_eq!(key.glyph(), "F12");
+    assert_eq!(key.glyph(MAC), "F12");
+    assert_eq!(key.glyph(LINUX), "F12");
 }
 
 #[test]
@@ -176,7 +195,7 @@ fn adding_a_held_modifier_again_changes_nothing() {
 fn modifiers_are_shown_in_macos_order() {
     let set = Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::OPTION | Modifiers::CONTROL;
 
-    assert_eq!(set.to_string(), "⌃⌥⇧⌘");
+    assert_eq!(set.glyphs(MAC).collect::<String>(), "⌃⌥⇧⌘");
     assert_eq!(
         set.names().collect::<Vec<_>>(),
         ["ctrl", "alt", "shift", "cmd"]
@@ -184,11 +203,21 @@ fn modifiers_are_shown_in_macos_order() {
 }
 
 #[test]
+fn modifiers_are_labelled_in_linux_order() {
+    let set = Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::OPTION | Modifiers::CONTROL;
+
+    let labels: Vec<&str> = set.glyphs(LINUX).collect();
+
+    assert_eq!(labels, ["Ctrl", "Alt", "Shift", "Super"]);
+}
+
+#[test]
 fn no_modifiers_show_nothing() {
     let set = Modifiers::default();
 
     assert_eq!(set, Modifiers::NONE);
-    assert_eq!(set.to_string(), "");
+    assert_eq!(set.glyphs(MAC).count(), 0);
+    assert_eq!(set.glyphs(LINUX).count(), 0);
     assert_eq!(set.names().count(), 0);
 }
 
@@ -204,6 +233,7 @@ fn every_modifier_alias_is_understood() {
         ("cmd", Modifiers::COMMAND),
         ("command", Modifiers::COMMAND),
         ("meta", Modifiers::COMMAND),
+        ("super", Modifiers::COMMAND),
         ("CMD", Modifiers::COMMAND),
     ];
 
@@ -217,6 +247,29 @@ fn an_unknown_modifier_name_is_none() {
     let modifier = Modifiers::from_name("hyper");
 
     assert_eq!(modifier, None);
+}
+
+#[test]
+fn the_primary_modifier_needs_a_platform() {
+    let modifier = Modifiers::from_name("mod");
+
+    assert_eq!(modifier, None);
+}
+
+// ---- platforms ---------------------------------------------------------------------------------
+
+#[test]
+fn the_primary_modifier_is_command_on_macos() {
+    let primary = MAC.primary();
+
+    assert_eq!(primary, Modifiers::COMMAND);
+}
+
+#[test]
+fn the_primary_modifier_is_ctrl_on_linux() {
+    let primary = LINUX.primary();
+
+    assert_eq!(primary, Modifiers::CONTROL);
 }
 
 // ---- strokes -----------------------------------------------------------------------------------
@@ -235,7 +288,14 @@ fn a_stroke_parses_modifiers_and_key() {
 fn a_stroke_is_shown_as_glyphs_in_macos_order() {
     let parsed = stroke("cmd+shift+p");
 
-    assert_eq!(parsed.to_string(), "⇧⌘P");
+    assert_eq!(parsed.glyphs(MAC), "⇧⌘P");
+}
+
+#[test]
+fn a_stroke_is_shown_as_words_joined_by_plus_on_linux() {
+    let parsed = stroke("ctrl+shift+p");
+
+    assert_eq!(parsed.glyphs(LINUX), "Ctrl+Shift+P");
 }
 
 #[test]
@@ -243,7 +303,8 @@ fn a_stroke_is_written_back_with_modifiers_in_macos_order() {
     let parsed = stroke("cmd+alt+shift+ctrl+tab");
 
     assert_eq!(parsed.keybinding_text(), "ctrl+alt+shift+cmd+tab");
-    assert_eq!(parsed.to_string(), "⌃⌥⇧⌘⇥");
+    assert_eq!(parsed.glyphs(MAC), "⌃⌥⇧⌘⇥");
+    assert_eq!(parsed.glyphs(LINUX), "Ctrl+Alt+Shift+Super+Tab");
 }
 
 #[test]
@@ -252,7 +313,79 @@ fn a_bare_key_is_a_stroke_without_modifiers() {
 
     assert_eq!(parsed.modifiers, Modifiers::NONE);
     assert_eq!(parsed.keybinding_text(), "f");
-    assert_eq!(parsed.to_string(), "F");
+    assert_eq!(parsed.glyphs(MAC), "F");
+    assert_eq!(parsed.glyphs(LINUX), "F");
+}
+
+#[test]
+fn mod_is_command_on_macos() {
+    let parsed = KeyStroke::parse("mod+shift+p", MAC).unwrap();
+
+    assert_eq!(parsed, stroke("cmd+shift+p"));
+}
+
+#[test]
+fn mod_is_ctrl_on_linux() {
+    let parsed = KeyStroke::parse("mod+shift+p", LINUX).unwrap();
+
+    assert_eq!(parsed, stroke("ctrl+shift+p"));
+}
+
+#[test]
+fn mod_is_read_in_any_case() {
+    let parsed = KeyStroke::parse("MOD+t", LINUX).unwrap();
+
+    assert_eq!(parsed, stroke("ctrl+t"));
+}
+
+#[test]
+fn super_on_linux_is_its_own_modifier_apart_from_mod() {
+    let logo = KeyStroke::parse("super+t", LINUX).unwrap();
+
+    assert_eq!(logo, stroke("cmd+t"));
+    assert_ne!(logo, KeyStroke::parse("mod+t", LINUX).unwrap());
+}
+
+#[test]
+fn mod_with_the_modifier_it_stands_for_is_held_twice() {
+    let error = KeyStroke::parse("mod+ctrl+t", LINUX).unwrap_err();
+
+    assert_eq!(error, KeyStrokeError::DuplicateModifier("ctrl".to_owned()));
+}
+
+#[test]
+fn mod_with_another_modifier_is_two_modifiers() {
+    let parsed = KeyStroke::parse("mod+ctrl+t", MAC).unwrap();
+
+    assert_eq!(parsed, stroke("ctrl+cmd+t"));
+}
+
+#[test]
+fn mod_without_a_key_is_missing_the_key() {
+    let error = KeyStroke::parse("shift+mod", LINUX).unwrap_err();
+
+    assert_eq!(error, KeyStrokeError::MissingKey);
+}
+
+#[test]
+fn a_concrete_stroke_reads_the_same_with_a_platform() {
+    let parsed = KeyStroke::parse("ctrl+tab", MAC).unwrap();
+
+    assert_eq!(parsed, stroke("ctrl+tab"));
+}
+
+#[test]
+fn without_a_platform_mod_is_no_modifier() {
+    let error = KeyStroke::try_from("mod+t").unwrap_err();
+
+    assert_eq!(error, KeyStrokeError::UnknownModifier("mod".to_owned()));
+}
+
+#[test]
+fn without_a_platform_a_trailing_mod_is_no_key() {
+    let error = KeyStroke::try_from("shift+mod").unwrap_err();
+
+    assert_eq!(error, KeyStrokeError::UnknownKey("mod".to_owned()));
 }
 
 #[test]
@@ -331,7 +464,7 @@ fn a_single_stroke_is_a_chord_of_one() {
     let chord = Chord::try_from("cmd+k").unwrap();
 
     assert_eq!(chord, Chord::from(stroke("cmd+k")));
-    assert_eq!(chord.to_string(), "⌘K");
+    assert_eq!(chord.glyphs(MAC), "⌘K");
     assert_eq!(chord.keybinding_text(), "cmd+k");
 }
 
@@ -341,8 +474,23 @@ fn two_strokes_make_a_chord() {
 
     assert_eq!(chord.first, stroke("cmd+k"));
     assert_eq!(chord.second, Some(stroke("cmd+s")));
-    assert_eq!(chord.to_string(), "⌘K ⌘S");
+    assert_eq!(chord.glyphs(MAC), "⌘K ⌘S");
     assert_eq!(chord.keybinding_text(), "cmd+k cmd+s");
+}
+
+#[test]
+fn both_strokes_of_a_chord_resolve_mod() {
+    let chord = Chord::parse("mod+k mod+s", LINUX).unwrap();
+
+    assert_eq!(chord, Chord::try_from("ctrl+k ctrl+s").unwrap());
+    assert_eq!(chord.glyphs(LINUX), "Ctrl+K Ctrl+S");
+}
+
+#[test]
+fn a_chord_with_a_platform_reports_a_bad_stroke() {
+    let error = Chord::parse("mod+k mod", LINUX).unwrap_err();
+
+    assert_eq!(error, ChordError::Stroke(KeyStrokeError::MissingKey));
 }
 
 #[test]
