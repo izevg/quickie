@@ -107,6 +107,7 @@ impl Browser {
         drained: &mut Drained,
     ) {
         drained.navigated = true;
+        self.palette_sources_changed();
         let jar = {
             let mut browsing = self.browsing.borrow_mut();
             if let Err(error) = browsing.navigated(tab, url.clone(), title.to_owned()) {

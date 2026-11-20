@@ -1,10 +1,11 @@
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use quickie_domain_browsing::{Jar, JarId, Timestamp};
 use quickie_domain_library::{
     Bookmark, Bookmarks, BookmarksSnapshot, CorruptBookmarks, CorruptHistory, CorruptShortcuts,
     Forgotten, History, HistoryEntry, HistorySnapshot, Keyword, NotSaved, Recorded, Saved,
-    SearchShortcuts, SearchShortcutsSnapshot, Tag, UrlTemplate,
+    SearchShortcuts, SearchShortcutsSnapshot, Tag, UrlTemplate, VisitNumber,
 };
 use url::Url;
 
@@ -57,6 +58,12 @@ fn bookmarked(path: &str) -> Subject {
         .save_bookmark(&url(path), "Page".to_owned())
         .unwrap();
     library
+}
+
+/// Whether the store would give back the history in memory at the next start.
+fn history_saved(library: &Subject) -> bool {
+    let saved = library.repo.saved.history.clone().unwrap();
+    History::restore(saved).unwrap().snapshot() == library.history().snapshot()
 }
 
 fn fail_saves(library: &mut Subject) {
@@ -136,6 +143,7 @@ mod starting {
                     title: String::new(),
                     visit_count: 1,
                     recent_visits: vec![Timestamp::from_millis(0)],
+                    last_visit: VisitNumber::new(1),
                 }],
             }),
             bookmarks: Some(BookmarksSnapshot {
@@ -192,10 +200,7 @@ mod visiting {
             (entry.title.as_str(), entry.recent_visits.clone()),
             ("A", vec![Timestamp::from_millis(42)])
         );
-        assert_eq!(
-            library.repo.saved.history,
-            Some(library.history().snapshot())
-        );
+        assert!(history_saved(&library));
     }
 
     #[test]
@@ -207,6 +212,52 @@ mod visiting {
 
         assert_eq!(recorded, Ok(Recorded::Revisit));
         assert_eq!(library.repo.saves, 2);
+    }
+
+    #[test]
+    fn a_visit_saves_its_entry_and_leaves_the_others_alone() {
+        let mut library = started();
+        visit(&mut library, "a", 1);
+        visit(&mut library, "b", 2);
+        library.repo.saved.history = Some(HistorySnapshot {
+            entries: vec![library.history().get(&url("b")).unwrap().clone()],
+        });
+
+        visit(&mut library, "b#top", 3);
+
+        let saved = library.repo.saved.history.clone().unwrap();
+        assert_eq!(
+            saved.entries,
+            [library.history().get(&url("b")).unwrap().clone()]
+        );
+        assert_eq!(library.repo.history_saves, 0);
+    }
+
+    #[test]
+    fn a_new_page_in_a_full_history_removes_the_oldest_from_the_store() {
+        let mut library = started();
+        library.set_history_cap(NonZeroUsize::new(2).unwrap());
+        visit(&mut library, "a", 1);
+        visit(&mut library, "b", 2);
+
+        visit(&mut library, "c", 3);
+
+        assert_eq!(library.history().get(&url("a")), None);
+        assert!(history_saved(&library));
+        assert_eq!(library.repo.saves, 4);
+    }
+
+    #[test]
+    fn a_failed_removal_is_reported_and_the_new_page_stays() {
+        let mut library = started();
+        library.set_history_cap(NonZeroUsize::new(1).unwrap());
+        visit(&mut library, "a", 1);
+        fail_saves(&mut library);
+
+        let result = library.record_visit(&url("b"), "", Jar::Main);
+
+        assert_eq!(result, Err(store_failure()));
+        assert!(library.history().get(&url("b")).is_some());
     }
 
     #[test]
@@ -232,14 +283,14 @@ mod visiting {
     }
 
     #[test]
-    fn a_failed_save_changes_nothing() {
+    fn a_failed_save_is_reported_and_the_visit_stays() {
         let mut library = started();
         fail_saves(&mut library);
 
         let result = library.record_visit(&url("a"), "A", Jar::Main);
 
         assert_eq!(result, Err(store_failure()));
-        assert_eq!(library.history(), &History::new());
+        assert_eq!(library.history().get(&url("a")).unwrap().title, "A");
     }
 
     #[test]
@@ -253,10 +304,8 @@ mod visiting {
         let entry = library.history().get(&url("a")).unwrap();
         assert_eq!((entry.title.as_str(), entry.visit_count), ("Loaded", 1));
         assert_eq!(library.repo.saves, 2);
-        assert_eq!(
-            library.repo.saved.history,
-            Some(library.history().snapshot())
-        );
+        assert_eq!(library.repo.history_saves, 0);
+        assert!(history_saved(&library));
     }
 
     #[test]
@@ -273,7 +322,7 @@ mod visiting {
     }
 
     #[test]
-    fn a_failed_retitle_keeps_the_old_title() {
+    fn a_failed_retitle_is_reported_and_the_title_stays() {
         let mut library = started();
         visit(&mut library, "a", 1);
         fail_saves(&mut library);
@@ -281,7 +330,7 @@ mod visiting {
         let result = library.retitle_visit(&url("a"), "Loaded", Jar::Main);
 
         assert_eq!(result, Err(store_failure()));
-        assert_eq!(library.history().get(&url("a")).unwrap().title, "");
+        assert_eq!(library.history().get(&url("a")).unwrap().title, "Loaded");
     }
 }
 
@@ -317,6 +366,7 @@ mod forgetting {
             library.repo.saved.history,
             Some(library.history().snapshot())
         );
+        assert_eq!(library.repo.history_saves, 1);
     }
 
     #[test]
@@ -351,19 +401,18 @@ mod forgetting {
 
         library.forget_since(Duration::MAX).unwrap();
 
-        assert_eq!(library.history(), &History::new());
+        assert!(library.history().is_empty());
     }
 
     #[test]
-    fn a_failed_save_changes_nothing() {
+    fn a_failed_save_is_reported_and_the_visits_stay_forgotten() {
         let mut library = visited();
-        let before = library.history().clone();
         fail_saves(&mut library);
 
         let result = library.forget_since(Duration::from_secs(2));
 
         assert_eq!(result, Err(store_failure()));
-        assert_eq!(library.history(), &before);
+        assert_eq!(library.history().get(&url("new")), None);
     }
 }
 

@@ -15,8 +15,8 @@ use quickie_application::{
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::{NextIds, Profile, Session, SessionSnapshot};
 use quickie_domain_library::{
-    Bookmarks, BookmarksSnapshot, DownloadsSnapshot, History, HistorySnapshot, SearchShortcuts,
-    SearchShortcutsSnapshot, Timestamp,
+    Bookmarks, BookmarksSnapshot, DownloadsSnapshot, History, HistoryEntry, HistorySnapshot,
+    SearchShortcuts, SearchShortcutsSnapshot, Timestamp,
 };
 use quickie_domain_settings::{SiteZooms, SiteZoomsSnapshot, ZoomStep};
 use quickie_domain_shields::{
@@ -97,11 +97,14 @@ struct Gate {
     release: Receiver<()>,
 }
 
-/// The SQLite store, recording each session it writes. It can hold the first write at a
-/// [`Gate`], and dies in a load when told to, as a writer thread that panics would.
+/// The SQLite store, recording each session it writes, each history entry it upserts, and each
+/// removal of history entries. It can hold the first write at a [`Gate`], and dies in a load
+/// when told to, as a writer thread that panics would.
 struct Recorder {
     store: SqliteStore,
     written: Arc<Mutex<Vec<SessionSnapshot>>>,
+    entries: Arc<Mutex<Vec<Url>>>,
+    removals: Arc<Mutex<Vec<Vec<Url>>>>,
     gate: Option<Gate>,
     dies_in_load: bool,
 }
@@ -112,6 +115,8 @@ impl Recorder {
         let recorder = Self {
             store: SqliteStore::open(path).unwrap(),
             written: Arc::clone(&written),
+            entries: Arc::default(),
+            removals: Arc::default(),
             gate: None,
             dies_in_load: false,
         };
@@ -144,6 +149,16 @@ impl LibraryRepo for Recorder {
 
     fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError> {
         self.store.save_history(history)
+    }
+
+    fn upsert_entry(&mut self, entry: &HistoryEntry) -> Result<(), StoreError> {
+        self.entries.lock().unwrap().push(entry.url.clone());
+        self.store.upsert_entry(entry)
+    }
+
+    fn remove_entries(&mut self, pages: &[Url]) -> Result<(), StoreError> {
+        self.removals.lock().unwrap().push(pages.to_vec());
+        self.store.remove_entries(pages)
     }
 
     fn save_bookmarks(&mut self, bookmarks: &BookmarksSnapshot) -> Result<(), StoreError> {
@@ -397,6 +412,96 @@ fn a_flush_puts_every_kind_on_disk() {
             }
         )
     );
+}
+
+/// The entry of `path` after a visit to it in `history`.
+fn visited(history: &mut History, path: &str, at: u64) -> HistoryEntry {
+    let url = Url::parse(&format!("https://example.test/{path}")).unwrap();
+    history.record_visit(&url, path, Timestamp::from_millis(at));
+    history.get(&url).unwrap().clone()
+}
+
+/// The pages of each history write the recorder saw.
+type Seen<T> = Arc<Mutex<Vec<T>>>;
+
+/// A write-behind store over a recorder that never settles on its own, with what the recorder
+/// sees of history entries and their removals.
+fn recorded(path: &Path) -> (WriteBehindStore, Seen<Url>, Seen<Vec<Url>>) {
+    let (recorder, _) = Recorder::new(path);
+    let entries = Arc::clone(&recorder.entries);
+    let removals = Arc::clone(&recorder.removals);
+    (
+        WriteBehindStore::spawn(recorder, NEVER).unwrap(),
+        entries,
+        removals,
+    )
+}
+
+#[test]
+fn changes_of_one_page_share_one_write_of_its_latest_entry() {
+    let (_dir, path) = database();
+    let (mut store, entries, _) = recorded(&path);
+    let mut history = History::new();
+    let first = visited(&mut history, "a", 1);
+    let other = visited(&mut history, "b", 2);
+    let latest = visited(&mut history, "a", 3);
+
+    for entry in [&first, &other, &latest] {
+        store.upsert_entry(entry).unwrap();
+    }
+    store.flush().unwrap();
+
+    assert_eq!(*entries.lock().unwrap(), [first.url, other.url]);
+    let saved = on_disk(&path).1.history.unwrap();
+    assert_eq!(saved, history.snapshot());
+}
+
+#[test]
+fn a_whole_history_takes_in_the_page_changes_before_it() {
+    let (_dir, path) = database();
+    let (mut store, entries, _) = recorded(&path);
+    let mut history = History::new();
+    let before = visited(&mut history, "a", 1);
+    let whole = history.snapshot();
+    let after = visited(&mut history, "b", 2);
+
+    store.upsert_entry(&before).unwrap();
+    store.save_history(&whole).unwrap();
+    store.upsert_entry(&after).unwrap();
+    store.flush().unwrap();
+
+    assert_eq!(*entries.lock().unwrap(), [after.url]);
+    assert_eq!(on_disk(&path).1.history, Some(history.snapshot()));
+}
+
+#[test]
+fn the_removals_of_a_batch_are_one_write_and_beat_earlier_entries() {
+    let (_dir, path) = database();
+    let (mut store, entries, removals) = recorded(&path);
+    let mut history = History::new();
+    let kept = visited(&mut history, "kept", 1);
+    let gone = visited(&mut history, "gone", 2);
+    let also_gone = visited(&mut history, "also", 3);
+    store.upsert_entry(&kept).unwrap();
+    store.upsert_entry(&gone).unwrap();
+    store.flush().unwrap();
+
+    store.upsert_entry(&also_gone).unwrap();
+    store
+        .remove_entries(std::slice::from_ref(&gone.url))
+        .unwrap();
+    store
+        .remove_entries(std::slice::from_ref(&also_gone.url))
+        .unwrap();
+    store.flush().unwrap();
+
+    assert_eq!(
+        *entries.lock().unwrap(),
+        [gone.url.clone(), kept.url.clone()]
+    );
+    assert_eq!(*removals.lock().unwrap(), [vec![also_gone.url, gone.url]]);
+    let saved = on_disk(&path).1.history.unwrap();
+    assert_eq!(saved.entries, [kept]);
 }
 
 #[test]
