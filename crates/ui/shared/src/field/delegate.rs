@@ -1,4 +1,4 @@
-//! The palette's query field reports each edit, so the answer follows every keystroke.
+//! The query field's delegate reports each edit, so an answer follows every keystroke.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -21,7 +21,7 @@ define_class!(
     // `Drop`.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[name = "QuickiePaletteFieldDelegate"]
+    #[name = "QuickieQueryFieldDelegate"]
     #[ivars = Ivars]
     pub struct FieldDelegate;
 

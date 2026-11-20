@@ -10,6 +10,7 @@ mod cell;
 mod diff;
 
 use std::cell::{Cell, RefCell};
+use std::ops::Range;
 use std::rc::Rc;
 
 use objc2::rc::Retained;
@@ -28,7 +29,7 @@ use cell::Metrics;
 pub use diff::{Patch, diff};
 
 /// One row: what it shows, and the key that says it is the same row as before.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ListRow {
     /// Equal keys are the same row across updates.
     pub key: u64,
@@ -40,8 +41,12 @@ pub struct ListRow {
     pub detail: String,
     /// Character positions of `detail` to highlight, ascending.
     pub detail_matches: Vec<u32>,
+    /// Characters of `detail` set in semibold and the primary colour: a URL's host.
+    pub detail_strong: Range<u32>,
     /// A chord in glyphs (`⇧⌘P`), drawn as keycaps on the right.
     pub keycaps: Option<String>,
+    /// A word or two on the right, in the caption style: what the row is (`Switch to tab`).
+    pub badge: Option<String>,
 }
 
 /// The list view. Add [`ListView::view`] to an overlay and size it with
