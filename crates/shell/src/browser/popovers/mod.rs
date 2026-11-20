@@ -10,9 +10,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use objc2::MainThreadMarker;
+use quickie_application::DownloadToken;
 use quickie_domain_browsing::TabId;
 use quickie_domain_library::DownloadId;
-use quickie_engine_webkit::DownloadKey;
 use quickie_ui_widgets::{DownloadsPopover, ShieldsPopover};
 
 use super::Browser;
@@ -32,8 +32,8 @@ pub struct Popovers {
 
 #[derive(Default)]
 struct Links {
-    ids: HashMap<DownloadKey, DownloadId>,
-    keys: HashMap<DownloadId, (DownloadKey, TabId)>,
+    ids: HashMap<DownloadToken, DownloadId>,
+    keys: HashMap<DownloadId, (DownloadToken, TabId)>,
 }
 
 impl Popovers {

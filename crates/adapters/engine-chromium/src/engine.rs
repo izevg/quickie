@@ -11,13 +11,12 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use quickie_application::{EngineError, EnginePort, Navigation};
+use quickie_application::{EngineError, EnginePort, Navigated, Navigation};
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
 
 use inbox::Inbox;
 pub use inbox::{OpenedPage, PageHandle};
-pub use reports::Navigated;
 
 use crate::bridge::{Bridge, BridgeError, Ffi, KeyEquivalent, NavigationKind, dispatch};
 

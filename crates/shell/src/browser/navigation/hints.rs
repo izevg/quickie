@@ -1,10 +1,10 @@
 //! Link hints: `F` asks the active page where its links and controls are, the labels show
 //! over them, and typing one follows it. The page answers asynchronously, off the key.
 
-use objc2_foundation::NSRect;
+use objc2_foundation::{NSPoint, NSRect, NSSize};
+use quickie_application::{Followed, LinkTarget, PageRect};
 use quickie_domain_browsing::{Focus, JarChoice, TabId, WindowId};
 use quickie_domain_commands::{Key, KeyStroke, Modifiers};
-use quickie_engine_webkit::{Followed, LinkTarget};
 use quickie_ui_widgets::HintKey;
 
 use super::super::Browser;
@@ -43,7 +43,12 @@ impl Browser {
             self.toast("No links on screen");
             return;
         }
-        let frames: Vec<NSRect> = targets.iter().map(|target| target.frame).collect();
+        // The page view fills the host, whose origin is at its bottom left.
+        let height = host.bounds().size.height;
+        let frames: Vec<NSRect> = targets
+            .iter()
+            .map(|target| in_host(target.frame, height))
+            .collect();
         self.navigation.hints.show(&host, &frames, background);
         self.navigation.hinted.set(Some((window, tab)));
     }
@@ -107,5 +112,37 @@ impl Browser {
             self.toast("Opened in a background tab");
         }
         self.settle(window);
+    }
+}
+
+/// A rectangle of the page view, origin top left, in a host of `height` whose origin is at
+/// its bottom left.
+fn in_host(rect: PageRect, height: f64) -> NSRect {
+    NSRect::new(
+        NSPoint::new(rect.x, height - rect.y - rect.height),
+        NSSize::new(rect.width, rect.height),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use quickie_application::PageRect;
+
+    use super::in_host;
+
+    #[test]
+    fn a_page_rect_flips_into_the_host_from_its_bottom_edge() {
+        let rect = PageRect {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 30.0,
+        };
+
+        assert_eq!(
+            in_host(rect, 600.0),
+            NSRect::new(NSPoint::new(10.0, 550.0), NSSize::new(100.0, 30.0))
+        );
     }
 }

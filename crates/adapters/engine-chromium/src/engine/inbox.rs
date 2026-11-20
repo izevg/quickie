@@ -8,10 +8,11 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use quickie_application::Navigated;
 use quickie_domain_browsing::TabId;
 use url::Url;
 
-use super::reports::{Navigated, Reports};
+use super::reports::Reports;
 use crate::bridge::{Bridge, Event};
 
 /// The engine's handle for a page Chromium opened, until it is adopted as a tab.

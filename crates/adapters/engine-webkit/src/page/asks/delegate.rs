@@ -12,11 +12,11 @@ use objc2_web_kit::{
     WKFrameInfo, WKMediaCaptureType, WKNavigationAction, WKPermissionDecision, WKSecurityOrigin,
     WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
-use quickie_application::Permission;
+use quickie_application::{AskKind, Dialog, Permission};
 use quickie_domain_browsing::Focus;
 use url::Url;
 
-use super::{AskKind, Dialog, Reply, link_focus};
+use super::{Reply, link_focus};
 use crate::page::{Hooks, PageEvent};
 
 /// Where a page without a URL of its own is: never an empty address bar.

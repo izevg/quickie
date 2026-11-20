@@ -1,7 +1,8 @@
 //! The link-hint scripts, and their answers read: where the targets are on screen and what
 //! following one asks of the browser. Pure, so the arithmetic is tested without `WebKit`.
 
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::NSSize;
+use quickie_application::{Followed, LinkTarget, PageRect};
 use url::Url;
 
 /// Finds the links and controls the user can see, in document order, and keeps them in the
@@ -57,29 +58,10 @@ pub(crate) fn follow_script(index: usize, background: bool) -> String {
     )
 }
 
-/// A link or control the user can see, for a link hint.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LinkTarget {
-    /// Where it is in the page view, in points, the origin at the view's bottom left.
-    pub frame: NSRect,
-    /// It is a link with a URL, so it can open in another tab.
-    pub link: bool,
-}
-
-/// What following a link hint left for the browser to do.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Followed {
-    /// The page did it: a click, a focus, or the target was gone.
-    Done,
-    /// Open this URL in a background tab.
-    Background(Url),
-    /// Open this URL in a new tab in front: the link asked for a new window.
-    NewTab(Url),
-}
-
 /// The targets in `answer`, as the collect script wrote them, placed in a view of `view`
-/// size. The page's viewport fills the view's width and ends at its bottom edge; a viewport
-/// shorter than the view sits under a top inset. A malformed entry is skipped.
+/// size, the origin at its top left. The page's viewport fills the view's width and ends at
+/// its bottom edge; a viewport shorter than the view sits under a top inset. A malformed entry
+/// is skipped.
 pub(crate) fn targets(answer: &str, view: NSSize) -> Vec<LinkTarget> {
     let mut entries = answer.split(';');
     let Some([css_width, css_height]) = entries.next().and_then(numbers::<2>) else {
@@ -90,13 +72,17 @@ pub(crate) fn targets(answer: &str, view: NSSize) -> Vec<LinkTarget> {
     } else {
         1.0
     };
+    // The viewport's top edge, in the view.
+    let inset = view.height - css_height * scale;
     entries
         .filter_map(numbers::<5>)
         .map(|[left, top, width, height, link]| LinkTarget {
-            frame: NSRect::new(
-                NSPoint::new(left * scale, (css_height - top - height) * scale),
-                NSSize::new(width * scale, height * scale),
-            ),
+            frame: PageRect {
+                x: left * scale,
+                y: inset + top * scale,
+                width: width * scale,
+                height: height * scale,
+            },
             link: link > 0.0,
         })
         .collect()
@@ -131,10 +117,11 @@ fn numbers<const N: usize>(entry: &str) -> Option<[f64; N]> {
 
 #[cfg(test)]
 mod tests {
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use objc2_foundation::NSSize;
+    use quickie_application::{Followed, LinkTarget, PageRect};
     use url::Url;
 
-    use super::{Followed, LinkTarget, follow_script, followed, targets};
+    use super::{follow_script, followed, targets};
 
     #[test]
     fn the_follow_script_names_its_target_and_mode() {
@@ -145,12 +132,17 @@ mod tests {
         assert!(follow_script(0, false).contains("if (href && false)"));
     }
 
-    fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
-        NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> PageRect {
+        PageRect {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     #[test]
-    fn targets_flip_into_the_view_from_its_bottom_edge() {
+    fn targets_keep_their_place_from_the_view_top_left() {
         let found = targets(
             "800,600;10,20,100,30,1;0,570,50,30,0",
             NSSize::new(800.0, 600.0),
@@ -160,11 +152,11 @@ mod tests {
             found,
             [
                 LinkTarget {
-                    frame: rect(10.0, 550.0, 100.0, 30.0),
+                    frame: rect(10.0, 20.0, 100.0, 30.0),
                     link: true,
                 },
                 LinkTarget {
-                    frame: rect(0.0, 0.0, 50.0, 30.0),
+                    frame: rect(0.0, 570.0, 50.0, 30.0),
                     link: false,
                 },
             ]
@@ -176,14 +168,14 @@ mod tests {
         // The view is 28 points taller than the viewport: a title bar inset.
         let found = targets("800,572;0,0,10,10,0", NSSize::new(800.0, 600.0));
 
-        assert_eq!(found[0].frame, rect(0.0, 562.0, 10.0, 10.0));
+        assert_eq!(found[0].frame, rect(0.0, 28.0, 10.0, 10.0));
     }
 
     #[test]
     fn a_zoomed_page_scales_into_view_points() {
         let found = targets("400,300;10,10,20,20,1", NSSize::new(800.0, 600.0));
 
-        assert_eq!(found[0].frame, rect(20.0, 540.0, 40.0, 40.0));
+        assert_eq!(found[0].frame, rect(20.0, 20.0, 40.0, 40.0));
     }
 
     #[test]
@@ -204,7 +196,7 @@ mod tests {
     fn a_zero_wide_viewport_does_not_scale() {
         let found = targets("0,100;1,2,3,4,0", NSSize::new(50.0, 100.0));
 
-        assert_eq!(found[0].frame, rect(1.0, 94.0, 3.0, 4.0));
+        assert_eq!(found[0].frame, rect(1.0, 2.0, 3.0, 4.0));
     }
 
     #[test]
