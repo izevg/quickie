@@ -130,8 +130,10 @@ impl SessionRepo for Recorder {
             gate.began.send(()).unwrap();
             gate.release.recv().unwrap();
         }
+        // Record only once the write is on disk, so a test that waits for it can read it back.
+        let saved = self.store.save(snapshot);
         self.written.lock().unwrap().push(snapshot.clone());
-        self.store.save(snapshot)
+        saved
     }
 }
 
