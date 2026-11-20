@@ -10,7 +10,7 @@ use quickie_application::{
     AppError, Clock, LoadedKeymap, RejectedEntry, Rejection, check_binding, keymap_lines,
     load_keymap, rebind, reset_binding,
 };
-use quickie_domain_commands::{Catalog, Chord, CommandId, Keymap, KeymapError};
+use quickie_domain_commands::{BindingError, Catalog, Chord, CommandId, Keymap, KeymapError};
 use quickie_domain_settings::PageLayout;
 use quickie_domain_shields::{FilterListId, Refresh};
 use quickie_store::KeybindingsFile;
@@ -332,6 +332,9 @@ impl Browser {
                     |other| other.title.to_owned(),
                 );
                 format!("{keys} already runs {other}")
+            }
+            Rejection::Malformed(BindingError::Typing(_)) => {
+                format!("{keys} types text; add ⌘, ⌥ or ⌃")
             }
             other => other.to_string(),
         }

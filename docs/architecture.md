@@ -187,7 +187,10 @@ cost nothing at run time.
   `⌘W`/`⌘,` in Settings and `⌘Q`; then an open `⌃⇥` cycle takes `⎋` (and, once its switcher
   shows, the letters that filter it and `W`, which closes the selected tab), a sheet its keys,
   the overview and link hints theirs, an overlay its fixed keys, and the keymap resolves the
-  rest in the current `when` context. A letter is the Latin letter the layout types (QWERTZ's `⌘Z`
+  rest in the current `when` context. Two kinds of press skip the keymap: one that types (a
+  letter, digit, punctuation key, or space without ⌘, ⌥ or ⌃, which no binding may start
+  with) unless it completes a chord, so typing never builds a `when` context; and, while an
+  input method composes (marked text), any press without ⌘, which belongs to the field. A letter is the Latin letter the layout types (QWERTZ's `⌘Z`
   is undo), else its US key position (a Russian `д` on the `L` key is `⌘L`). What the keymap
   does not bind goes on to the page, the field, and the menu bar (`⌘C`, `⌘H`, `⌘M`, `⌃⌘F`).
   State between presses never outlives the user's attention: a chord's first stroke waits 2 s

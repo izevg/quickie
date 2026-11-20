@@ -39,6 +39,14 @@ impl Modifiers {
         (self.0 & other.0) == other.0
     }
 
+    /// Whether `⌘`, `⌥` or `⌃` is held (Super, Alt or Ctrl on Linux): the modifiers that turn a
+    /// typing key into a shortcut. `⇧` alone does not; it only picks another character.
+    #[must_use]
+    pub const fn makes_shortcut(self) -> bool {
+        // Anything held besides `⇧` is one of the three.
+        self.0 & !Self::SHIFT.0 != 0
+    }
+
     /// The single modifier `keybindings.json` names so, in any case: `cmd` (`command`, `meta`,
     /// `super`), `shift`, `alt` (`option`, `opt`), `ctrl` (`control`). The platform-dependent
     /// `mod` is not one of them: the parser of a stroke resolves it.

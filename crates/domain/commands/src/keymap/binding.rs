@@ -3,7 +3,7 @@
 use quickie_domain_kernel::{CommandId, CommandIdError};
 
 use super::when::{WhenContext, WhenError, WhenExpr};
-use crate::key::{Chord, ChordError, Platform};
+use crate::key::{Chord, ChordError, Platform, TypingStroke};
 
 /// A chord that runs a command, while its `when` clause holds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -22,8 +22,22 @@ impl KeyBinding {
     ///
     /// # Errors
     ///
-    /// [`BindingError`] names the field that does not parse.
+    /// [`BindingError`] names the field that does not parse, or [`BindingError::Typing`] when
+    /// the key would type into text fields instead of being a shortcut.
     pub fn parse(
+        key: &str,
+        command: &str,
+        when: Option<&str>,
+        platform: Platform,
+    ) -> Result<Self, BindingError> {
+        let binding = Self::read(key, command, when, platform)?;
+        binding.chord.check_shortcut()?;
+        Ok(binding)
+    }
+
+    /// The fields read as they are written, before the rule that a shortcut never types, so a
+    /// removal of an old bare key still reads.
+    fn read(
         key: &str,
         command: &str,
         when: Option<&str>,
@@ -78,9 +92,14 @@ impl KeymapEntry {
     /// Reads an entry from the fields of a `keybindings.json` entry on `platform`; a command
     /// written `-<id>` removes instead of adding.
     ///
+    /// A removal may name a key that types (`f`, from before shortcuts needed `⌘`, `⌥` or
+    /// `⌃`): no binding has such a key any more, so it removes nothing, and a file written
+    /// back then still loads.
+    ///
     /// # Errors
     ///
-    /// [`BindingError`] names the field that does not parse.
+    /// [`BindingError`] names the field that does not parse; an added binding whose key would
+    /// type is [`BindingError::Typing`].
     pub fn parse(
         key: &str,
         command: &str,
@@ -93,7 +112,7 @@ impl KeymapEntry {
                     chord,
                     command,
                     when,
-                } = KeyBinding::parse(key, removed, when, platform)?;
+                } = KeyBinding::read(key, removed, when, platform)?;
                 Ok(Self::Unbind(Unbinding {
                     chord,
                     command,
@@ -126,4 +145,7 @@ pub enum BindingError {
     /// The `when` field.
     #[error("when: {0}")]
     When(#[from] WhenError),
+    /// The `key` field parses, but its first stroke types a character: it cannot be a shortcut.
+    #[error("key: {0}")]
+    Typing(#[from] TypingStroke),
 }

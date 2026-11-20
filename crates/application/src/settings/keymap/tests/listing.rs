@@ -71,11 +71,8 @@ fn a_clause_is_listed_as_written() {
     let lines = lines_of(&load(Vec::new()));
 
     let hints = lines_for(&lines, "quickie.hints.toggle");
-    assert_eq!(
-        hints[0].when.as_deref(),
-        Some("pageFocused && !inputFocused")
-    );
-    assert_eq!(hints[0].keys.as_deref(), Some("F"));
+    assert_eq!(hints[0].when.as_deref(), Some("pageFocused"));
+    assert_eq!(hints[0].keys.as_deref(), Some("⌥F"));
 }
 
 #[test]
@@ -139,16 +136,13 @@ fn a_conflicting_entry_follows_its_command_and_names_the_other() {
 #[test]
 fn a_conflict_keeps_its_clause() {
     let lines = lines_of(&load(vec![KeybindingText {
-        when: Some("pageFocused && !inputFocused".to_owned()),
-        ..entry("f", "quickie.page.find")
+        when: Some("pageFocused".to_owned()),
+        ..entry("alt+f", "quickie.page.find")
     }]));
 
     let find = lines_for(&lines, "quickie.page.find");
     assert_eq!(find[1].conflict.as_deref(), Some("Toggle Link Hints"));
-    assert_eq!(
-        find[1].when.as_deref(),
-        Some("pageFocused && !inputFocused")
-    );
+    assert_eq!(find[1].when.as_deref(), Some("pageFocused"));
 }
 
 #[test]
@@ -183,8 +177,8 @@ fn a_query_finds_the_title_the_id_the_keys_and_the_clause_ignoring_case() {
     let hints = line(
         "Toggle Link Hints",
         "quickie.hints.toggle",
-        Some("F"),
-        Some("pageFocused && !inputFocused"),
+        Some("⌥F"),
+        Some("pageFocused"),
     );
 
     assert!(hints.matches("LINK"), "title");

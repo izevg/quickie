@@ -6,9 +6,10 @@
 //! otherwise it becomes a [`KeyStroke`] (a Latin letter as the layout names it, any other key by
 //! its US position). Then, in order: an open `⌃⇥` cycle takes `⎋`, and once its switcher
 //! shows, the letters, digits, space and `⌫` it filters with; a sheet takes its keys;
-//! the overview and link hints take theirs; an open overlay takes its fixed keys; and the keymap
-//! resolves the stroke in the current [`WhenContext`] to a command, the first half of a chord,
-//! or nothing. Nothing passes on to the page, the field, or the menu bar, so `⌘C`, `⌘H`, `⌘M`,
+//! the overview and link hints take theirs; an open overlay takes its fixed keys; a stroke that
+//! types, or any stroke without `⌘` while an input method composes, goes on ([`asks_keymap`]);
+//! and the keymap resolves the rest in the current [`WhenContext`] to a command, the first half
+//! of a chord, or nothing. Nothing passes on to the page, the field, or the menu bar, so `⌘C`, `⌘H`, `⌘M`,
 //! `⌃⌘F`, and the system's strokes keep working.
 //!
 //! A press the page does not take comes back: `WebKit` hands it to `AppKit` again, which runs
@@ -29,8 +30,10 @@ use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
-    NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSView, NSWindow,
+    NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSTextInputClient,
+    NSTextInputContext, NSView, NSWindow,
 };
+use objc2_foundation::NSString;
 use quickie_domain_browsing::TabId;
 use quickie_domain_commands::{
     CommandId, ContextFlag, FocusedView, Key, KeyStroke, Modifiers, Resolution, WhenContext,
@@ -42,6 +45,7 @@ use super::page::SheetRoute;
 use crate::MacEngine;
 use crate::input::keystroke::chord::PendingChord;
 use crate::input::keystroke::log::{Outcome, Press};
+use crate::input::keystroke::typing::asks_keymap;
 use crate::input::keystroke::{OverlayKey, Read, is_close, is_quit, overlay_key, read};
 
 /// What keeps the keys working: the event monitor and the observers of focus changes. Keyboard
@@ -57,10 +61,15 @@ impl Browser {
         let flags = event.modifierFlags();
         let held = modifiers(flags);
         let function = flags.contains(NSEventModifierFlags::Function);
-        let typed = event
-            .charactersIgnoringModifiers()
-            .map_or_else(String::new, |chars| chars.to_string());
-        let read = read(event.keyCode(), &typed, held, function);
+        let chars = event.charactersIgnoringModifiers();
+        // The reader looks at one typed character only, so it is read on the stack: a key
+        // press allocates nothing unless the key debug overlay shows.
+        let mut buffer = [0; 4];
+        let typed = chars
+            .as_deref()
+            .and_then(single_char)
+            .map_or("", |c| &*c.encode_utf8(&mut buffer));
+        let read = read(event.keyCode(), typed, held, function);
         let press = (event.timestamp().to_bits(), event.keyCode());
         let mut passed = self.passed.get();
         let outcome = if passed.contains(press) {
@@ -73,9 +82,9 @@ impl Browser {
             self.passed.set(passed);
         }
         self.log_key(
-            Press {
+            || Press {
                 code: event.keyCode(),
-                chars: typed,
+                chars: chars.map_or_else(String::new, |chars| chars.to_string()),
                 modifiers: held,
                 function,
                 stroke: match read {
@@ -85,7 +94,11 @@ impl Browser {
             },
             &outcome,
         );
-        self.drain();
+        // Only a key the browser took can have changed what the engine reports; the engine's
+        // waker drains everything else.
+        if outcome.handled() {
+            self.drain();
+        }
         outcome.handled()
     }
 
@@ -175,6 +188,9 @@ impl Browser {
             self.address.wake();
         }
         let pending = self.take_pending();
+        if !asks_keymap(stroke, pending, || self.composing()) {
+            return Outcome::Passed;
+        }
         let resolution = self.keymap.borrow().resolve(stroke, pending, &self.when());
         match resolution {
             Resolution::Command(id) => self.run_stroke(id, stroke),
@@ -244,12 +260,19 @@ impl Browser {
         }
     }
 
+    /// Whether an input method composes in the field that has the keyboard, the page's or an
+    /// overlay's: it has marked text.
+    fn composing(&self) -> bool {
+        NSTextInputContext::currentInputContext(self.mtm)
+            .is_some_and(|context| context.client().hasMarkedText())
+    }
+
     /// What is true right now, for `when` clauses.
     ///
     /// `inputFocused` is the page's word: its focus script reports whether the focused element
-    /// takes text, so `F` types into a form and opens link hints everywhere else. It counts
-    /// only while the page has the keyboard. An overlay's own field, the find bar's included,
-    /// is focused input too.
+    /// takes text. It counts only while the page has the keyboard. An overlay's own field, the
+    /// find bar's included, is focused input too. No binding gates a key that types on it: a
+    /// key that types never reaches the keymap.
     pub(super) fn when(&self) -> WhenContext {
         let mut context = WhenContext::new();
         let view = if self.command_palette.is_open() {
@@ -335,6 +358,15 @@ fn page_has_keys<E: MacEngine>(engine: &E, tab: TabId, window: &NSWindow) -> boo
         .view(tab)
         .is_some_and(|page| first_responder_within(window, page));
     has_keyboard && engine.input_focused(tab)
+}
+
+/// The one character `chars` holds, or `None` for none, several, or half of a surrogate pair:
+/// the key reader names those by their key code anyway.
+fn single_char(chars: &NSString) -> Option<char> {
+    if chars.length() != 1 {
+        return None;
+    }
+    char::from_u32(u32::from(chars.characterAtIndex(0)))
 }
 
 /// Whether `window`'s first responder is `view` or inside it.
