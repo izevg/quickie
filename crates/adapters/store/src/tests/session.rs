@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use quickie_application::{SessionRepo, StoreError};
 use quickie_domain_browsing::{
     ClosedTab, Focus, Jar, JarChoice, JarId, NextIds, PinnedSlot, Profile, Session,
@@ -53,7 +55,7 @@ fn a_saved_session_loads_back_equal_and_restorable() {
     let mut store = SqliteStore::in_memory().unwrap();
     let snapshot = busy();
 
-    store.save(&snapshot).unwrap();
+    store.save(snapshot.clone()).unwrap();
     let loaded = store.load().unwrap();
 
     assert_eq!(loaded.as_ref(), Some(&snapshot));
@@ -63,14 +65,14 @@ fn a_saved_session_loads_back_equal_and_restorable() {
 #[test]
 fn a_save_replaces_the_previous_one() {
     let mut store = SqliteStore::in_memory().unwrap();
-    store.save(&busy()).unwrap();
+    store.save(busy()).unwrap();
     let mut session = Session::new(Profile::Main);
     let window = session.open_window();
     session
         .open(window, url("only"), JarChoice::Main, Focus::Foreground)
         .unwrap();
 
-    store.save(&session.snapshot().unwrap()).unwrap();
+    store.save(session.snapshot().unwrap()).unwrap();
 
     assert_eq!(store.load(), Ok(Some(session.snapshot().unwrap())));
 }
@@ -80,7 +82,7 @@ fn an_empty_session_still_counts_as_saved() {
     let mut store = SqliteStore::in_memory().unwrap();
 
     store
-        .save(&Session::new(Profile::Main).snapshot().unwrap())
+        .save(Session::new(Profile::Main).snapshot().unwrap())
         .unwrap();
 
     assert_eq!(
@@ -94,7 +96,10 @@ fn the_session_survives_reopening_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shell.sqlite");
     let snapshot = busy();
-    SqliteStore::open(&path).unwrap().save(&snapshot).unwrap();
+    SqliteStore::open(&path)
+        .unwrap()
+        .save(snapshot.clone())
+        .unwrap();
 
     let reopened = SqliteStore::open(&path).unwrap();
 
@@ -104,7 +109,7 @@ fn the_session_survives_reopening_the_file() {
 #[test]
 fn a_corrupt_url_is_an_error_not_a_panic() {
     let mut store = SqliteStore::in_memory().unwrap();
-    store.save(&busy()).unwrap();
+    store.save(busy()).unwrap();
     store
         .db
         .execute("UPDATE tabs SET url = 'not a url' WHERE id = 0", [])
@@ -118,7 +123,7 @@ fn a_corrupt_url_is_an_error_not_a_panic() {
 #[test]
 fn a_negative_id_is_an_error() {
     let mut store = SqliteStore::in_memory().unwrap();
-    store.save(&busy()).unwrap();
+    store.save(busy()).unwrap();
     store
         .db
         .execute("UPDATE meta SET value = -1 WHERE key = 'next_tab'", [])
@@ -132,7 +137,7 @@ fn a_negative_id_is_an_error() {
 #[test]
 fn a_bad_slot_is_an_error() {
     let mut store = SqliteStore::in_memory().unwrap();
-    store.save(&busy()).unwrap();
+    store.save(busy()).unwrap();
     store.db.execute("UPDATE slots SET slot = 12", []).unwrap();
 
     assert!(matches!(store.load(), Err(StoreError(message)) if message.contains("bad slot 12")));
@@ -178,15 +183,15 @@ fn a_session_saved_before_ids_named_their_profile_comes_back_as_the_main_profile
     slots[2] = Some(tab(0));
     let expected = SessionSnapshot {
         tabs: vec![
-            page(0, "a", "A", Jar::Main),
-            page(2, "c", "", Jar::Throwaway(JarId::new(0))),
+            Arc::new(page(0, "a", "A", Jar::Main)),
+            Arc::new(page(2, "c", "", Jar::Throwaway(JarId::new(0)))),
         ],
         windows: vec![(WindowId::new(Profile::Main, 0), vec![tab(2), tab(0)])],
         slots,
-        trash: vec![ClosedTab {
+        trash: vec![Arc::new(ClosedTab {
             tab: page(1, "b", "B", Jar::Main),
             closed_at: Timestamp::from_millis(1_700_000_000_000),
-        }],
+        })],
         next: NextIds {
             tab: 3,
             window: 1,

@@ -52,6 +52,11 @@ impl SqliteStore {
         let db = Connection::open(path).map_err(failed)?;
         db.pragma_update(None, "journal_mode", "WAL")
             .map_err(failed)?;
+        // With the write-ahead log, NORMAL keeps the database consistent through a crash and
+        // skips the fsync of every commit; a power cut may lose the last commits, which the
+        // write-behind store already risks for its settle time.
+        db.pragma_update(None, "synchronous", "NORMAL")
+            .map_err(failed)?;
         Self::init(db)
     }
 
@@ -77,8 +82,8 @@ impl SessionRepo for SqliteStore {
         session::load(&self.db)
     }
 
-    fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError> {
-        session::save(&mut self.db, snapshot)
+    fn save(&mut self, snapshot: SessionSnapshot) -> Result<(), StoreError> {
+        session::save(&mut self.db, &snapshot)
     }
 }
 
@@ -115,8 +120,8 @@ impl AgentRepo for SqliteStore {
         agent::load(&self.db)
     }
 
-    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
-        agent::save(&mut self.db, endpoint)
+    fn save_endpoint(&mut self, endpoint: Option<EndpointSnapshot>) -> Result<(), StoreError> {
+        agent::save(&mut self.db, endpoint.as_ref())
     }
 }
 
@@ -125,8 +130,8 @@ impl ZoomRepo for SqliteStore {
         zoom::load(&self.db)
     }
 
-    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError> {
-        zoom::save(&mut self.db, zooms)
+    fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
+        zoom::save(&mut self.db, &zooms)
     }
 }
 
@@ -135,12 +140,12 @@ impl ShieldsRepo for SqliteStore {
         shields::load(&self.db)
     }
 
-    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError> {
-        shields::save_sites(&mut self.db, sites)
+    fn save_sites(&mut self, sites: SitePoliciesSnapshot) -> Result<(), StoreError> {
+        shields::save_sites(&mut self.db, &sites)
     }
 
-    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError> {
-        shields::save_lists(&mut self.db, lists)
+    fn save_lists(&mut self, lists: FilterListSetSnapshot) -> Result<(), StoreError> {
+        shields::save_lists(&mut self.db, &lists)
     }
 
     fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {

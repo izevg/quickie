@@ -188,6 +188,12 @@ launch. As a bundle, Quickie opens the links and files other apps hand it, and t
 The ad-hoc signature is for development only: the Developer ID signed and notarized build comes
 with the engine fork's release pipeline in P1.
 
+To use Quickie day to day, run the release bundle, `cargo xtask bundle --release` (the same as
+`mise run bundle --release`), and open `target/release/Quickie.app`. It is built with fat LTO and
+one codegen unit, so it takes minutes to build and is the build whose speed counts. A debug
+bundle compiles our crates without optimization and every dependency at `opt-level = 2`
+(`[profile.dev.package."*"]`), quick to rebuild and fast enough to try a change.
+
 | Gate | Runs |
 |---|---|
 | pre-commit | rustfmt, taplo, typos, the rule of four, the layer map, shellcheck, actionlint, secret scan, clippy (pedantic, warnings are errors), tests |

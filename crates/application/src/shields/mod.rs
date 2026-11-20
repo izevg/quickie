@@ -203,7 +203,7 @@ impl<R: ShieldsRepo, C: Clock, B: ContentBlockerPort> Shields<R, C, B> {
         if !next.set_refresh(refresh) {
             return Ok(false);
         }
-        self.repo.save_lists(&next.snapshot())?;
+        self.repo.save_lists(next.snapshot())?;
         self.lists = next;
         Ok(true)
     }
@@ -253,7 +253,7 @@ impl<R: ShieldsRepo, C: Clock, B: ContentBlockerPort> Shields<R, C, B> {
         for (list, body) in &new_bodies {
             self.repo.save_list_body(*list, body)?;
         }
-        self.repo.save_lists(&next.snapshot())?;
+        self.repo.save_lists(next.snapshot())?;
         self.lists = next;
         self.bodies.extend(new_bodies);
         if refreshed
@@ -310,7 +310,7 @@ impl<R: ShieldsRepo, C: Clock, B: ContentBlockerPort> Shields<R, C, B> {
     }
 
     fn commit_sites(&mut self, next: SitePolicies) -> Result<(), AppError> {
-        self.repo.save_sites(&next.snapshot())?;
+        self.repo.save_sites(next.snapshot())?;
         self.sites = next;
         Ok(())
     }
@@ -330,7 +330,7 @@ impl<R: ShieldsRepo, C: Clock, B: ContentBlockerPort> Shields<R, C, B> {
         if changed.is_empty() {
             return Ok(changed);
         }
-        self.repo.save_lists(&next.snapshot())?;
+        self.repo.save_lists(next.snapshot())?;
         self.lists = next;
         if changed.iter().any(|list| self.bodies.contains_key(list)) {
             self.install()?;

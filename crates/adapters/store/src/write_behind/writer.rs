@@ -126,7 +126,7 @@ impl Batch {
             .map(|(list, body)| store.save_list_body(list, &body))
             .collect();
         let results = [
-            self.session.take().map(|session| store.save(&session)),
+            self.session.take().map(|session| store.save(*session)),
             self.history
                 .take()
                 .map(|history| store.save_history(&history)),
@@ -139,12 +139,12 @@ impl Batch {
             self.downloads
                 .take()
                 .map(|downloads| store.save_downloads(&downloads)),
-            self.sites.take().map(|sites| store.save_sites(&sites)),
-            self.lists.take().map(|lists| store.save_lists(&lists)),
+            self.sites.take().map(|sites| store.save_sites(sites)),
+            self.lists.take().map(|lists| store.save_lists(lists)),
             self.endpoint
                 .take()
-                .map(|endpoint| store.save_endpoint(endpoint.as_ref())),
-            self.zooms.take().map(|zooms| store.save_site_zooms(&zooms)),
+                .map(|endpoint| store.save_endpoint(endpoint)),
+            self.zooms.take().map(|zooms| store.save_site_zooms(zooms)),
         ];
         if let Some(error) = bodies
             .into_iter()

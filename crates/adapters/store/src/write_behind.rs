@@ -177,8 +177,8 @@ impl SessionRepo for WriteBehindStore {
         self.ask(Barrier::LoadSession)?
     }
 
-    fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError> {
-        self.hand_over(Save::Session(Box::new(snapshot.clone())))
+    fn save(&mut self, snapshot: SessionSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Session(Box::new(snapshot)))
     }
 }
 
@@ -215,8 +215,8 @@ impl ZoomRepo for WriteBehindStore {
         self.ask(Barrier::LoadZooms)?
     }
 
-    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError> {
-        self.hand_over(Save::Zooms(zooms.clone()))
+    fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Zooms(zooms))
     }
 }
 
@@ -225,12 +225,12 @@ impl ShieldsRepo for WriteBehindStore {
         self.ask(Barrier::LoadShields)?
     }
 
-    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError> {
-        self.hand_over(Save::Sites(sites.clone()))
+    fn save_sites(&mut self, sites: SitePoliciesSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Sites(sites))
     }
 
-    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError> {
-        self.hand_over(Save::Lists(lists.clone()))
+    fn save_lists(&mut self, lists: FilterListSetSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Lists(lists))
     }
 
     fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {
@@ -243,8 +243,8 @@ impl AgentRepo for WriteBehindStore {
         self.ask(Barrier::LoadEndpoint)?
     }
 
-    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
-        self.hand_over(Save::Endpoint(endpoint.cloned()))
+    fn save_endpoint(&mut self, endpoint: Option<EndpointSnapshot>) -> Result<(), StoreError> {
+        self.hand_over(Save::Endpoint(endpoint))
     }
 }
 

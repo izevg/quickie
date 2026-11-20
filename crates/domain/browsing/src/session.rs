@@ -6,6 +6,9 @@ mod snapshot;
 mod tests;
 mod trash;
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use indexmap::IndexMap;
 use quickie_domain_kernel::{Profile, TabId, Timestamp, WindowId};
 use url::Url;
@@ -42,11 +45,18 @@ pub struct ClosedWindow {
 ///
 /// Every id it hands out names its profile, and it knows only ids of its own profile: a tab or
 /// a window of another profile is as unknown to it as a closed one.
+///
+/// Tabs are shared, not owned: a use case commits a copy of the session and the store keeps a
+/// snapshot of it, and each costs a reference count per tab instead of a copy of every URL and
+/// title. A mutation copies only the tab it changes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
     profile: Profile,
-    tabs: IndexMap<TabId, Tab>,
+    tabs: IndexMap<TabId, Arc<Tab>>,
     windows: IndexMap<WindowId, MruStack>,
+    /// The window of each live tab. The MRU orders say the same, but only through a scan of
+    /// every window.
+    placement: HashMap<TabId, WindowId>,
     slots: [Option<TabId>; PinnedSlot::COUNT],
     trash: Trash,
     next: NextIds,
@@ -60,6 +70,7 @@ impl Session {
             profile,
             tabs: IndexMap::new(),
             windows: IndexMap::new(),
+            placement: HashMap::new(),
             slots: [None; PinnedSlot::COUNT],
             trash: Trash::default(),
             next: NextIds::default(),
@@ -106,12 +117,12 @@ impl Session {
         self.next.tab += 1;
         self.tabs.insert(
             id,
-            Tab {
+            Arc::new(Tab {
                 id,
                 url,
                 title: String::new(),
                 jar,
-            },
+            }),
         );
         self.enter(window, id, focus);
         Ok(id)
@@ -124,7 +135,7 @@ impl Session {
     ///
     /// [`BrowsingError::UnknownTab`] for a tab that is not live.
     pub fn activate(&mut self, id: TabId) -> Result<WindowId, BrowsingError> {
-        let window = self.window_of(id)?;
+        let window = self.placed(id)?;
         if let Some(mru) = self.windows.get_mut(&window) {
             mru.touch(id);
         }
@@ -137,7 +148,7 @@ impl Session {
     ///
     /// [`BrowsingError::UnknownTab`] for a tab that is not live.
     pub fn close(&mut self, id: TabId, now: Timestamp) -> Result<Closed, BrowsingError> {
-        let window = self.window_of(id)?;
+        let window = self.placed(id)?;
         let released_jar = self.discard(id, now);
         let next_active = self.windows.get(&window).and_then(MruStack::front);
         Ok(Closed {
@@ -184,14 +195,15 @@ impl Session {
         if !self.windows.contains_key(&into) {
             return Err(BrowsingError::UnknownWindow(into));
         }
-        let Some(ClosedTab { mut tab, .. }) = self.trash.pop_latest() else {
+        let Some(closed) = self.trash.pop_latest() else {
             return Ok(None);
         };
+        let ClosedTab { mut tab, .. } = Arc::unwrap_or_clone(closed);
         if let Jar::Throwaway(_) = tab.jar {
             tab.jar = self.new_jar();
         }
         let id = tab.id;
-        self.tabs.insert(id, tab);
+        self.tabs.insert(id, Arc::new(tab));
         self.enter(into, id, Focus::Foreground);
         Ok(Some(id))
     }
@@ -202,10 +214,11 @@ impl Session {
     ///
     /// [`BrowsingError::UnknownTab`] for a tab that is not live (often closed a moment ago).
     pub fn navigated(&mut self, id: TabId, url: Url, title: String) -> Result<(), BrowsingError> {
-        let tab = self
+        let shared = self
             .tabs
             .get_mut(&id)
             .ok_or(BrowsingError::UnknownTab(id))?;
+        let tab = Arc::make_mut(shared);
         tab.url = url;
         tab.title = title;
         Ok(())
@@ -214,7 +227,11 @@ impl Session {
     /// Removes and returns the trash entries older than [`RETENTION_MS`]; the store drops their
     /// navigation history.
     pub fn purge_trash(&mut self, now: Timestamp) -> Vec<ClosedTab> {
-        self.trash.purge(now)
+        self.trash
+            .purge(now)
+            .into_iter()
+            .map(Arc::unwrap_or_clone)
+            .collect()
     }
 
     /// Pins a tab to a slot and returns the tab it displaced, the way a vim mark is overwritten.
@@ -252,7 +269,13 @@ impl Session {
     /// A live tab.
     #[must_use]
     pub fn tab(&self, id: TabId) -> Option<&Tab> {
-        self.tabs.get(&id)
+        self.tabs.get(&id).map(Arc::as_ref)
+    }
+
+    /// The window a live tab is in; `None` for a tab that is not live.
+    #[must_use]
+    pub fn window_of(&self, id: TabId) -> Option<WindowId> {
+        self.placement.get(&id).copied()
     }
 
     /// A window's tabs in opening order, as the tab overview lays them out.
@@ -261,11 +284,14 @@ impl Session {
     ///
     /// [`BrowsingError::UnknownWindow`] for a window that is not open.
     pub fn tabs(&self, window: WindowId) -> Result<impl Iterator<Item = &Tab>, BrowsingError> {
-        let mru = self
-            .windows
-            .get(&window)
-            .ok_or(BrowsingError::UnknownWindow(window))?;
-        Ok(self.tabs.values().filter(move |tab| mru.contains(tab.id)))
+        if !self.windows.contains_key(&window) {
+            return Err(BrowsingError::UnknownWindow(window));
+        }
+        Ok(self
+            .tabs
+            .values()
+            .filter(move |tab| self.window_of(tab.id) == Some(window))
+            .map(Arc::as_ref))
     }
 
     /// A window's tabs, most recent first: the input of a [`crate::TabCycle`].
@@ -287,18 +313,15 @@ impl Session {
 
     /// The trash, oldest first.
     pub fn trash(&self) -> impl Iterator<Item = &ClosedTab> {
-        self.trash.iter()
+        self.trash.iter().map(Arc::as_ref)
     }
 
     fn live(&self, id: TabId) -> Result<&Tab, BrowsingError> {
-        self.tabs.get(&id).ok_or(BrowsingError::UnknownTab(id))
+        self.tab(id).ok_or(BrowsingError::UnknownTab(id))
     }
 
-    fn window_of(&self, id: TabId) -> Result<WindowId, BrowsingError> {
-        self.windows
-            .iter()
-            .find_map(|(&window, mru)| mru.contains(id).then_some(window))
-            .ok_or(BrowsingError::UnknownTab(id))
+    fn placed(&self, id: TabId) -> Result<WindowId, BrowsingError> {
+        self.window_of(id).ok_or(BrowsingError::UnknownTab(id))
     }
 
     fn new_jar(&mut self) -> Jar {
@@ -307,12 +330,14 @@ impl Session {
         Jar::Throwaway(jar)
     }
 
+    /// Puts a tab into an open window.
     fn enter(&mut self, window: WindowId, id: TabId, focus: Focus) {
         if let Some(mru) = self.windows.get_mut(&window) {
             match focus {
                 Focus::Foreground => mru.push_front(id),
                 Focus::Background => mru.push_back(id),
             }
+            self.placement.insert(id, window);
         }
     }
 
@@ -326,19 +351,22 @@ impl Session {
 
     /// Moves a live tab to the trash and returns its jar if no live tab uses it any more.
     fn discard(&mut self, id: TabId, now: Timestamp) -> Option<JarId> {
-        for mru in self.windows.values_mut() {
+        // `close_window` takes the whole window out first; then only the placement goes.
+        if let Some(window) = self.placement.remove(&id)
+            && let Some(mru) = self.windows.get_mut(&window)
+        {
             mru.remove(id);
         }
         self.clear_slot_of(id);
-        let tab = self.tabs.shift_remove(&id)?;
+        let tab = Arc::unwrap_or_clone(self.tabs.shift_remove(&id)?);
         let released = match tab.jar {
             Jar::Throwaway(jar) if !self.tabs.values().any(|t| t.jar == tab.jar) => Some(jar),
             Jar::Main | Jar::Throwaway(_) => None,
         };
-        self.trash.push(ClosedTab {
+        self.trash.push(Arc::new(ClosedTab {
             tab,
             closed_at: now,
-        });
+        }));
         released
     }
 }

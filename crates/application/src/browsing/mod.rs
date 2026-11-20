@@ -69,7 +69,7 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
             session.open(window, home.clone(), JarChoice::Main, Focus::Foreground)?;
         }
         if let Some(snapshot) = session.snapshot() {
-            repo.save(&snapshot)?;
+            repo.save(snapshot)?;
         }
         let mut browsing = Self {
             session,
@@ -157,7 +157,10 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         url: Url,
         focus: Focus,
     ) -> Result<TabId, AppError> {
-        let window = self.window_of(opener)?;
+        let window = self
+            .session
+            .window_of(opener)
+            .ok_or(BrowsingError::UnknownTab(opener))?;
         let tab =
             self.commit(|session| session.open(window, url, JarChoice::SameAs(opener), focus))?;
         self.engine.adopt(page, tab)?;
@@ -238,12 +241,20 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
     }
 
     /// Records a navigation the engine committed. A tab closed a moment ago is not an error:
-    /// engine events race with user commands.
+    /// engine events race with user commands. A report of the page the tab already shows
+    /// changes nothing, so it saves nothing.
     ///
     /// # Errors
     ///
     /// The store failed.
     pub fn navigated(&mut self, tab: TabId, url: Url, title: String) -> Result<(), AppError> {
+        if self
+            .session
+            .tab(tab)
+            .is_some_and(|known| known.url == url && known.title == title)
+        {
+            return Ok(());
+        }
         match self.commit(|session| session.navigated(tab, url, title)) {
             Err(AppError::Browsing(BrowsingError::UnknownTab(_))) => Ok(()),
             other => other,
@@ -314,21 +325,10 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         let outcome = change(&mut next)?;
         // Only the main profile has a snapshot; the agent's commits stay in memory.
         if let Some(snapshot) = next.snapshot() {
-            self.repo.save(&snapshot)?;
+            self.repo.save(snapshot)?;
         }
         self.session = next;
         Ok(outcome)
-    }
-
-    fn window_of(&self, tab: TabId) -> Result<WindowId, AppError> {
-        self.session
-            .windows()
-            .find(|&window| {
-                self.session
-                    .mru(window)
-                    .is_some_and(|mru| mru.contains(&tab))
-            })
-            .ok_or(AppError::Browsing(BrowsingError::UnknownTab(tab)))
     }
 
     fn materialize(&mut self, tab: TabId) -> Result<(), AppError> {

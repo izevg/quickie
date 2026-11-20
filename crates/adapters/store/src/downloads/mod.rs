@@ -75,7 +75,7 @@ pub(crate) fn save(tx: &Transaction<'_>, snapshot: &DownloadsSnapshot) -> Result
     tx.execute_batch("DELETE FROM downloads; DELETE FROM download_counter;")
         .map_err(failed)?;
     let mut insert = tx
-        .prepare(
+        .prepare_cached(
             "INSERT INTO downloads
              (position, id, url, file_name, state, received, total, reason, started_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",

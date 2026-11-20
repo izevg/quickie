@@ -3,7 +3,7 @@
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-use super::{MAX_DEPTH, Node, WhenError};
+use super::{ContextKey, ContextValue, MAX_DEPTH, Node, WhenError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Token<'a> {
@@ -163,20 +163,21 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn comparison(&mut self, key: &str) -> Result<Node, WhenError> {
-        let key = key.to_owned();
+    fn comparison(&mut self, name: &str) -> Result<Node, WhenError> {
         if self.eat(Token::Equals).is_some() {
-            let value = self.expect_text()?;
+            let key = ContextKey::of(name);
+            let value = ContextValue::of(&key, self.expect_text()?);
             return Ok(Node::Equals { key, value });
         }
         if self.eat(Token::NotEquals).is_some() {
-            let value = self.expect_text()?;
+            let key = ContextKey::of(name);
+            let value = ContextValue::of(&key, self.expect_text()?);
             return Ok(Node::NotEquals { key, value });
         }
-        Ok(match key.as_str() {
+        Ok(match name {
             "true" => Node::Literal(true),
             "false" => Node::Literal(false),
-            _ => Node::Flag(key),
+            _ => Node::Flag(ContextKey::of(name)),
         })
     }
 
