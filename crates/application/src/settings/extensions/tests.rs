@@ -861,6 +861,21 @@ mod triggers {
     }
 
     #[test]
+    fn an_extension_key_that_types_is_no_shortcut() {
+        let mut world = installed();
+        let mut typing = info("2025.1.0", Grants::new());
+        typing.commands[0].shortcut = Some("shift+y".to_owned());
+        typing.commands[1].shortcut = Some("alt+l".to_owned());
+        world.uses.read(&id(BITWARDEN), Ok(typing)).unwrap();
+
+        let offers = world.uses.offers();
+
+        assert_eq!(offers[0].stroke, None);
+        assert_eq!(offers[1].stroke, Some(stroke("alt+l")));
+        assert_eq!(world.uses.trigger_for(stroke("shift+y")), None);
+    }
+
+    #[test]
     fn a_key_finds_what_it_runs() {
         let world = installed();
 

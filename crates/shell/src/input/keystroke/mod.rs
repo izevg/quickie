@@ -11,9 +11,12 @@
 //!
 //! - [`chord`]: the first stroke of a two-stroke chord, and when it stops waiting.
 //! - [`log`]: the last key presses and what became of them, for the key debug overlay.
+//! - [`typing`]: keys that type, and keys an input method composes with, which go on without
+//!   the keymap.
 
 pub mod chord;
 pub mod log;
+pub mod typing;
 
 use quickie_domain_commands::{Digit, FunctionKey, Key, KeyStroke, Letter, Modifiers};
 

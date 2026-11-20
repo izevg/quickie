@@ -6,7 +6,7 @@ use super::{
     WhenContext, WhenError, WhenExpr,
 };
 use crate::command::Catalog;
-use crate::key::{Chord, ChordError, KeyStroke, KeyStrokeError, Platform};
+use crate::key::{Chord, ChordError, KeyStroke, KeyStrokeError, Platform, TypingStroke};
 
 const MAC: Platform = Platform::MacOs;
 const LINUX: Platform = Platform::Linux;
@@ -103,15 +103,11 @@ const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 54] = [
     ("cmd+f", "quickie.page.find", None),
     ("cmd+g", "quickie.page.findNext", None),
     ("cmd+shift+g", "quickie.page.findPrevious", None),
+    ("alt+f", "quickie.hints.toggle", Some("pageFocused")),
     (
-        "f",
-        "quickie.hints.toggle",
-        Some("pageFocused && !inputFocused"),
-    ),
-    (
-        "shift+f",
+        "shift+alt+f",
         "quickie.hints.openInBackground",
-        Some("pageFocused && !inputFocused"),
+        Some("pageFocused"),
     ),
     ("cmd+shift+\\", "quickie.tab.overview", None),
     ("cmd+shift+c", "quickie.page.copyUrl", None),
@@ -213,7 +209,7 @@ fn the_linux_defaults_use_ctrl_where_macos_uses_command() {
         ("ctrl+1", "quickie.tab.goToSlot1"),
         ("alt+ctrl+1", "quickie.tab.pinToSlot1"),
         ("alt+ctrl+i", "quickie.devtools.toggle"),
-        ("f", HINTS),
+        ("alt+f", HINTS),
     ];
 
     for (key, expected) in table {
@@ -247,7 +243,8 @@ fn the_default_keymap_binds_the_readme_keys() {
         ("cmd+[", "quickie.navigation.back"),
         ("cmd+]", "quickie.navigation.forward"),
         ("cmd+f", FIND),
-        ("f", HINTS),
+        ("alt+f", HINTS),
+        ("shift+alt+f", "quickie.hints.openInBackground"),
         ("cmd+shift+c", "quickie.page.copyUrl"),
         ("alt+cmd+c", "quickie.page.copyAsMarkdownLink"),
         ("cmd+shift+t", "quickie.tab.reopenClosed"),
@@ -270,15 +267,36 @@ fn the_default_keymap_binds_the_readme_keys() {
 }
 
 #[test]
-fn link_hints_stay_away_from_text_fields() {
+fn link_hints_open_from_a_text_field_too() {
     let keymap = Keymap::defaults(MAC);
     let typing = WhenContext::new()
         .with_flag("pageFocused")
         .with_flag("inputFocused");
 
-    let resolution = resolve(&keymap, "f", &typing);
+    let resolution = resolve(&keymap, "alt+f", &typing);
 
-    assert_eq!(resolution, Resolution::Unbound);
+    assert_eq!(resolution, command(HINTS));
+}
+
+#[test]
+fn a_bare_f_types_into_the_page() {
+    let keymap = Keymap::defaults(MAC);
+    let page = WhenContext::new().with_flag("pageFocused");
+
+    for key in ["f", "shift+f"] {
+        assert_eq!(resolve(&keymap, key, &page), Resolution::Unbound, "{key}");
+    }
+}
+
+#[test]
+fn no_default_starts_with_a_typing_stroke() {
+    for platform in [MAC, LINUX] {
+        let keymap = Keymap::defaults(platform);
+
+        for binding in keymap.bindings() {
+            assert_eq!(binding.chord.check_shortcut(), Ok(()), "{binding:?}");
+        }
+    }
 }
 
 // ---- reserved strokes --------------------------------------------------------------------------
@@ -890,5 +908,137 @@ fn a_bad_clause_is_reported_as_the_when_field() {
     assert_eq!(
         error,
         BindingError::When(WhenError::UnexpectedEnd { offset: 4 })
+    );
+}
+
+// ---- shortcuts never type ----------------------------------------------------------------------
+
+#[test]
+fn a_binding_to_a_typing_key_is_refused() {
+    for key in ["f", "shift+f", "5", "shift+5", "space", "/", "shift+/", "`"] {
+        let error = KeyBinding::parse(key, HINTS, None, MAC).unwrap_err();
+
+        assert_eq!(
+            error,
+            BindingError::Typing(TypingStroke(stroke(key))),
+            "{key}"
+        );
+    }
+}
+
+#[test]
+fn a_typing_key_is_refused_as_the_key_field() {
+    let error = KeymapEntry::parse("shift+f", HINTS, Some("pageFocused"), MAC).unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "key: a shortcut needs cmd, alt or ctrl: `shift+f` would type into text fields"
+    );
+}
+
+#[test]
+fn a_typing_key_with_command_option_or_control_is_a_shortcut() {
+    for key in [
+        "cmd+f",
+        "alt+f",
+        "ctrl+f",
+        "shift+alt+f",
+        "mod+5",
+        "ctrl+space",
+    ] {
+        let parsed = KeyBinding::parse(key, HINTS, None, MAC);
+
+        assert!(parsed.is_ok(), "{key}");
+    }
+}
+
+#[test]
+fn a_key_that_types_nothing_needs_no_modifier() {
+    for key in [
+        "f5",
+        "escape",
+        "up",
+        "shift+tab",
+        "enter",
+        "pagedown",
+        "delete",
+    ] {
+        let parsed = KeyBinding::parse(key, HINTS, None, MAC);
+
+        assert!(parsed.is_ok(), "{key}");
+    }
+}
+
+#[test]
+fn the_second_stroke_of_a_chord_may_type() {
+    let parsed = KeyBinding::parse("cmd+k f", HINTS, None, MAC);
+
+    assert!(parsed.is_ok());
+}
+
+#[test]
+fn a_chord_that_starts_typing_is_refused() {
+    let error = KeyBinding::parse("f cmd+k", HINTS, None, MAC).unwrap_err();
+
+    assert_eq!(error, BindingError::Typing(TypingStroke(stroke("f"))));
+}
+
+#[test]
+fn an_old_removal_of_a_bare_key_still_reads() {
+    let parsed = entry(
+        "f",
+        &format!("-{HINTS}"),
+        Some("pageFocused && !inputFocused"),
+    );
+
+    assert_eq!(
+        parsed,
+        KeymapEntry::Unbind(Unbinding {
+            chord: Chord::try_from("f").unwrap(),
+            command: id(HINTS),
+            when: Some(WhenExpr::try_from("pageFocused && !inputFocused").unwrap()),
+        })
+    );
+}
+
+#[test]
+fn an_old_removal_of_a_bare_key_removes_nothing() {
+    let keymap = keymap(
+        defaults::bindings(MAC),
+        vec![entry("f", &format!("-{HINTS}"), None)],
+    );
+
+    assert_eq!(glyphs(&keymap, HINTS), ["⌥F"]);
+}
+
+#[test]
+fn a_default_that_types_is_refused() {
+    let typing = KeyBinding {
+        chord: Chord::try_from("f").unwrap(),
+        command: id(HINTS),
+        when: None,
+    };
+
+    let error = Keymap::new(&Catalog::builtin(), MAC, vec![typing], Vec::new()).unwrap_err();
+
+    assert_eq!(error, KeymapError::Typing(TypingStroke(stroke("f"))));
+}
+
+#[test]
+fn a_user_binding_that_types_is_refused() {
+    let typing = KeymapEntry::Bind(KeyBinding {
+        chord: Chord::try_from("shift+f").unwrap(),
+        command: id(HINTS),
+        when: None,
+    });
+
+    let error = Keymap::defaults(MAC)
+        .with_user_entries(&Catalog::builtin(), vec![typing])
+        .unwrap_err();
+
+    assert_eq!(error, KeymapError::Typing(TypingStroke(stroke("shift+f"))));
+    assert_eq!(
+        error.to_string(),
+        "a shortcut needs cmd, alt or ctrl: `shift+f` would type into text fields"
     );
 }

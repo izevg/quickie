@@ -5,7 +5,9 @@
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use quickie_application::{BindingLine, BindingSource, Rejection, check_binding, keymap_lines};
-use quickie_domain_commands::{Catalog, Chord, CommandId, Keymap, KeymapError, Platform};
+use quickie_domain_commands::{
+    BindingError, Catalog, Chord, CommandId, Keymap, KeymapError, Platform,
+};
 use quickie_ui_screens::{KeysState, Pane, Recorded, SettingsAction};
 use quickie_ui_shared::stories::{Key, Modifiers, Scene};
 
@@ -19,6 +21,7 @@ pub fn answer(settings: &Settings, action: &SettingsAction) {
         return;
     };
     let text = match press.code {
+        0x03 => "shift+f",
         0x0E => "shift+cmd+e",
         0x11 => "cmd+t",
         _ => return,
@@ -49,6 +52,9 @@ fn refusal(keys: &str, refused: &Rejection, catalog: &Catalog) -> String {
                 |other| other.title.to_owned(),
             );
             format!("{keys} already runs {other}")
+        }
+        Rejection::Malformed(BindingError::Typing(_)) => {
+            format!("{keys} would type into text fields; add ⌘, ⌥ or ⌃")
         }
         other => other.to_string(),
     }
@@ -207,5 +213,20 @@ pub fn conflict(scene: &mut Scene) {
             .and_then(|recorded| recorded.problem.clone()),
         Some("⌘T already runs Open New Tab".to_owned()),
         "the browser refuses ⌘T and the row says why",
+    );
+}
+
+/// `⇧F` would type into text fields: the row turns red and says it needs `⌘`, `⌥` or `⌃`.
+pub fn typing(scene: &mut Scene) {
+    let (settings, _) = start(scene);
+    scene.press_with(Key::Char('f'), Modifiers::SHIFT);
+    scene.check_eq(
+        settings
+            .recorded
+            .borrow()
+            .as_ref()
+            .and_then(|recorded| recorded.problem.clone()),
+        Some("⇧F would type into text fields; add ⌘, ⌥ or ⌃".to_owned()),
+        "the browser refuses a key that types and the row says why",
     );
 }

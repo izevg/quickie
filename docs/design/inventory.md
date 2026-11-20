@@ -18,7 +18,7 @@ Rust module names in the `crates/ui/*` crates. Tokens: [system.md](system.md).
 | navigation | MRU switcher `⌃⇥` | [tab-switcher](mocks/navigation/tab-switcher/light.html) | `tab_switcher` |
 | navigation | Tab overview (pinch) | [tab-overview](mocks/navigation/tab-overview/light.html) | `tab_overview` |
 | navigation | Find `⌘F` | [find](mocks/navigation/find/light.html) | `find_bar` |
-| navigation | Link hints `F` | [link-hints](mocks/navigation/link-hints/light.html) | `link_hints_layer` |
+| navigation | Link hints `⌥F` | [link-hints](mocks/navigation/link-hints/light.html) | `link_hints_layer` |
 | system | Permission sheet | [permission](mocks/system/permission/light.html) | `permission_sheet` |
 | system | Full-screen notice | [fullscreen](mocks/system/fullscreen/light.html) | `fullscreen_notice` |
 | system | Shields popover | [shields](mocks/system/shields/light.html) | `shields_popover` |
@@ -79,7 +79,7 @@ Each folder also has `dark.html`. Sticker sheets of single components: [mocks/co
 | `reopen_closed_tab` | Restore from the trash | `⌘⇧T` |
 | `switch_tab`, `close_tab` | MRU switch, close (to the trash) | `⌃⇥`, `W` in switcher and overview |
 | `find_in_page` | Query, next, previous, case, regex | `⌘F`, `⏎`, `⇧⏎` |
-| `follow_link_hint` | Type hint letters, `⇧` for background | `F` |
+| `follow_link_hint` | Type hint letters, `⇧` for background | `⌥F` |
 | `toggle_shields`, `set_site_protection` | Shields on/off, per-site toggles | shields popover |
 | `answer_permission` | Allow once `1`, allow on site `2`, block `⎋` (default) | permission sheet |
 | `record_shortcut` | Record a chord, detect conflicts | keymap editor |

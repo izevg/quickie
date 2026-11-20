@@ -597,8 +597,12 @@ impl<R: ExtensionsRepo, H: ExtensionHost, C: Clock> Extensions<R, H, C> {
         Ok(())
     }
 
+    /// An extension's suggested key, if Quickie can take it: a key that would type into text
+    /// fields is no shortcut for an extension either, so the page keeps it.
     fn stroke(&self, shortcut: Option<&str>) -> Option<KeyStroke> {
-        KeyStroke::parse(shortcut?, self.platform).ok()
+        KeyStroke::parse(shortcut?, self.platform)
+            .ok()
+            .filter(|stroke| !stroke.types_text())
     }
 
     fn commit(&mut self, next: InstalledExtensions) -> Result<(), AppError> {

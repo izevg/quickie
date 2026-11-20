@@ -75,6 +75,7 @@ const STORIES: &[Story] = &[
         LIGHT_DARK,
         keyboard::conflict,
     ),
+    settings("keyboard", "keyboard-typing", LIGHT, keyboard::typing),
     settings("agent", "agent", LIGHT_DARK, agent),
     settings("agent", "agent-problem", LIGHT, agent_problem),
     settings("agent", "agent-search", LIGHT, agent_search),
