@@ -139,12 +139,13 @@ ninth context means regrouping first.
 
 | Port | Direction | Adapter |
 |---|---|---|
-| `EnginePort` + `EngineEvents` | driven | `engine-chromium` (cxx), `engine-webkit` (development) |
-| `HttpPort` | driven | Chromium network service (product), `NSURLSession` (development) |
+| `Engine` bundle: `EnginePort` (tab lifecycle) + capability ports `PageSurface`, `PageContent`, `PageZoom`, `PageAsks`, `Downloads`, and for the agent profile `Automation`, `RequestGate`; one `EngineEvent` stream | driven | `engine-webkit`, `engine-cef` (agent profile), `engine-chromium` (post-MVP fork); see "Engines" below |
+| `HttpPort` | driven | supplied by the engine (`Engine::Http`): Chromium or CEF network stack, `NSURLSession` on WebKit; the shell never builds one |
 | `LlmPort` | driven | `llm`: OpenAI-compatible client on top of `HttpPort` |
 | `SessionRepo`, `LibraryRepo`, `KeymapRepo`, `ShieldsRepo`, `AuditLog` | driven | `store` (rusqlite; saves go to a write-behind thread off the main thread) |
 | `ContentBlockerPort` | driven | engine: `adblock` in the network service (product), `WKContentRuleList` (development) |
-| `SecretStore`, `Clipboard`, `GlobalHotkey`, `KeyboardLayout`, `Updater` | driven | `system` (Keychain, `NSPasteboard`, Carbon `RegisterEventHotKey`, `TISCopyCurrentASCIICapableKeyboardLayoutInputSource`), `updater` (Sparkle) |
+| `SecretStore`, `Entropy`, `Updater` | driven | `system` (Keychain, `SecRandom`), `updater` (Sparkle) |
+| Clipboard, reveal in Finder, default browser, global hotkey, keyboard layout | — | Not ports until a use case calls them: today only the shell does, and a Linux shell writes its own glue |
 | `AgentGateway` | driving | `mcp` (rmcp on a Unix socket) |
 | UI intents | driving | `ui/features` call use cases |
 
@@ -165,6 +166,55 @@ cost nothing at run time.
   Ctrl on Linux), resolved when the keymap is built, so a key stroke is always concrete and the
   lookup costs the same everywhere. Reserved strokes and conflicts follow from the resolved keys;
   keycaps print per platform (`⇧⌘P`, `Ctrl+Shift+P`).
+
+#### Engines: ports, capabilities, profiles
+
+Engines are swapped by changing one type alias, never by editing call sites. Decided 2026-11-20;
+the audit behind it found ~45 shell call sites tied to `WebKitEngine` and four places where the
+browser's own traffic bypassed the engine's network stack.
+
+- **Ports name outcomes, not mechanisms.** `EnginePort` keeps the tab lifecycle (create, show,
+  navigate, close, adopt, destroy a jar). Small capability ports sit next to it in
+  `application/src/engine/`: `PageSurface` (the native view and thumbnails), `PageContent` (page
+  text, link-hint targets, find), `PageZoom`, `PageAsks` (JavaScript dialogs, permissions, full
+  screen, answered with a `ReplyToken`), `Downloads`. There is no "evaluate JavaScript" port: an
+  isolated world is how WebKit does it, not what a use case needs.
+- **One event stream.** Every engine reports through one `EngineEvent` enum, drained by the shell
+  on the main thread after a waker. Nothing calls back into a use case from inside an engine
+  call.
+- **The engine is a bundle.** `trait Engine` names the associated types the shell embeds or
+  forwards (`View`, `Picture`, `Page`), supplies the network stack (`Http`) and the content
+  blocker, and declares `CAPS`, a `const` of what the UI may offer (programmatic inspector, blocked
+  counts, ...). A capability a use case cannot work without is a trait bound, so a missing one is
+  a compile error; a capability the UI merely degrades without is checked against `CAPS`, also at
+  compile time. Nothing is decided at run time.
+- **Policy lives in use cases.** Download ids, zoom on commit, automatic answers to dialogs and
+  permissions, and collecting page text for the agent are application code driving the ports,
+  tested against the in-memory fake; the shell only routes.
+- **An engine per profile.** Tab and window ids carry their `Profile` (`Main`, `Agent`), and each
+  profile has its own session, so a tab never moves between engines and ids never collide. The
+  agent profile's tabs are never persisted: the agent leaves an audit log, not tabs. The shell
+  meets two engines in exactly one place, a two-arm `match` on the profile; each arm is statically
+  typed. No `dyn Engine`, no `enum AnyEngine`.
+- **Act mode is two ports.** `Automation` (read the DOM and the accessibility tree, trusted input,
+  navigate) is implemented on WebKit with scripts in an isolated world and synthetic `NSEvent`s,
+  and on CEF or Chromium with the DevTools protocol, inside the process. `RequestGate` (hold a
+  request, show its payload, let it go) only exists where the DevTools protocol does. The Act use
+  case requires `Automation`; with `RequestGate` it approves the real request, without it it asks
+  before the DOM action (form submit, a destructive button) and says that it cannot see the
+  request. The shape of both follows the DevTools protocol, which CEF and the fork both speak.
+- **Engine choice is a cargo feature at the composition root**: one alias per profile. CI also
+  type-checks the shell against a second engine, so a call that only one engine supports breaks
+  the build instead of a release.
+- **One conformance suite.** `application` ships behavioral tests (feature `conformance`) that
+  every engine adapter runs, with the fake as the reference: navigation, opened pages, dialogs,
+  find, link hints, jars, downloads, the content blocker, and on CEF automation and renderer
+  crashes. Pixels, print panels, the inspector and real focus stay with the harness.
+
+Engines in this plan: `engine-webkit` for the main profile now; `engine-cef` (official prebuilt
+CEF, no proprietary codecs) for the agent profile; an ungoogled-chromium fork after the MVP,
+built on CI, which then hosts both profiles. Third-party CEF builds with codecs were audited and
+rejected (provenance); codecs come from our own CI build if they are ever needed.
 
 ### 4.2 UI: Feature-Sliced Design as crates
 
@@ -232,16 +282,27 @@ windows anchored to a point; permissions and the fullscreen notice become native
 ## 5. C4 — Code
 
 ```rust
-// crates/application/src/ports.rs
+// crates/application/src/engine/ (signatures only; see "Engines" in §4.1)
 pub trait EnginePort {
-    fn create_tab(&self, w: WindowId, url: &Url, p: ProfileKind) -> TabRef;
-    fn activate(&self, t: TabRef);
-    fn close(&self, t: TabRef) -> SessionState;              // goes to the trash
-    fn restore(&self, s: &SessionState, w: WindowId) -> TabRef;
-    fn snapshot(&self, t: TabRef, done: Box<dyn FnOnce(Option<Image>)>);
-    fn page_text(&self, t: TabRef, done: Box<dyn FnOnce(Result<PageDigest, EngineError>)>); // Ask mode
-    fn execute(&self, t: TabRef, c: EngineCommand);           // back, reload, find, zoom, ...
+    type Page;                                                 // a page the engine opened itself
+    fn adopt(&mut self, page: Self::Page, tab: TabId) -> Result<(), EngineError>;
+    fn create(&mut self, tab: TabId, url: &Url, jar: Jar) -> Result<(), EngineError>;
+    fn show(&mut self, window: WindowId, tab: TabId) -> Result<(), EngineError>;
+    fn navigate(&mut self, tab: TabId, navigation: &Navigation) -> Result<(), EngineError>;
+    fn close(&mut self, tab: TabId) -> Result<(), EngineError>;
+    fn destroy_jar(&mut self, jar: JarId) -> Result<(), EngineError>;
 }
+
+pub trait Engine: EnginePort + PageSurface + PageContent + PageZoom + PageAsks + Downloads {
+    type Http: HttpPort + Clone + Send + 'static;
+    type Blocker: ContentBlockerPort;
+    const CAPS: Capabilities;
+    fn http(&self) -> Self::Http;
+    fn drain(&mut self, into: &mut Vec<EngineEvent<Self::Page>>);
+}
+
+pub trait Automation { /* DOM and accessibility snapshots, trusted input, navigate */ }
+pub trait RequestGate { /* hold, inspect, continue or fail a request: DevTools engines only */ }
 
 pub trait LlmPort {
     /// OpenAI-compatible /v1/chat/completions, stream = true; blocks on a worker thread,
@@ -364,7 +425,8 @@ build: [engine/README.md](../engine/README.md).
 | Phase | Result | Done when |
 |---|---|---|
 | P0 | Cargo-built app on `engine-webkit`: palette, MRU switcher, glass E0–E3, swipes, keymap | I live in it for a week as my main browser (without extensions) |
-| P1 | Chromium + ungoogled patches + `//quickie` + `BrowserWindow` host + `cxx` bridge | The same UI on Chromium, DevTools, MV3 |
+| P1 | Engine ports per the "Engines" section; `engine-cef` (prebuilt CEF) for the agent profile; Act mode on WebKit through `Automation` | Engines swap by one alias; the conformance suite passes on WebKit and CEF; the agent acts in its own profile |
+| post-MVP | ungoogled-chromium fork built on CI (`//quickie`, `BrowserWindow` host, `cxx` bridge), hosting both profiles | The same UI on the fork, DevTools, MV3 |
 | P2 | Shields + privacy patches + egress test in CI | A fresh profile: zero unsolicited hosts in 10 minutes |
 | P3 | Native E3 sheets instead of Views bubbles, link hints, tab overview, keymap editor | — |
 | P4 | Agents: built-in (OpenAI-compatible, Ask then Act), MCP for external ones, approvals, audit | `?` in the palette answers through Ollama; Claude Code drives a tab in the agent profile |
