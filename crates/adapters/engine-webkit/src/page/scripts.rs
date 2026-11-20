@@ -11,13 +11,13 @@
 pub(crate) mod hints;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_foundation::{NSNumber, NSString};
+use objc2_foundation::NSString;
 use objc2_web_kit::{
     WKContentWorld, WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKWebView,
 };
@@ -45,30 +45,70 @@ pub(crate) fn text_script(max_chars: usize) -> String {
 /// The name the focus script posts under.
 pub(crate) const FOCUS_HANDLER: &str = "quickieFocus";
 
-/// Installed in every frame at document start: tells whether the focused element takes text,
-/// on every focus change. A frame whose focus is inside a child frame stays silent; the child
-/// reports. The last report wins, and focus leaving one frame for another reports `false`
-/// before the other's `true`.
+/// Installed in every frame at document start. Each frame names itself with a random token and
+/// says whether its focused element (through open shadow roots) takes text: a text field, a
+/// text area, a select or editable content. A frame that focus leaves loses its focused
+/// element, so at most one frame says yes. It says so again whenever that changes: on focus
+/// moving in or out of it, on a return from the back-forward cache, and `false` when it goes
+/// away. Whether the page itself has the keyboard is the shell's to know, not the page's.
+///
+/// A report is a string: `R` when the main frame starts a new document (forget every frame
+/// of the old one) or `-`, then `1` or `0`, then the frame's token. The page takes text while
+/// any of its frames says `1`, so the order in which frames report does not matter: a frame
+/// that loads while a field elsewhere has focus, or focus moving from one frame to another,
+/// cannot hide the field.
 pub(crate) const FOCUS_SCRIPT: &str = r"(() => {
   const textless = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio',
     'range', 'reset', 'submit']);
   const editable = (el) => !!el && (el.isContentEditable || el.tagName === 'TEXTAREA' ||
     el.tagName === 'SELECT' ||
     (el.tagName === 'INPUT' && !textless.has(String(el.type).toLowerCase())));
-  const post = () => {
+  const frame = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  let last;
+  const send = (focused, reset) => {
+    last = focused;
+    try {
+      window.webkit.messageHandlers.quickieFocus.postMessage(
+        (reset ? 'R' : '-') + (focused ? '1' : '0') + frame);
+    } catch (_) {}
+  };
+  const focused = () => {
     let el = document.activeElement;
     while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-    if (el && (el.tagName === 'IFRAME' || el.tagName === 'FRAME')) return;
-    try { window.webkit.messageHandlers.quickieFocus.postMessage(editable(el)); } catch (_) {}
+    return editable(el);
   };
+  const post = () => { const now = focused(); if (now !== last) send(now, false); };
   addEventListener('focusin', post, true);
   addEventListener('focusout', () => setTimeout(post, 0), true);
-  addEventListener('pageshow', post, true);
-  post();
+  addEventListener('pageshow', () => send(focused(), false), true);
+  addEventListener('pagehide', () => send(false, false), true);
+  send(focused(), window === window.top);
 })();";
 
-/// Each page's last report of whether its focused element takes text, by [`view_key`].
-pub(crate) type FocusReports = Rc<RefCell<HashMap<usize, bool>>>;
+/// For each page, by [`view_key`], the tokens of its frames that hold the keyboard in an
+/// element that takes text.
+pub(crate) type FocusReports = Rc<RefCell<HashMap<usize, HashSet<String>>>>;
+
+/// Applies one report of the focus script to a page's frames. A report that is not the
+/// script's changes nothing.
+pub(crate) fn apply_focus_report(frames: &mut HashSet<String>, report: &str) {
+    let mut chars = report.chars();
+    let (Some(reset), Some(focused)) = (chars.next(), chars.next()) else {
+        return;
+    };
+    let frame = chars.as_str();
+    if !matches!(reset, 'R' | '-') || !matches!(focused, '0' | '1') || frame.is_empty() {
+        return;
+    }
+    if reset == 'R' {
+        frames.clear();
+    }
+    if focused == '1' {
+        frames.insert(frame.to_owned());
+    } else {
+        frames.remove(frame);
+    }
+}
 
 /// The key of a page's view in [`FocusReports`]: its address, unique while it lives.
 pub(crate) fn view_key(view: &WKWebView) -> usize {
@@ -96,15 +136,13 @@ define_class!(
         fn did_receive(&self, _controller: &WKUserContentController, message: &WKScriptMessage) {
             // SAFETY: a getter; the body is whatever the script posted.
             let body = unsafe { message.body() };
-            let focused = body
-                .downcast_ref::<NSNumber>()
-                .is_some_and(NSNumber::as_bool);
+            let Some(report) = body.downcast_ref::<NSString>().map(NSString::to_string) else {
+                return;
+            };
             // SAFETY: a getter; the page that posted, `None` once it is gone.
             if let Some(view) = unsafe { message.webView() } {
-                self.ivars()
-                    .reports
-                    .borrow_mut()
-                    .insert(view_key(&view), focused);
+                let mut reports = self.ivars().reports.borrow_mut();
+                apply_focus_report(reports.entry(view_key(&view)).or_default(), &report);
             }
         }
     }
@@ -116,5 +154,54 @@ impl FocusHandler {
         let this = Self::alloc(mtm).set_ivars(Ivars { reports });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::apply_focus_report;
+
+    fn after(reports: &[&str]) -> HashSet<String> {
+        let mut frames = HashSet::new();
+        for report in reports {
+            apply_focus_report(&mut frames, report);
+        }
+        frames
+    }
+
+    fn frames(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_frame_that_takes_text_is_kept_until_it_says_otherwise() {
+        assert_eq!(after(&["-1a"]), frames(&["a"]));
+        assert_eq!(after(&["-1a", "-0a"]), frames(&[]));
+    }
+
+    #[test]
+    fn another_frame_saying_no_does_not_hide_a_field() {
+        assert_eq!(after(&["-1a", "-0b"]), frames(&["a"]));
+    }
+
+    #[test]
+    fn focus_moving_between_frames_ends_in_the_new_one_in_either_order() {
+        assert_eq!(after(&["-1a", "-1b", "-0a"]), frames(&["b"]));
+        assert_eq!(after(&["-1a", "-0a", "-1b"]), frames(&["b"]));
+    }
+
+    #[test]
+    fn a_new_main_document_forgets_the_old_frames() {
+        assert_eq!(after(&["-1a", "-1b", "R0c"]), frames(&[]));
+        assert_eq!(after(&["-1a", "R1c"]), frames(&["c"]));
+    }
+
+    #[test]
+    fn a_report_not_from_the_script_changes_nothing() {
+        for junk in ["", "-", "-1", "x1a", "-2a", "R"] {
+            assert_eq!(after(&["-1a", junk]), frames(&["a"]), "{junk:?}");
+        }
     }
 }

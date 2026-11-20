@@ -1,6 +1,8 @@
-use quickie_application::{AgentRepo, KeybindingText, KeymapRepo, StoreError, ZoomRepo};
+use quickie_application::{
+    AgentRepo, AppearanceRepo, KeybindingText, KeymapRepo, StoreError, ZoomRepo,
+};
 use quickie_domain_agents::EndpointSnapshot;
-use quickie_domain_settings::{Site, SiteZoomsSnapshot};
+use quickie_domain_settings::{AppearanceSnapshot, Site, SiteZoomsSnapshot};
 use rusqlite::params;
 
 use crate::SqliteStore;
@@ -123,6 +125,29 @@ fn entries_load_in_file_order_as_written() {
 
 fn site(text: &str) -> Site {
     Site::try_from(text).unwrap()
+}
+
+#[test]
+fn a_new_store_has_the_default_appearance_and_keeps_the_latest_saved() {
+    let mut store = SqliteStore::in_memory().unwrap();
+
+    assert_eq!(store.load_appearance(), Ok(AppearanceSnapshot::default()));
+
+    store
+        .save_appearance(AppearanceSnapshot { inset_page: true })
+        .unwrap();
+    assert_eq!(
+        store.load_appearance(),
+        Ok(AppearanceSnapshot { inset_page: true })
+    );
+
+    store
+        .save_appearance(AppearanceSnapshot { inset_page: false })
+        .unwrap();
+    assert_eq!(
+        store.load_appearance(),
+        Ok(AppearanceSnapshot { inset_page: false })
+    );
 }
 
 #[test]
