@@ -107,7 +107,10 @@ none of its code. It covers the scriptlets video and ad rules use most: `set-con
 and `trusted-replace-xhr-response`, `abort-on-property-read/write`, `abort-current-script`, the
 timer and `addEventListener` defusers, `no-fetch-if`, `no-xhr-if`, `noeval-if`,
 `no-window-open-if`, `remove-attr`, `remove-class`, the cookie and storage setters, and the
-trusted object and text rewriters. A rule that names a scriptlet the library lacks is skipped.
+trusted object and text rewriters. Paths take the documented wildcards (`[]`, `*`) and removal
+tokens (`[-]` drops each array element and `{-}` each property in which the rest of the path
+exists, as the Shorts feed's `entries.[-]...adClientParams.isAd` rules need). A rule that names a
+scriptlet the library lacks is skipped.
 
 **Blocked counts.** WebKit reports what a content rule list did only through a private navigation
 delegate callback, `_webView:contentRuleListWithIdentifier:performedAction:forURL:` (the one
