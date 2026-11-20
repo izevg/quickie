@@ -8,9 +8,11 @@
 //! fill it, taken away when it docks.
 //!
 //! Here: the world, the focus reports, and the page text the agent reads. [`hints`]: the
-//! link-hint scripts and their answers. [`video`]: what the page's video does, and floating it
-//! for the mini player.
+//! link-hint scripts and their answers. [`fullscreen`]: the Fullscreen API in the tab's own
+//! window, the one script that runs in the page's world. [`video`]: what the page's video
+//! does, and floating it for the mini player.
 
+pub(crate) mod fullscreen;
 pub(crate) mod hints;
 pub(crate) mod video;
 

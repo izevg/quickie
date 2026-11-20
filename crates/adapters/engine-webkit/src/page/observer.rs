@@ -49,8 +49,12 @@ pub(crate) enum PageEvent {
     },
     /// The page closed itself (`window.close()`).
     Closed,
-    /// The page entered (`true`) or left full screen.
+    /// `WebKit` showed an element of the page in its own full-screen window (`true`), or took
+    /// it back (`false`).
     Fullscreen(bool),
+    /// An element of the page filled the page view (`true`), or stopped (`false`), as our
+    /// Fullscreen API reports it.
+    FullscreenInWindow(bool),
     /// The web content process that rendered the page terminated: the view is blank until it
     /// loads again.
     Crashed,

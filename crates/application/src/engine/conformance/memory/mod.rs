@@ -23,9 +23,9 @@ use super::site::resource;
 use super::{Act, Control, Resource};
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, Downloads,
-    EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found, LinkTarget,
-    Navigation, PageAsks, PageContent, PageRect, PageVideo, PageZoom, Permission, ReplyToken,
-    Ticket,
+    EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found, Fullscreen,
+    LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageVideo, PageZoom, Permission,
+    ReplyToken, Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -96,6 +96,9 @@ impl MemoryEngine {
             .and_then(|page| targets(page).iter().position(|target| target.frame == at));
         if let Some(index) = index {
             self.press(tab, index, command);
+            if let Some(page) = self.pages.get_mut(&tab) {
+                page.activated = true;
+            }
         }
     }
 
@@ -122,10 +125,11 @@ impl MemoryEngine {
     /// tab without a page plays nothing.
     pub fn play(&mut self, tab: TabId, video: Video) {
         if let Some(page) = self.pages.get_mut(&tab) {
-            if let Video::Playing { audible } = video {
-                page.audible = audible;
-            }
-            page.video = Some(video);
+            let audible = match video {
+                Video::Playing { audible } => audible,
+                Video::Paused => page.video.is_some_and(|(_, audible)| audible),
+            };
+            page.video = Some((video, audible));
             self.events.push(EngineEvent::Video {
                 tab,
                 video: Some(video),
@@ -164,7 +168,14 @@ impl MemoryEngine {
             let path = url.as_str().strip_prefix(self.base.as_str());
             match path.and_then(resource) {
                 Some(Resource::Page(shown)) => {
-                    if page.show(url.clone(), shown) {
+                    let left = page.show(url.clone(), shown);
+                    if left.fullscreen {
+                        self.events.push(EngineEvent::Fullscreen {
+                            tab,
+                            state: Fullscreen::Left,
+                        });
+                    }
+                    if left.video {
                         self.events.push(EngineEvent::Video { tab, video: None });
                     }
                     self.events
@@ -185,7 +196,23 @@ impl MemoryEngine {
             return;
         };
         let jar = page.jar;
+        let user = std::mem::take(&mut page.activated);
         match act {
+            Act::Fullscreen { .. } if !user => {
+                self.events.titled(tab, "fullscreen:denied".to_owned());
+            }
+            Act::Fullscreen { leave } => {
+                page.fullscreen = true;
+                if leave {
+                    page.acts.push_front(Act::ExitFullscreen);
+                }
+                self.events.push(EngineEvent::Fullscreen {
+                    tab,
+                    state: Fullscreen::InWindow,
+                });
+                self.events.titled(tab, "fullscreen:filled".to_owned());
+            }
+            Act::ExitFullscreen => self.exit_fullscreen(tab),
             Act::Retitle(title) => self.events.titled(tab, title.to_owned()),
             Act::Open(path) => self.open(tab, at(&self.base, path), Focus::Foreground),
             Act::Click(link) => self.press(tab, link, false),
@@ -574,6 +601,18 @@ impl PageAsks for MemoryEngine {
         self.events.titled(tab, title);
         true
     }
+
+    fn exit_fullscreen(&mut self, tab: TabId) {
+        let Some(page) = self.pages.get_mut(&tab).filter(|page| page.fullscreen) else {
+            return;
+        };
+        page.fullscreen = false;
+        self.events.push(EngineEvent::Fullscreen {
+            tab,
+            state: Fullscreen::Left,
+        });
+        self.events.titled(tab, "fullscreen:none".to_owned());
+    }
 }
 
 /// One page floats at a time, in a slot that draws nothing; playing or pausing a video the
@@ -592,14 +631,11 @@ impl PageVideo for MemoryEngine {
     }
 
     fn play_video(&mut self, tab: TabId, play: bool) -> Result<(), EngineError> {
-        let page = self.page(tab)?;
-        if page.video.is_none() {
+        let Some((_, audible)) = self.page(tab)?.video else {
             return Ok(());
-        }
+        };
         let video = if play {
-            Video::Playing {
-                audible: page.audible,
-            }
+            Video::Playing { audible }
         } else {
             Video::Paused
         };

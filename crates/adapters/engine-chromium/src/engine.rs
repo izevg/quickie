@@ -298,11 +298,14 @@ impl Downloads for ChromiumEngine {
     }
 }
 
-/// The bridge reports no asks yet, so no page ever waits for an answer.
+/// The bridge reports no asks and no full screen yet, so no page ever waits for an answer or
+/// is full screen.
 impl PageAsks for ChromiumEngine {
     fn answer(&mut self, _token: ReplyToken, _answer: &Answer) -> bool {
         false
     }
+
+    fn exit_fullscreen(&mut self, _tab: TabId) {}
 }
 
 /// The bridge cannot zoom pages yet: every page stays at actual size.

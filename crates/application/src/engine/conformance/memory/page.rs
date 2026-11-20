@@ -9,6 +9,13 @@ use url::Url;
 use crate::FindStep;
 use crate::conformance::{Act, TestPage};
 
+/// What a page left behind when it showed another: it was full screen, it had a video.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Left {
+    pub(super) fullscreen: bool,
+    pub(super) video: bool,
+}
+
 /// A page of the memory engine. Before its tab adopts it, it is what
 /// [`crate::EngineEvent::Opened`] hands over.
 #[derive(Debug)]
@@ -30,10 +37,13 @@ pub struct MemoryPage {
     pub(super) zoom: ZoomLevel,
     /// A text field of the page it shows has focus.
     pub(super) field_focused: bool,
-    /// What the video of the page it shows does, once one played.
-    pub(super) video: Option<Video>,
-    /// The video's sound is on, paused or not.
-    pub(super) audible: bool,
+    /// The user just clicked it: its next act may do what only a click allows.
+    pub(super) activated: bool,
+    /// Its text fills its view, full screen.
+    pub(super) fullscreen: bool,
+    /// What the video of the page it shows does, once one played, and whether its sound is
+    /// on, paused or not.
+    pub(super) video: Option<(Video, bool)>,
 }
 
 impl MemoryPage {
@@ -50,8 +60,9 @@ impl MemoryPage {
             found: 0,
             zoom: ZoomLevel::DEFAULT,
             field_focused: false,
+            activated: false,
+            fullscreen: false,
             video: None,
-            audible: false,
         }
     }
 
@@ -84,13 +95,18 @@ impl MemoryPage {
     }
 
     /// Starts showing `page`, at `url`: its scripts start over, nothing is found, no field
-    /// has focus, and no video plays. Says whether the page it left had a video.
-    pub(super) fn show(&mut self, url: Url, page: TestPage) -> bool {
+    /// has focus, nothing is full screen, and no video plays. Says what the page it showed
+    /// left behind.
+    pub(super) fn show(&mut self, url: Url, page: TestPage) -> Left {
         self.acts = page.on_load.iter().copied().collect();
         self.shown = Some((url, page));
         self.found = 0;
         self.field_focused = false;
-        self.video.take().is_some()
+        self.activated = false;
+        Left {
+            fullscreen: std::mem::take(&mut self.fullscreen),
+            video: self.video.take().is_some(),
+        }
     }
 
     /// Selects a match of `query` in its text as `step` says, wrapping at the ends; matching

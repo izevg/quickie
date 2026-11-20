@@ -1,6 +1,7 @@
 //! One tab's page: a `WKWebView` in a data store, the observer that reports its navigations
 //! and loading, the delegate that hears what it asks (pages of its own, dialogs, devices), find
-//! in page, and the scripts Quickie runs in it (focus reports and link hints).
+//! in page, and the scripts Quickie runs in it (focus reports, link hints, and full screen in
+//! the tab's own window).
 
 pub(crate) mod asks;
 mod find;
@@ -11,6 +12,15 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 pub(crate) use scripts::FocusReports;
+use scripts::fullscreen::{self, FullscreenHandler, FullscreenPages};
+
+/// Where every page's scripts report, shared by all pages: whether a frame's focused element
+/// takes text, and the hooks that hear a page go full screen, each under its view.
+#[derive(Clone, Default)]
+pub(crate) struct Reports {
+    pub(crate) focus: FocusReports,
+    pub(crate) fullscreen: FullscreenPages,
+}
 
 use block2::RcBlock;
 use objc2::rc::Retained;
@@ -21,9 +31,9 @@ use objc2_foundation::{
     NSData, NSError, NSNumber, NSObjectProtocol, NSRect, NSSize, NSString, NSURL, NSURLRequest,
 };
 use objc2_web_kit::{
-    WKContentWorld, WKSnapshotConfiguration, WKUserContentController, WKUserScript,
-    WKUserScriptInjectionTime, WKWebExtensionController, WKWebView, WKWebViewConfiguration,
-    WKWebsiteDataStore,
+    WKContentWorld, WKFullscreenState, WKScriptMessageHandler, WKSnapshotConfiguration,
+    WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebExtensionController,
+    WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
 };
 use quickie_application::{AskKind, EngineError, FindStep, Followed, LinkTarget};
 use quickie_domain_browsing::{FindMatches, Focus};
@@ -77,22 +87,21 @@ pub(crate) struct WebPage {
     /// Keeps the UI delegate alive as long as the view refers to it.
     _ui: Retained<PageUi>,
     world: Retained<WKContentWorld>,
-    /// Every page's last report of whether its focused element takes text, this one's under
-    /// its view.
-    focus: FocusReports,
+    /// Every page's script reports, this one's under its view.
+    reports: Reports,
 }
 
 impl WebPage {
     /// A new, empty page in `store` that serves `internal` pages and blocks what `content`'s
-    /// rule lists block. `hooks` hear what it reports and asks; its focus reports land in
-    /// `focus`.
+    /// rule lists block. `hooks` hear what it reports and asks; its scripts report into
+    /// `reports`.
     pub(crate) fn new(
         store: &WKWebsiteDataStore,
         content: &WKUserContentController,
         internal: &InternalPages,
         extensions: Option<&WKWebExtensionController>,
         hooks: Hooks,
-        focus: FocusReports,
+        reports: Reports,
         mtm: MainThreadMarker,
     ) -> Self {
         // SAFETY: a fresh configuration has no preconditions.
@@ -132,10 +141,13 @@ impl WebPage {
         // Safe Browsing lookups would contact a third party on every navigation: trackerless.
         // SAFETY: a plain boolean setter.
         unsafe { preferences.setFraudulentWebsiteWarningEnabled(false) };
-        // The Fullscreen API; the shell shows whose page went full screen.
+        // The Fullscreen API. Our page script takes its calls into the tab's own window
+        // ([`scripts::fullscreen`]); `WebKit`'s own stays on for what the script cannot reach
+        // (the full-screen button of its media controls) and for whether a frame may ask at
+        // all (`allowfullscreen`), which the script reads from it.
         // SAFETY: a plain boolean setter.
         unsafe { preferences.setElementFullscreenEnabled(true) };
-        Self::with_configuration(&configuration, hooks, focus, mtm)
+        Self::with_configuration(&configuration, hooks, reports, mtm)
     }
 
     /// A page from `configuration` as it is: a copy of an opener's, so the page shares the
@@ -148,7 +160,7 @@ impl WebPage {
     pub(crate) fn with_configuration(
         configuration: &WKWebViewConfiguration,
         hooks: Hooks,
-        focus: FocusReports,
+        reports: Reports,
         mtm: MainThreadMarker,
     ) -> Self {
         let world = scripts::world(mtm);
@@ -171,6 +183,10 @@ impl WebPage {
             unsafe { view.setInspectable(true) };
         }
         let hooks = Rc::new(hooks);
+        reports
+            .fullscreen
+            .borrow_mut()
+            .insert(scripts::view_key(&view), Rc::downgrade(&hooks));
         let observer = PageObserver::new(Rc::clone(&hooks), mtm);
         observer.attach(&view);
         let ui = PageUi::new(hooks, mtm);
@@ -181,7 +197,7 @@ impl WebPage {
             observer,
             _ui: ui,
             world,
-            focus,
+            reports,
         }
     }
 
@@ -210,7 +226,8 @@ impl WebPage {
     /// True while one of the page's frames says it holds the keyboard in an element that
     /// takes text.
     pub(crate) fn input_focused(&self) -> bool {
-        self.focus
+        self.reports
+            .focus
             .borrow()
             .get(&scripts::view_key(&self.view))
             .is_some_and(|frames| !frames.is_empty())
@@ -452,6 +469,23 @@ impl WebPage {
         self.evaluate(&play_script(play), drop);
     }
 
+    /// Takes the page out of full screen: out of the page view through our Fullscreen API, and
+    /// out of `WebKit`'s own full-screen window when its media controls put it there. The page
+    /// reports leaving as it does on its own.
+    pub(crate) fn exit_fullscreen(&self) {
+        self.evaluate(fullscreen::EXIT_SCRIPT, |_| {});
+        // SAFETY: a plain getter.
+        let state = unsafe { self.view.fullscreenState() };
+        if state != WKFullscreenState::NotInFullscreen {
+            // SAFETY: no completion handler; it closes full screen and picture in picture,
+            // which only the user's own controls open on this page.
+            unsafe {
+                self.view
+                    .closeAllMediaPresentationsWithCompletionHandler(None);
+            }
+        }
+    }
+
     /// Runs `script` in Quickie's world of the main frame; `done` gets its string answer, empty
     /// for anything else or an error.
     fn evaluate(&self, script: &str, done: impl FnOnce(String) + 'static) {
@@ -484,9 +518,9 @@ impl Drop for WebPage {
         self.observer.detach(&self.view);
         // SAFETY: clearing a weak delegate has no preconditions.
         unsafe { self.view.setUIDelegate(None) };
-        self.focus
-            .borrow_mut()
-            .remove(&scripts::view_key(&self.view));
+        let key = scripts::view_key(&self.view);
+        self.reports.focus.borrow_mut().remove(&key);
+        self.reports.fullscreen.borrow_mut().remove(&key);
         // SAFETY: stopping has no preconditions; a page going away loads nothing more.
         unsafe { self.view.stopLoading() };
         self.view.removeFromSuperview();
@@ -495,7 +529,7 @@ impl Drop for WebPage {
 
 /// Adds the video script to the main frame of every page that uses `controller`, and one
 /// handler that hands each page's reports to `on_report`. Once per controller, as
-/// [`install_focus_script`].
+/// [`install_scripts`].
 pub(crate) fn install_video_script(
     controller: &WKUserContentController,
     on_report: OnReport,
@@ -526,35 +560,51 @@ pub(crate) fn install_video_script(
     }
 }
 
-/// Adds the focus script to every frame of every page that uses `controller`, and one handler
-/// that records each page's reports in `reports`. Once per controller: `WebKit` refuses a
-/// second handler under the same name, and every page, popups included, shares it.
-pub(crate) fn install_focus_script(
+/// Adds the scripts every page of `controller` runs and reports through: the focus script and
+/// the Fullscreen API, with one handler each that passes every page's reports into
+/// `reports`. Once per controller: `WebKit` refuses a second handler under the same name, and
+/// every page, popups included, shares them.
+pub(crate) fn install_scripts(
     controller: &WKUserContentController,
-    reports: FocusReports,
+    reports: &Reports,
     mtm: MainThreadMarker,
 ) {
     let world = scripts::world(mtm);
-    let handler = FocusHandler::new(reports, mtm);
-    // SAFETY: the source is a complete script, injected at document start into every frame.
-    let script = unsafe {
-        WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
-            WKUserScript::alloc(mtm),
-            &NSString::from_str(FOCUS_SCRIPT),
-            WKUserScriptInjectionTime::AtDocumentStart,
-            false,
-            &world,
-        )
-    };
-    // SAFETY: the controller retains the script.
-    unsafe { controller.addUserScript(&script) };
-    // SAFETY: the controller retains the handler; this is the only handler under the name in
-    // this world, as the controller is new and this runs once for it.
-    unsafe {
-        controller.addScriptMessageHandler_contentWorld_name(
-            ProtocolObject::from_ref(&*handler),
-            &world,
-            &NSString::from_str(FOCUS_HANDLER),
-        );
+    // SAFETY: the page's own world always exists.
+    let page_world = unsafe { WKContentWorld::pageWorld(mtm) };
+    for (source, main_frame_only, in_world) in [
+        (FOCUS_SCRIPT, false, &world),
+        (fullscreen::PAGE_SCRIPT, false, &page_world),
+        (fullscreen::RELAY_SCRIPT, true, &world),
+    ] {
+        // SAFETY: the source is a complete script, injected at document start.
+        let script = unsafe {
+            WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
+                WKUserScript::alloc(mtm),
+                &NSString::from_str(source),
+                WKUserScriptInjectionTime::AtDocumentStart,
+                main_frame_only,
+                in_world,
+            )
+        };
+        // SAFETY: the controller retains the script.
+        unsafe { controller.addUserScript(&script) };
+    }
+    let focus = FocusHandler::new(Rc::clone(&reports.focus), mtm);
+    let full = FullscreenHandler::new(Rc::clone(&reports.fullscreen), mtm);
+    let handlers: [(&ProtocolObject<dyn WKScriptMessageHandler>, &str); 2] = [
+        (ProtocolObject::from_ref(&*focus), FOCUS_HANDLER),
+        (ProtocolObject::from_ref(&*full), fullscreen::HANDLER),
+    ];
+    for (handler, name) in handlers {
+        // SAFETY: the controller retains the handler; it is the only one under its name in
+        // this world, as the controller is new and this runs once for it.
+        unsafe {
+            controller.addScriptMessageHandler_contentWorld_name(
+                handler,
+                &world,
+                &NSString::from_str(name),
+            );
+        }
     }
 }

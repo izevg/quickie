@@ -22,7 +22,7 @@ use url::Url;
 
 pub use event::{
     Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, FindStep, Followed,
-    Found, LinkTarget, PageRect, ReplyToken, Ticket,
+    Found, Fullscreen, LinkTarget, PageRect, ReplyToken, Ticket,
 };
 pub use extensions::{
     Access, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
@@ -289,6 +289,12 @@ pub trait PageAsks {
     /// Hands `answer` to the page that waits on `token`, which goes on at once; false when no
     /// page waits on it any more (it was answered, or its tab closed).
     fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool;
+
+    /// Takes the tab's page out of full screen, as its own exit control would: `⎋`, its window
+    /// leaving full screen, or its tab going to the background. [`EngineEvent::Fullscreen`]
+    /// with [`Fullscreen::Left`] says when it did. A page not in full screen, or a tab without
+    /// a page, is left alone.
+    fn exit_fullscreen(&mut self, tab: TabId);
 }
 
 /// Downloads, and files made from pages. Each moves on as [`EngineEvent::Download`], under the

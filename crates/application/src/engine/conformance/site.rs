@@ -104,6 +104,14 @@ pub enum Act {
     /// Adds a muted video and plays it: a canvas's moving colors as a stream, so no file and
     /// no codec is needed, and a muted video plays without the user's gesture.
     PlayVideo,
+    /// Asks for its text's paragraph to go full screen; its title becomes `fullscreen:filled`
+    /// once the paragraph fills the page view, `fullscreen:denied` when the engine refused
+    /// (the Fullscreen API needs the user's click), and `fullscreen:none` once it left. With
+    /// `leave`, the page leaves by itself a moment after it entered, as its own exit control
+    /// does.
+    Fullscreen { leave: bool },
+    /// Leaves full screen by itself (`document.exitFullscreen`).
+    ExitFullscreen,
 }
 
 impl Act {
@@ -148,6 +156,18 @@ impl Act {
                                 video.srcObject=canvas.captureStream(30);\
                                 document.body.appendChild(video);video.play();"
                 .to_owned(),
+            Self::Fullscreen { leave } => format!(
+                "document.onfullscreenchange=()=>{{const shown=document.fullscreenElement;\
+                 if(!shown){{document.title='fullscreen:none';return;}}\
+                 const box=shown.getBoundingClientRect();\
+                 document.title='fullscreen:'+(Math.round(box.width)===innerWidth&&\
+                 Math.round(box.height)===innerHeight?'filled':'partial');\
+                 if({leave}){{setTimeout(()=>{{{}}},200);}}}};\
+                 document.querySelector('p').requestFullscreen().catch(\
+                 ()=>{{document.title='fullscreen:denied'}});",
+                Self::ExitFullscreen.script()
+            ),
+            Self::ExitFullscreen => "document.exitFullscreen();".to_owned(),
         }
     }
 }
@@ -295,6 +315,36 @@ pub const SITE: &[(&str, Resource)] = &[
         Resource::Page(acting("Field", &[Act::FocusField, Act::AddFrame("plain")])),
     ),
     ("video", Resource::Page(acting("Video", &[Act::PlayVideo]))),
+    (
+        "fullscreen",
+        Resource::Page(TestPage {
+            title: "Full screen",
+            text: "a video",
+            controls: &[Control::Button(Act::Fullscreen { leave: false })],
+            scripts: &[],
+            on_load: &[],
+        }),
+    ),
+    (
+        "fullscreen-brief",
+        Resource::Page(TestPage {
+            title: "Full screen",
+            text: "a video",
+            controls: &[Control::Button(Act::Fullscreen { leave: true })],
+            scripts: &[],
+            on_load: &[],
+        }),
+    ),
+    (
+        "fullscreen-unasked",
+        Resource::Page(TestPage {
+            title: "Full screen",
+            text: "a video",
+            controls: &[],
+            scripts: &[],
+            on_load: &[Act::Fullscreen { leave: false }],
+        }),
+    ),
     (
         "tracked",
         Resource::Page(TestPage {

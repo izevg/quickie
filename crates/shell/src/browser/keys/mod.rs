@@ -165,6 +165,14 @@ impl Browser {
             self.cancel_cycle();
             return Outcome::Overlay;
         }
+        // `⎋` takes a page out of full screen before the page sees it, as `WebKit`'s own full
+        // screen does.
+        if stroke.key == Key::Escape
+            && stroke.modifiers == Modifiers::NONE
+            && self.leave_page_fullscreen()
+        {
+            return Outcome::Overlay;
+        }
         if self.switcher_key(stroke) {
             return Outcome::Overlay;
         }

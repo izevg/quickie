@@ -26,7 +26,7 @@ pub use engine::conformance;
 pub use engine::{
     Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, Downloads,
     Engine, EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost,
-    ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, Inspector, LinkTarget,
+    ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, Fullscreen, Inspector, LinkTarget,
     NoExtensions, PackageSource, PageAsks, PageContent, PageRect, PageSurface, PageVideo, PageZoom,
     PortsOf, ReplyToken, Ticket, Unpacked, WindowTabs,
 };

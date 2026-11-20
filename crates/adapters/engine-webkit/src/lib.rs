@@ -145,8 +145,8 @@ impl WebKitEngine {
         // SAFETY: as above.
         let throwaway_content = unsafe { WKUserContentController::new(mtm) };
         let inbox = Rc::<Inbox>::default();
-        page::install_focus_script(&content, Rc::clone(&inbox.focus), mtm);
-        page::install_focus_script(&throwaway_content, Rc::clone(&inbox.focus), mtm);
+        page::install_scripts(&content, &inbox.reports, mtm);
+        page::install_scripts(&throwaway_content, &inbox.reports, mtm);
         page::install_video_script(&content, Inbox::video_reports(&inbox), mtm);
         page::install_video_script(&throwaway_content, Inbox::video_reports(&inbox), mtm);
         let waiting = Rc::downgrade(&inbox);
@@ -329,7 +329,7 @@ impl EnginePort for WebKitEngine {
             &self.internal,
             extensions,
             Inbox::hooks(&self.inbox, &owner, self.mtm),
-            Rc::clone(&self.inbox.focus),
+            self.inbox.reports.clone(),
             self.mtm,
         );
         self.lay_out(&page);
@@ -511,10 +511,17 @@ impl Downloads for WebKitEngine {
 }
 
 /// The inbox holds what each waiting page's UI delegate handed `WebKit` to call back with; an
-/// answer calls it, and the page goes on.
+/// answer calls it, and the page goes on. A page in full screen is taken out by its own
+/// Fullscreen API, which then reports that it left.
 impl PageAsks for WebKitEngine {
     fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
         self.inbox.answer(token, answer)
+    }
+
+    fn exit_fullscreen(&mut self, tab: TabId) {
+        if let Some(page) = self.pages.get(&tab) {
+            page.exit_fullscreen();
+        }
     }
 }
 
@@ -704,7 +711,7 @@ impl Engine for WebKitEngine {
             let page = WebPage::with_configuration(
                 &opener.configuration(),
                 Inbox::hooks(&self.inbox, &owner, self.mtm),
-                Rc::clone(&self.inbox.focus),
+                self.inbox.reports.clone(),
                 self.mtm,
             );
             if page.load(&url).is_ok() {

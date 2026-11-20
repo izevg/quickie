@@ -64,6 +64,9 @@ pub enum Group {
     Dialogs,
     /// Device permission requests wait for an answer with a reply token.
     Permissions,
+    /// A page the user clicked goes full screen in its own view, and leaves it by itself, when
+    /// it navigates, or when the browser takes it out; never without a click.
+    Fullscreen,
     /// Find counts the matches and steps through them.
     Find,
     /// Link hints: the targets on screen, and following one.
@@ -88,7 +91,7 @@ pub enum Group {
 
 impl Group {
     /// Every group, in the order the suite runs them.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Core,
         Self::Surface,
         Self::Events,
@@ -96,6 +99,7 @@ impl Group {
         Self::Jars,
         Self::Dialogs,
         Self::Permissions,
+        Self::Fullscreen,
         Self::Find,
         Self::Hints,
         Self::Text,

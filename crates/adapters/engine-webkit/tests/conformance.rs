@@ -129,6 +129,7 @@ impl Harness for WebKit {
             | Group::Opened
             | Group::Jars
             | Group::Dialogs
+            | Group::Fullscreen
             | Group::Find
             | Group::Hints
             | Group::Text

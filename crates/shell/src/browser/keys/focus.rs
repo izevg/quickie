@@ -32,6 +32,8 @@ enum Moved {
     /// Away from the keys in flight: a window lost the keyboard, the app the foreground, or a
     /// full-screen transition began.
     Away,
+    /// Away, as a window starts leaving full screen: a page that filled it leaves too.
+    OutOfFullScreen,
     /// Back to a window: it got the keyboard, or a full-screen transition ended.
     Back,
 }
@@ -46,7 +48,10 @@ pub(super) fn observe(
             (NSWindowDidResignKeyNotification, Moved::Away),
             (NSApplicationDidResignActiveNotification, Moved::Away),
             (NSWindowWillEnterFullScreenNotification, Moved::Away),
-            (NSWindowWillExitFullScreenNotification, Moved::Away),
+            (
+                NSWindowWillExitFullScreenNotification,
+                Moved::OutOfFullScreen,
+            ),
             (NSWindowDidBecomeKeyNotification, Moved::Back),
             (NSWindowDidEnterFullScreenNotification, Moved::Back),
             (NSWindowDidExitFullScreenNotification, Moved::Back),
@@ -80,12 +85,18 @@ impl Browser {
     fn attention_moved(&self, moved: Moved, window: Option<&NSWindow>) {
         self.pending.take();
         self.commit_cycle();
-        if moved == Moved::Away {
-            return;
-        }
         let Some(window) = window else {
             return;
         };
+        match moved {
+            Moved::Away => return,
+            Moved::OutOfFullScreen => {
+                self.window_leaves_fullscreen(window);
+                self.drain();
+                return;
+            }
+            Moved::Back => {}
+        }
         let id = self
             .windows
             .borrow()
