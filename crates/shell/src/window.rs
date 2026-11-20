@@ -2,6 +2,10 @@
 //! titlebar would be included: the titlebar is transparent and untitled, and the system's
 //! close, minimize, and full-screen buttons float over the page's top-left corner, as in
 //! Safari's compact layout. Overlays float above the page.
+//!
+//! - [`drag_strip`]: the invisible band along the top edge that moves the window.
+
+mod drag_strip;
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
@@ -10,10 +14,12 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
+use drag_strip::DragStrip;
+
 pub const APP_NAME: &str = "Quickie";
 
 /// A new, hidden browser window whose content view, the whole window, hosts the pages and
-/// overlays.
+/// overlays, with the drag strip between them.
 pub fn browser_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     let style = NSWindowStyleMask::Titled
         | NSWindowStyleMask::Closable
@@ -33,7 +39,9 @@ pub fn browser_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     };
     // SAFETY: `Retained` owns the window, so AppKit must not release it on close as well.
     unsafe { window.setReleasedWhenClosed(false) };
-    window.setContentView(Some(&NSView::new(mtm)));
+    let content = NSView::new(mtm);
+    window.setContentView(Some(&content));
+    content.addSubview(&DragStrip::new(&content, mtm));
     set_title(&window, "");
     window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
     window.setTitlebarAppearsTransparent(true);

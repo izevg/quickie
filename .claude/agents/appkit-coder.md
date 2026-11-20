@@ -27,8 +27,9 @@ it and `AGENTS.md` disagree, stop and report.
   compositor, no HTML chrome, no SwiftUI, no Swift. Animate only `transform`, `opacity`,
   `shadowOpacity`.
 - **Content first.** Idle state shows only the page, edge to edge: a full-size content view,
-  transparent titlebar, hidden title, no toolbar, traffic lights hidden until a deliberate action.
-  Nothing appears on hover.
+  transparent titlebar, hidden title, no toolbar. The standard traffic lights float over the
+  page's top-left corner with no bar of their own, and an invisible strip along the top edge
+  drags the window (`crates/shell/src/window/`). Nothing appears on hover.
 - **Elevation.** E1 `.clear` glass, no shadow; E2 `.regular` glass inside a glass container,
   medium shadow, page dimmed ~10 %; E3 tinted, deep shadow, dimmed ~30 %. Never glass on glass,
   one E2 or E3 at a time. `NSGlassEffectView` is macOS 26: if `objc2-app-kit` lacks it, look the

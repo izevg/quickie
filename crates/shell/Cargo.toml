@@ -39,6 +39,7 @@ objc2-foundation = { workspace = true, features = [
   "NSString",
   "NSTimer",
   "NSURL",
+  "NSUserDefaults",
 ] }
 quickie-application.workspace = true
 quickie-domain-agents.workspace = true
