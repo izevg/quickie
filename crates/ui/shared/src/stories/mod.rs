@@ -25,7 +25,6 @@ use std::cell::RefCell;
 use std::fmt::{Debug, Display, Write as _};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 use std::time::Instant;
 
 use block2::StackBlock;
@@ -229,18 +228,20 @@ struct Options {
 }
 
 /// Runs the story binary of the crate at `manifest_dir` (`env!("CARGO_MANIFEST_DIR")`) on
-/// its `stories`; its references live in `<manifest_dir>/tests/snapshots`.
-pub fn run(stories: &[Story], manifest_dir: &str) -> ExitCode {
+/// its `stories`; its references live in `<manifest_dir>/tests/snapshots`. True when every
+/// story passed; the binary's `main` turns it into its exit code.
+#[must_use]
+pub fn run(stories: &[Story], manifest_dir: &str) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         println!("stories: must run on the main thread (a test target with `harness = false`)");
-        return ExitCode::FAILURE;
+        return false;
     };
     let manifest = Path::new(manifest_dir);
     let options = match options(std::env::args().skip(1), manifest) {
         Ok(options) => options,
         Err(error) => {
             println!("stories: {error}");
-            return ExitCode::FAILURE;
+            return false;
         }
     };
     let chosen: Vec<(&Story, Theme)> = stories
@@ -265,14 +266,10 @@ pub fn run(stories: &[Story], manifest_dir: &str) -> ExitCode {
             accept(&chosen, &options, &references, mtm)
         }
     };
-    match outcome {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::FAILURE,
-        Err(error) => {
-            println!("stories: {error}");
-            ExitCode::FAILURE
-        }
-    }
+    outcome.unwrap_or_else(|error| {
+        println!("stories: {error}");
+        false
+    })
 }
 
 fn options(args: impl Iterator<Item = String>, manifest: &Path) -> Result<Options, String> {

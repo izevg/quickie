@@ -23,5 +23,9 @@ fn main() -> ExitCode {
         .flatten()
         .copied()
         .collect();
-    stories::run(&all, env!("CARGO_MANIFEST_DIR"))
+    if stories::run(&all, env!("CARGO_MANIFEST_DIR")) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }

@@ -38,7 +38,11 @@ const STORIES: &[Story] = &[
 ];
 
 fn main() -> ExitCode {
-    stories::run(STORIES, env!("CARGO_MANIFEST_DIR"))
+    if stories::run(STORIES, env!("CARGO_MANIFEST_DIR")) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 /// The screen with its agent pane, filled as the browser fills it, showing `shown`.
