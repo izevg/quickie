@@ -180,8 +180,9 @@ fn render_head(cargo: &str, root: &Path, base_renders: &Path, head: &Path) -> Re
     Ok(passed)
 }
 
-/// The commit to compare with and where it comes from.
-fn base_commit(requested: Option<&str>) -> Result<(String, String), String> {
+/// The commit to compare with and where it comes from. Also what `cargo xtask base` prints, so
+/// the mutation gate diffs against the same base.
+pub fn base_commit(requested: Option<&str>) -> Result<(String, String), String> {
     let (rev, label) = if let Some(rev) = requested {
         (rev.to_owned(), rev.to_owned())
     } else {
