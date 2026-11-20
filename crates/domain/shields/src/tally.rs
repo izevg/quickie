@@ -40,35 +40,39 @@ impl BlockTally {
 
 #[cfg(test)]
 mod tests {
-    use quickie_domain_kernel::TabId;
+    use quickie_domain_kernel::{Profile, TabId};
 
     use super::BlockTally;
+
+    fn tab(serial: u64) -> TabId {
+        TabId::new(Profile::Main, serial)
+    }
 
     #[test]
     fn a_tab_that_blocked_nothing_counts_zero() {
         let tally = BlockTally::new();
 
-        assert_eq!(tally.count(TabId::new(1)), 0);
+        assert_eq!(tally.count(tab(1)), 0);
     }
 
     #[test]
     fn blocked_requests_add_up_per_tab() {
         let mut tally = BlockTally::new();
-        tally.record(TabId::new(1), 2);
+        tally.record(tab(1), 2);
 
-        let count = tally.record(TabId::new(1), 3);
+        let count = tally.record(tab(1), 3);
 
         assert_eq!(count, 5);
-        assert_eq!(tally.count(TabId::new(1)), 5);
-        assert_eq!(tally.count(TabId::new(2)), 0);
+        assert_eq!(tally.count(tab(1)), 5);
+        assert_eq!(tally.count(tab(2)), 0);
     }
 
     #[test]
     fn a_count_stops_at_the_largest_number() {
         let mut tally = BlockTally::new();
-        tally.record(TabId::new(1), u32::MAX);
+        tally.record(tab(1), u32::MAX);
 
-        let count = tally.record(TabId::new(1), 1);
+        let count = tally.record(tab(1), 1);
 
         assert_eq!(count, u32::MAX);
     }
@@ -76,12 +80,12 @@ mod tests {
     #[test]
     fn a_forgotten_tab_counts_from_zero_again() {
         let mut tally = BlockTally::new();
-        tally.record(TabId::new(1), 4);
-        tally.record(TabId::new(2), 1);
+        tally.record(tab(1), 4);
+        tally.record(tab(2), 1);
 
-        tally.forget(TabId::new(1));
+        tally.forget(tab(1));
 
-        assert_eq!(tally.count(TabId::new(1)), 0);
-        assert_eq!(tally.count(TabId::new(2)), 1);
+        assert_eq!(tally.count(tab(1)), 0);
+        assert_eq!(tally.count(tab(2)), 1);
     }
 }

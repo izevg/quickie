@@ -4,7 +4,7 @@ use std::rc::Rc;
 use block2::RcBlock;
 use objc2::runtime::Bool;
 use quickie_application::{Answer, AskKind, Dialog};
-use quickie_domain_browsing::{Focus, TabId};
+use quickie_domain_browsing::{Focus, Profile, TabId};
 use url::Url;
 
 use super::{Inbox, Owner};
@@ -12,7 +12,9 @@ use crate::page::PageEvent;
 use crate::page::asks::Reply;
 
 fn owner(tab: Option<u64>) -> Owner {
-    Rc::new(Cell::new(tab.map(TabId::new)))
+    Rc::new(Cell::new(
+        tab.map(|serial| TabId::new(Profile::Main, serial)),
+    ))
 }
 
 fn url(text: &str) -> Url {
@@ -58,15 +60,18 @@ fn asks_wait_until_their_page_has_a_tab() {
         .into_iter()
         .map(|ask| (ask.tab, ask.kind))
         .collect();
-    popup.set(Some(TabId::new(7)));
+    popup.set(Some(TabId::new(Profile::Main, 7)));
     let second: Vec<(TabId, Url)> = inbox
         .take_asks()
         .into_iter()
         .map(|ask| (ask.tab, ask.origin))
         .collect();
 
-    assert_eq!(first, [(TabId::new(1), alert("now"))]);
-    assert_eq!(second, [(TabId::new(7), url("https://a.example/"))]);
+    assert_eq!(first, [(TabId::new(Profile::Main, 1), alert("now"))]);
+    assert_eq!(
+        second,
+        [(TabId::new(Profile::Main, 7), url("https://a.example/"))]
+    );
     assert_eq!(inbox.take_asks(), Vec::new());
 }
 
@@ -111,7 +116,7 @@ fn a_closed_tab_declines_its_asks_and_keeps_the_others() {
     );
     let kept = inbox.take_asks().pop().map(|ask| ask.token);
 
-    inbox.forget(TabId::new(1));
+    inbox.forget(TabId::new(Profile::Main, 1));
 
     assert_eq!(*heard.borrow(), [false, false]);
     assert!(other.borrow().is_empty());
@@ -147,14 +152,17 @@ fn page_events_land_in_their_queues_for_their_tab() {
     assert_eq!(
         links,
         [(
-            TabId::new(3),
+            TabId::new(Profile::Main, 3),
             "https://a.example/next".to_owned(),
             Focus::Background
         )]
     );
     assert_eq!(
         *inbox.fullscreen.borrow(),
-        [(TabId::new(3), true), (TabId::new(3), false)]
+        [
+            (TabId::new(Profile::Main, 3), true),
+            (TabId::new(Profile::Main, 3), false)
+        ]
     );
-    assert_eq!(*inbox.closed.borrow(), [TabId::new(3)]);
+    assert_eq!(*inbox.closed.borrow(), [TabId::new(Profile::Main, 3)]);
 }

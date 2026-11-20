@@ -7,7 +7,7 @@ mod tests;
 mod trash;
 
 use indexmap::IndexMap;
-use quickie_domain_kernel::{TabId, Timestamp, WindowId};
+use quickie_domain_kernel::{Profile, TabId, Timestamp, WindowId};
 use url::Url;
 
 use crate::{BrowsingError, Focus, Jar, JarChoice, JarId, PinnedSlot, Tab};
@@ -39,8 +39,12 @@ pub struct ClosedWindow {
 
 /// One profile's browsing state. Every mutation is one method, so the store saves one
 /// consistent aggregate per command.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// Every id it hands out names its profile, and it knows only ids of its own profile: a tab or
+/// a window of another profile is as unknown to it as a closed one.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
+    profile: Profile,
     tabs: IndexMap<TabId, Tab>,
     windows: IndexMap<WindowId, MruStack>,
     slots: [Option<TabId>; PinnedSlot::COUNT],
@@ -49,15 +53,28 @@ pub struct Session {
 }
 
 impl Session {
-    /// An empty session: no windows, no tabs.
+    /// An empty session of a profile: no windows, no tabs.
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(profile: Profile) -> Self {
+        Self {
+            profile,
+            tabs: IndexMap::new(),
+            windows: IndexMap::new(),
+            slots: [None; PinnedSlot::COUNT],
+            trash: Trash::default(),
+            next: NextIds::default(),
+        }
+    }
+
+    /// The profile whose tabs these are.
+    #[must_use]
+    pub fn profile(&self) -> Profile {
+        self.profile
     }
 
     /// Opens an empty window.
     pub fn open_window(&mut self) -> WindowId {
-        let id = WindowId::new(self.next.window);
+        let id = WindowId::new(self.profile, self.next.window);
         self.next.window += 1;
         self.windows.insert(id, MruStack::default());
         id
@@ -85,7 +102,7 @@ impl Session {
             JarChoice::NewThrowaway => self.new_jar(),
             JarChoice::SameAs(opener) => self.live(opener)?.jar,
         };
-        let id = TabId::new(self.next.tab);
+        let id = TabId::new(self.profile, self.next.tab);
         self.next.tab += 1;
         self.tabs.insert(
             id,

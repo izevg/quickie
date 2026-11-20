@@ -1,16 +1,17 @@
 //! Browsing context: the tabs of a profile, the windows that hold them, most-recently-used order,
 //! pinned slots `⌘1` … `⌘9`, and the trash that keeps closed tabs for 30 days.
 //!
-//! [`Session`] is the aggregate: one per profile, the unit the store saves in one transaction.
-//! Chromium knows which tabs are live; this crate knows how they are organized. Pure: no I/O, no
-//! clock (the caller passes [`Timestamp`]s), no async.
+//! [`Session`] is the aggregate: one per [`Profile`], the unit the store saves in one
+//! transaction. Only the main profile's session is ever saved; the agent's lives as long as the
+//! process. The engine knows which tabs are live; this crate knows how they are organized. Pure:
+//! no I/O, no clock (the caller passes [`Timestamp`]s), no async.
 
 mod cycle;
 mod session;
 mod tab;
 
 pub use cycle::{Direction, TabCycle};
-pub use quickie_domain_kernel::{TabId, Timestamp, WindowId};
+pub use quickie_domain_kernel::{Profile, TabId, Timestamp, WindowId};
 pub use session::{
     Closed, ClosedTab, ClosedWindow, CorruptSession, NextIds, RETENTION_MS, Session,
     SessionSnapshot,

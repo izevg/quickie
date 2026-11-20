@@ -58,17 +58,21 @@ impl MruStack {
 #[cfg(test)]
 mod tests {
     use super::MruStack;
-    use quickie_domain_kernel::TabId;
+    use quickie_domain_kernel::{Profile, TabId};
+
+    fn id(serial: u64) -> TabId {
+        TabId::new(Profile::Main, serial)
+    }
 
     fn stack(raw: &[u64]) -> MruStack {
-        MruStack::from_order(raw.iter().copied().map(TabId::new).collect())
+        MruStack::from_order(raw.iter().copied().map(id).collect())
     }
 
     #[test]
     fn touch_moves_a_member_to_the_front_and_keeps_the_rest() {
         let mut mru = stack(&[1, 2, 3, 4]);
 
-        let touched = mru.touch(TabId::new(3));
+        let touched = mru.touch(id(3));
 
         assert!(touched);
         assert_eq!(mru, stack(&[3, 1, 2, 4]));
@@ -78,7 +82,7 @@ mod tests {
     fn touch_ignores_strangers() {
         let mut mru = stack(&[1, 2]);
 
-        let touched = mru.touch(TabId::new(9));
+        let touched = mru.touch(id(9));
 
         assert!(!touched);
         assert_eq!(mru, stack(&[1, 2]));
@@ -88,8 +92,8 @@ mod tests {
     fn remove_drops_only_that_member() {
         let mut mru = stack(&[1, 2, 3]);
 
-        assert!(mru.remove(TabId::new(2)));
-        assert!(!mru.remove(TabId::new(2)));
+        assert!(mru.remove(id(2)));
+        assert!(!mru.remove(id(2)));
         assert_eq!(mru, stack(&[1, 3]));
     }
 
@@ -97,12 +101,12 @@ mod tests {
     fn pushes_go_to_their_ends() {
         let mut mru = stack(&[1]);
 
-        mru.push_front(TabId::new(2));
-        mru.push_back(TabId::new(3));
+        mru.push_front(id(2));
+        mru.push_back(id(3));
 
-        assert_eq!(mru.front(), Some(TabId::new(2)));
+        assert_eq!(mru.front(), Some(id(2)));
         assert_eq!(mru.as_slice(), stack(&[2, 1, 3]).as_slice());
-        assert!(mru.contains(TabId::new(3)));
-        assert!(!mru.contains(TabId::new(4)));
+        assert!(mru.contains(id(3)));
+        assert!(!mru.contains(id(4)));
     }
 }

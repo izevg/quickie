@@ -65,10 +65,14 @@ impl TabCycle {
 #[cfg(test)]
 mod tests {
     use super::{Direction, TabCycle};
-    use quickie_domain_kernel::TabId;
+    use quickie_domain_kernel::{Profile, TabId};
+
+    fn id(serial: u64) -> TabId {
+        TabId::new(Profile::Main, serial)
+    }
 
     fn ids(raw: &[u64]) -> Vec<TabId> {
-        raw.iter().copied().map(TabId::new).collect()
+        raw.iter().copied().map(id).collect()
     }
 
     #[test]
@@ -81,14 +85,14 @@ mod tests {
     fn two_tabs_are_enough() {
         let cycle = TabCycle::begin(&ids(&[2, 1]), Direction::Forward).unwrap();
 
-        assert_eq!(cycle.selected(), TabId::new(1));
+        assert_eq!(cycle.selected(), id(1));
     }
 
     #[test]
     fn a_quick_tap_selects_the_previous_tab() {
         let cycle = TabCycle::begin(&ids(&[3, 1, 2]), Direction::Forward).unwrap();
 
-        assert_eq!(cycle.selected(), TabId::new(1));
+        assert_eq!(cycle.selected(), id(1));
         assert_eq!(cycle.order(), ids(&[3, 1, 2]).as_slice());
     }
 
@@ -96,7 +100,7 @@ mod tests {
     fn backward_starts_at_the_least_recent() {
         let cycle = TabCycle::begin(&ids(&[3, 1, 2]), Direction::Backward).unwrap();
 
-        assert_eq!(cycle.selected(), TabId::new(2));
+        assert_eq!(cycle.selected(), id(2));
     }
 
     #[test]
@@ -107,8 +111,8 @@ mod tests {
         let at_end = cycle.selected();
         cycle.step(Direction::Forward);
 
-        assert_eq!(at_end, TabId::new(2));
-        assert_eq!(cycle.selected(), TabId::new(3));
+        assert_eq!(at_end, id(2));
+        assert_eq!(cycle.selected(), id(3));
     }
 
     #[test]
@@ -119,7 +123,7 @@ mod tests {
         let at_start = cycle.selected();
         cycle.step(Direction::Backward);
 
-        assert_eq!(at_start, TabId::new(3));
-        assert_eq!(cycle.selected(), TabId::new(2));
+        assert_eq!(at_start, id(3));
+        assert_eq!(cycle.selected(), id(2));
     }
 }

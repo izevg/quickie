@@ -1,4 +1,4 @@
-use quickie_domain_browsing::TabId;
+use quickie_domain_browsing::{Profile, TabId};
 use url::Url;
 
 use super::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts};
@@ -8,7 +8,7 @@ fn url(text: &str) -> Url {
 }
 
 fn tab(n: u64) -> TabId {
-    TabId::new(n)
+    TabId::new(Profile::Main, n)
 }
 
 const SHOW: DialogGate = DialogGate::Show { offer_block: false };

@@ -1,52 +1,79 @@
 //! Identifiers shared across bounded contexts.
 
+mod profile;
+
 use std::fmt;
 
-/// Identifies a tab for its whole life, across restarts and the trash.
+pub use profile::Profile;
+
+/// Identifies a tab for its whole life, across restarts and the trash. It names the profile the
+/// tab belongs to, so the tabs of two profiles never share an id and a tab cannot change its
+/// profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TabId(u64);
+pub struct TabId {
+    profile: Profile,
+    serial: u64,
+}
 
 impl TabId {
-    /// Wraps a raw value, as read from storage or allocated by a sequence.
+    /// Wraps a profile's serial number, as read from storage or allocated by its session.
     #[must_use]
-    pub const fn new(raw: u64) -> Self {
-        Self(raw)
+    pub const fn new(profile: Profile, serial: u64) -> Self {
+        Self { profile, serial }
     }
 
-    /// The raw value, for storage.
+    /// The profile the tab belongs to.
+    #[must_use]
+    pub const fn profile(self) -> Profile {
+        self.profile
+    }
+
+    /// The serial number within its profile, for storage and for the profile's own engine.
+    /// It is unique only together with [`Self::profile`].
     #[must_use]
     pub const fn get(self) -> u64 {
-        self.0
+        self.serial
     }
 }
 
 impl fmt::Display for TabId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "tab#{}", self.0)
+        write!(f, "{} tab#{}", self.profile, self.serial)
     }
 }
 
-/// Identifies a browser window.
+/// Identifies a browser window. It names its profile, like [`TabId`]: a window holds only the
+/// tabs of its own profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WindowId(u64);
+pub struct WindowId {
+    profile: Profile,
+    serial: u64,
+}
 
 impl WindowId {
-    /// Wraps a raw value, as read from storage or allocated by a sequence.
+    /// Wraps a profile's serial number, as read from storage or allocated by its session.
     #[must_use]
-    pub const fn new(raw: u64) -> Self {
-        Self(raw)
+    pub const fn new(profile: Profile, serial: u64) -> Self {
+        Self { profile, serial }
     }
 
-    /// The raw value, for storage.
+    /// The profile the window belongs to.
+    #[must_use]
+    pub const fn profile(self) -> Profile {
+        self.profile
+    }
+
+    /// The serial number within its profile, for storage and for the profile's own engine.
+    /// It is unique only together with [`Self::profile`].
     #[must_use]
     pub const fn get(self) -> u64 {
-        self.0
+        self.serial
     }
 }
 
 impl fmt::Display for WindowId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "window#{}", self.0)
+        write!(f, "{} window#{}", self.profile, self.serial)
     }
 }
 
@@ -128,22 +155,41 @@ pub enum CommandIdError {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandId, CommandIdError, TabId, WindowId};
+    use super::{CommandId, CommandIdError, Profile, TabId, WindowId};
 
     #[test]
-    fn tab_id_round_trips_and_displays() {
-        let id = TabId::new(42);
+    fn a_tab_id_keeps_its_profile_and_serial() {
+        let id = TabId::new(Profile::Agent, 42);
 
-        assert_eq!(id.get(), 42);
-        assert_eq!(id.to_string(), "tab#42");
+        assert_eq!((id.profile(), id.get()), (Profile::Agent, 42));
     }
 
     #[test]
-    fn window_id_round_trips_and_displays() {
-        let id = WindowId::new(7);
+    fn a_tab_id_displays_its_profile() {
+        let id = TabId::new(Profile::Main, 42);
 
-        assert_eq!(id.get(), 7);
-        assert_eq!(id.to_string(), "window#7");
+        assert_eq!(id.to_string(), "main tab#42");
+    }
+
+    #[test]
+    fn tabs_of_two_profiles_never_share_an_id() {
+        let main = TabId::new(Profile::Main, 1);
+
+        assert_ne!(main, TabId::new(Profile::Agent, 1));
+    }
+
+    #[test]
+    fn a_window_id_keeps_its_profile_and_serial() {
+        let id = WindowId::new(Profile::Agent, 7);
+
+        assert_eq!((id.profile(), id.get()), (Profile::Agent, 7));
+    }
+
+    #[test]
+    fn a_window_id_displays_its_profile() {
+        let id = WindowId::new(Profile::Agent, 7);
+
+        assert_eq!(id.to_string(), "agent window#7");
     }
 
     fn parse(text: &str) -> Result<CommandId, CommandIdError> {

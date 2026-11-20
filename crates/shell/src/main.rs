@@ -55,7 +55,7 @@ use objc2_foundation::{NSNotification, NSNotificationCenter};
 use quickie_application::{
     Agent, Browsing, Clock, Library, LoadedKeymap, Shields, Zoom, load_keymap,
 };
-use quickie_domain_browsing::Timestamp;
+use quickie_domain_browsing::{Profile, Timestamp};
 use quickie_domain_commands::{Catalog, Keymap, Platform};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use quickie_store::{PendingWrites, WriteBehindStore};
@@ -154,8 +154,8 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let pending = store.pending();
     let engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
-    let mut browsing =
-        Browsing::start(engine, store, SystemClock, &home).map_err(|error| error.to_string())?;
+    let mut browsing = Browsing::start(Profile::Main, engine, store, SystemClock, &home)
+        .map_err(|error| error.to_string())?;
     // The library and the key bindings have a writer, and a connection, of their own.
     let library_store =
         WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
