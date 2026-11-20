@@ -5,14 +5,16 @@
 //! and only then replaces the endpoint, so a failed save changes nothing. The key goes to the
 //! [`SecretStore`], never to the store; the endpoint keeps only its [`KeyRef`].
 //!
-//! Asking has two halves, like fetching filter lists. [`Agent::ask`] runs on the main thread:
-//! it checks there is an endpoint and assembles the prompt, which is cheap. The [`Asking`] it
-//! returns owns everything the answer needs, so the shell moves it to a worker thread and calls
-//! [`Asking::run`] there, which blocks on the network and hands each [`AnswerEvent`] to a
-//! callback; the shell forwards them to the main thread. The endpoint is contacted only then,
-//! on the user's explicit request.
+//! Asking starts by reading the pages: a [`PageReader`] picks the tabs the request reads and
+//! asks the engine for their text, which comes back as engine events; the shell hands each to
+//! the reader until every page is in. Then two halves, like fetching filter lists.
+//! [`Agent::ask`] runs on the main thread: it checks there is an endpoint and assembles the
+//! prompt, which is cheap. The [`Asking`] it returns owns everything the answer needs, so the
+//! shell moves it to a worker thread and calls [`Asking::run`] there, which blocks on the
+//! network and hands each [`AnswerEvent`] to a callback; the shell forwards them to the main
+//! thread. The endpoint is contacted only then, on the user's explicit request.
 
-mod answer;
+mod ask;
 mod local;
 #[cfg(test)]
 mod tests;
@@ -21,7 +23,7 @@ use quickie_domain_agents::{
     ApiKey, BaseUrl, CorruptEndpoint, LlmEndpoint, ModelId, PageText, Prompt, Request, TokenBudget,
 };
 
-pub use answer::{AnswerEvent, AskError, Asking};
+pub use ask::{AnswerEvent, AskError, Asking, PageReader};
 pub use local::{LocalFound, detect_local, list_models};
 
 use crate::{AgentRepo, AppError, Entropy, SecretStore};

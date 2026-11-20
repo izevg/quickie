@@ -84,6 +84,23 @@ mod starting {
     use super::*;
 
     #[test]
+    fn a_restored_tab_has_a_page_from_when_it_is_shown_until_it_closes() {
+        let mut browsing = start_with(saved_two_tabs());
+        let active = browsing.session().active(w0()).unwrap();
+        let other = if active == t(0) { t(1) } else { t(0) };
+
+        let before = browsing.has_page(other);
+        browsing.activate(other).unwrap();
+        let shown = browsing.has_page(other);
+        browsing.close(other).unwrap();
+
+        assert!(browsing.has_page(active));
+        assert!(!before);
+        assert!(shown);
+        assert!(!browsing.has_page(other));
+    }
+
+    #[test]
     fn a_first_launch_opens_home_and_saves() {
         let browsing = start_with(FakeRepo::default());
 

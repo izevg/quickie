@@ -14,7 +14,8 @@ use crate::conformance::{
 };
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, EngineError,
-    EngineEvent, EnginePort, FindStep, LinkTarget, Navigation, PageRect, ReplyToken, Ticket,
+    EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageContent, PageRect,
+    ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -38,6 +39,10 @@ enum Fault {
     ReportsCancelled,
     /// The harness cannot answer asks.
     CannotAnswer,
+    /// Clearing a find does nothing.
+    KeepsFind,
+    /// Reading a page's text ignores the most asked for.
+    UncutText,
 }
 
 /// The reference engine with a fault.
@@ -85,6 +90,39 @@ impl EnginePort for Broken {
 
     fn destroy_jar(&mut self, jar: JarId) -> Result<(), EngineError> {
         self.engine.destroy_jar(jar)
+    }
+}
+
+impl PageContent for Broken {
+    fn find(&mut self, tab: TabId, query: &str, step: FindStep) -> Result<(), EngineError> {
+        self.engine.find(tab, query, step)
+    }
+
+    fn clear_find(&mut self, tab: TabId) -> Result<(), EngineError> {
+        match self.fault {
+            Fault::KeepsFind => Ok(()),
+            _ => self.engine.clear_find(tab),
+        }
+    }
+
+    fn read_text(&mut self, tab: TabId, max_chars: usize) -> Result<Ticket, EngineError> {
+        match self.fault {
+            Fault::UncutText => self.engine.read_text(tab, usize::MAX),
+            _ => self.engine.read_text(tab, max_chars),
+        }
+    }
+
+    fn link_targets(&mut self, tab: TabId) -> Result<Ticket, EngineError> {
+        self.engine.link_targets(tab)
+    }
+
+    fn follow_link(
+        &mut self,
+        tab: TabId,
+        index: usize,
+        background: bool,
+    ) -> Result<Ticket, EngineError> {
+        self.engine.follow_link(tab, index, background)
     }
 }
 
@@ -169,24 +207,6 @@ impl Harness for Faulty {
         }
     }
 
-    fn find(&mut self, engine: &mut Broken, tab: TabId, query: &str, step: FindStep) -> Driven<()> {
-        Memory.find(&mut engine.engine, tab, query, step)
-    }
-
-    fn link_targets(&mut self, engine: &mut Broken, tab: TabId) -> Driven<Option<Ticket>> {
-        Memory.link_targets(&mut engine.engine, tab)
-    }
-
-    fn follow_link(
-        &mut self,
-        engine: &mut Broken,
-        tab: TabId,
-        index: usize,
-        background: bool,
-    ) -> Driven<Option<Ticket>> {
-        Memory.follow_link(&mut engine.engine, tab, index, background)
-    }
-
     fn click(
         &mut self,
         engine: &mut Broken,
@@ -195,10 +215,6 @@ impl Harness for Faulty {
         command: bool,
     ) -> Driven<Result<(), String>> {
         Memory.click(&mut engine.engine, tab, at, command)
-    }
-
-    fn page_text(&mut self, engine: &mut Broken, tab: TabId) -> Driven<Option<Ticket>> {
-        Memory.page_text(&mut engine.engine, tab)
     }
 
     fn downloads_into(&mut self, engine: &mut Broken) -> Driven<Result<PathBuf, String>> {
@@ -424,6 +440,66 @@ fn targets_on_one_line_fail() {
     })));
 
     assert_eq!(failed(&report), MISPLACED);
+}
+
+#[test]
+fn a_find_that_cannot_be_cleared_fails() {
+    let report = run(&mut Faulty(Fault::KeepsFind));
+
+    assert_eq!(failed(&report), ["clearing_a_find_finds_nothing"]);
+}
+
+#[test]
+fn text_that_is_not_the_page_s_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Text { tab, ticket, .. } => EngineEvent::Text {
+            tab,
+            ticket,
+            text: String::new(),
+        },
+        other => other,
+    })));
+
+    assert_eq!(failed(&report), ["the_text_is_what_the_page_shows"]);
+}
+
+#[test]
+fn text_read_whole_when_asked_for_less_fails() {
+    let report = run(&mut Faulty(Fault::UncutText));
+
+    assert_eq!(failed(&report), ["the_text_is_cut_to_the_most_asked_for"]);
+}
+
+#[test]
+fn a_followed_link_left_to_the_page_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Followed { tab, ticket, .. } => EngineEvent::Followed {
+            tab,
+            ticket,
+            followed: Followed::Done,
+        },
+        other => other,
+    })));
+
+    assert_eq!(failed(&report), ["following_a_link_names_where_it_goes"]);
+}
+
+#[test]
+fn a_followed_button_that_names_a_link_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Followed {
+            tab,
+            ticket,
+            followed: Followed::Done,
+        } => EngineEvent::Followed {
+            tab,
+            ticket,
+            followed: Followed::NewTab(Memory.base()),
+        },
+        other => other,
+    })));
+
+    assert_eq!(failed(&report), ["following_a_button_clicks_it"]);
 }
 
 #[test]

@@ -31,7 +31,7 @@ use url::Url;
 pub(crate) use observer::PageEvent;
 use observer::PageObserver;
 use scripts::hints::{self, COLLECT_SCRIPT, follow_script};
-use scripts::{FOCUS_HANDLER, FOCUS_SCRIPT, FocusHandler, TEXT_SCRIPT};
+use scripts::{FOCUS_HANDLER, FOCUS_SCRIPT, FocusHandler, text_script};
 
 use crate::scheme::InternalPages;
 use asks::Reply;
@@ -397,10 +397,10 @@ impl WebPage {
         });
     }
 
-    /// Reads the main frame's rendered text for the agent; `done` gets it, empty when the page
-    /// has none or the script failed.
-    pub(crate) fn text(&self, done: impl FnOnce(String) + 'static) {
-        self.evaluate(TEXT_SCRIPT, done);
+    /// Reads at most `max_chars` characters of the main frame's rendered text for the agent;
+    /// `done` gets them, empty when the page has none or the script failed.
+    pub(crate) fn text(&self, max_chars: usize, done: impl FnOnce(String) + 'static) {
+        self.evaluate(&text_script(max_chars), done);
     }
 
     /// Runs `script` in Quickie's world of the main frame; `done` gets its string answer, empty

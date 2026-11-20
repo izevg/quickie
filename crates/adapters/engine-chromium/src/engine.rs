@@ -10,7 +10,9 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use quickie_application::{EngineError, EngineEvent, EnginePort, Navigation};
+use quickie_application::{
+    EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageContent, Ticket,
+};
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
 
@@ -146,6 +148,14 @@ impl ChromiumEngine {
         }
     }
 
+    /// Fails a page-content request the bridge cannot carry yet: `action` names it.
+    fn unsupported<T>(&self, tab: TabId, action: &str) -> Result<T, EngineError> {
+        self.live(tab)?;
+        Err(EngineError(format!(
+            "{action} the page of {tab}: the Chromium bridge cannot yet"
+        )))
+    }
+
     fn show_in(
         &self,
         window: WindowId,
@@ -246,6 +256,26 @@ impl EnginePort for ChromiumEngine {
         })?;
         self.jars.remove(&jar);
         Ok(())
+    }
+}
+
+/// The bridge has no page content yet: every request fails, without calling Chromium, and says
+/// so; a tab without a page fails as it does everywhere else.
+impl PageContent for ChromiumEngine {
+    fn find(&mut self, tab: TabId, _query: &str, _step: FindStep) -> Result<(), EngineError> {
+        self.unsupported(tab, "find in")
+    }
+
+    fn read_text(&mut self, tab: TabId, _max_chars: usize) -> Result<Ticket, EngineError> {
+        self.unsupported(tab, "read the text of")
+    }
+
+    fn link_targets(&mut self, tab: TabId) -> Result<Ticket, EngineError> {
+        self.unsupported(tab, "find link targets in")
+    }
+
+    fn follow_link(&mut self, tab: TabId, _: usize, _: bool) -> Result<Ticket, EngineError> {
+        self.unsupported(tab, "follow a link target in")
     }
 }
 

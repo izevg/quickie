@@ -29,14 +29,18 @@ pub(crate) fn world(mtm: MainThreadMarker) -> Retained<WKContentWorld> {
 }
 
 /// Reads the main frame's rendered text, as the user sees it (`innerText`: no hidden elements,
-/// no markup, no script or style text), for the agent to answer about. Capped at 200,000
-/// characters; the agent's token budget cuts it much shorter anyway. Runs in Quickie's world,
-/// so the page cannot replace `innerText` or see that it was read.
-pub(crate) const TEXT_SCRIPT: &str = r"(() => {
+/// no markup, no script or style text), for the agent to answer about: at most `max_chars`
+/// UTF-16 units, so at most that many characters. Runs in Quickie's world, so the page cannot
+/// replace `innerText` or see that it was read.
+pub(crate) fn text_script(max_chars: usize) -> String {
+    format!(
+        r"(() => {{
   const root = document.body || document.documentElement;
   const text = root ? root.innerText : '';
-  return String(text || '').slice(0, 200000);
-})()";
+  return String(text || '').slice(0, {max_chars});
+}})()"
+    )
+}
 
 /// The name the focus script posts under.
 pub(crate) const FOCUS_HANDLER: &str = "quickieFocus";

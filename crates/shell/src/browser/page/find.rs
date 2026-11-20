@@ -1,7 +1,7 @@
 //! Find in page: the bar's requests and keys become engine finds, and their answers come back
 //! through [`Browser::found`]. The bar is an E2: opening another E2 closes it.
 
-use quickie_application::{FindStep, Found};
+use quickie_application::{FindStep, Found, PageContent};
 use quickie_ui_widgets::FindRequest;
 
 use super::super::Browser;
@@ -79,10 +79,8 @@ impl Browser {
         }
         self.page.find_bar.hide();
         if let Some(tab) = self.page.find_tab.take() {
-            self.browsing
-                .borrow_mut()
-                .engine_mut()
-                .find(tab, "", FindStep::Refine);
+            // A tab whose page is gone has no marks left to clear.
+            let _ = self.browsing.borrow_mut().engine_mut().clear_find(tab);
         }
     }
 
@@ -108,7 +106,9 @@ impl Browser {
             return;
         };
         let query = self.page.find_bar.query();
-        self.browsing
+        // A tab without a page has no matches to show, and the bar keeps the ones it shows.
+        let _ = self
+            .browsing
             .borrow_mut()
             .engine_mut()
             .find(tab, &query, step);

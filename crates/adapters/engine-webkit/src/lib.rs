@@ -1,5 +1,6 @@
 //! Development engine of Quickie: pages on `WKWebView`, so UI work never waits for a Chromium
-//! build (`docs/architecture.md` §3, P0). It implements the application's [`EnginePort`].
+//! build (`docs/architecture.md` §3, P0). It implements the application's [`EnginePort`] and
+//! [`PageContent`].
 //!
 //! The engine keeps one page per tab, keyed by the domain's [`TabId`]. Main-jar pages share the
 //! default data store; each throwaway jar gets one non-persistent store, shared by its tabs and
@@ -60,7 +61,7 @@ use objc2_foundation::{NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
     Answer, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found, Navigation,
-    ReplyToken, Ticket,
+    PageContent, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
@@ -167,60 +168,6 @@ impl WebKitEngine {
             thumbnails.borrow_mut().insert(tab, image);
             report(&inbox, EngineEvent::Pictured { tab });
         });
-    }
-
-    /// Finds the links and controls on screen in the tab's page, for link hints:
-    /// [`EngineEvent::Targets`] with the ticket returned brings them in document order, placed
-    /// in the page view, which fills its window's host. `None` when the tab has no page.
-    #[must_use = "the ticket tells the answer apart"]
-    pub fn link_targets(&self, tab: TabId) -> Option<Ticket> {
-        let page = self.pages.get(&tab)?;
-        let ticket = self.inbox.ticket();
-        let inbox = Rc::downgrade(&self.inbox);
-        page.link_targets(move |targets| {
-            report(
-                &inbox,
-                EngineEvent::Targets {
-                    tab,
-                    ticket,
-                    targets,
-                },
-            );
-        });
-        Some(ticket)
-    }
-
-    /// Follows target `index` of the tab's last [`Self::link_targets`]: the page clicks or
-    /// focuses it, or [`EngineEvent::Followed`] with the ticket returned brings a link to open
-    /// in another tab (in the background when `background`). `None` when the tab has no page.
-    #[must_use = "the ticket tells the answer apart"]
-    pub fn follow_link(&self, tab: TabId, index: usize, background: bool) -> Option<Ticket> {
-        let page = self.pages.get(&tab)?;
-        let ticket = self.inbox.ticket();
-        let inbox = Rc::downgrade(&self.inbox);
-        page.follow(index, background, move |followed| {
-            report(
-                &inbox,
-                EngineEvent::Followed {
-                    tab,
-                    ticket,
-                    followed,
-                },
-            );
-        });
-        Some(ticket)
-    }
-
-    /// Reads the rendered text of the tab's page (its main frame), for the agent:
-    /// [`EngineEvent::Text`] with the ticket returned brings it. `None` when the tab has no
-    /// page. The script runs in Quickie's isolated content world, never in the page's own.
-    #[must_use = "the ticket tells the answer apart"]
-    pub fn page_text(&self, tab: TabId) -> Option<Ticket> {
-        let page = self.pages.get(&tab)?;
-        let ticket = self.inbox.ticket();
-        let inbox = Rc::downgrade(&self.inbox);
-        page.text(move |text| report(&inbox, EngineEvent::Text { tab, ticket, text }));
-        Some(ticket)
     }
 
     /// Saves downloads into `directory` from now on; it is created when the first one comes.
@@ -338,26 +285,6 @@ impl WebKitEngine {
     #[must_use]
     pub fn progress(&self, tab: TabId) -> Option<f64> {
         self.pages.get(&tab).and_then(WebPage::progress)
-    }
-
-    /// Selects a match of `query` in a tab's page as `step` says, marks every match, and
-    /// reports them as [`EngineEvent::Found`]. An empty query clears the marks.
-    pub fn find(&self, tab: TabId, query: &str, step: FindStep) {
-        let Some(page) = self.pages.get(&tab) else {
-            return;
-        };
-        let inbox = Rc::downgrade(&self.inbox);
-        let asked = query.to_owned();
-        page.find(query, step, move |matches| {
-            report(
-                &inbox,
-                EngineEvent::Found(Found {
-                    tab,
-                    query: asked.clone(),
-                    matches,
-                }),
-            );
-        });
     }
 
     /// A tab's page zoom, `1.0` for actual size; `None` for a tab without a page.
@@ -546,6 +473,78 @@ impl EnginePort for WebKitEngine {
         // Releasing the last reference to a non-persistent store discards its data.
         self.jars.remove(&jar);
         Ok(())
+    }
+}
+
+/// Find is `WKWebView`'s own; text, link targets and following one are scripts in Quickie's
+/// isolated content world, never in the page's own. Every answer is queued when `WebKit` hands
+/// it over and reaches the shell through the waker.
+impl PageContent for WebKitEngine {
+    fn find(&mut self, tab: TabId, query: &str, step: FindStep) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        let inbox = Rc::downgrade(&self.inbox);
+        let asked = query.to_owned();
+        page.find(query, step, move |matches| {
+            report(
+                &inbox,
+                EngineEvent::Found(Found {
+                    tab,
+                    query: asked.clone(),
+                    matches,
+                }),
+            );
+        });
+        Ok(())
+    }
+
+    fn read_text(&mut self, tab: TabId, max_chars: usize) -> Result<Ticket, EngineError> {
+        let page = self.page(tab)?;
+        let ticket = self.inbox.ticket();
+        let inbox = Rc::downgrade(&self.inbox);
+        page.text(max_chars, move |text| {
+            report(&inbox, EngineEvent::Text { tab, ticket, text });
+        });
+        Ok(ticket)
+    }
+
+    /// The targets are placed in the page view, which fills its window's host.
+    fn link_targets(&mut self, tab: TabId) -> Result<Ticket, EngineError> {
+        let page = self.page(tab)?;
+        let ticket = self.inbox.ticket();
+        let inbox = Rc::downgrade(&self.inbox);
+        page.link_targets(move |targets| {
+            report(
+                &inbox,
+                EngineEvent::Targets {
+                    tab,
+                    ticket,
+                    targets,
+                },
+            );
+        });
+        Ok(ticket)
+    }
+
+    fn follow_link(
+        &mut self,
+        tab: TabId,
+        index: usize,
+        background: bool,
+    ) -> Result<Ticket, EngineError> {
+        let page = self.page(tab)?;
+        let ticket = self.inbox.ticket();
+        let inbox = Rc::downgrade(&self.inbox);
+        page.follow(index, background, move |followed| {
+            report(
+                &inbox,
+                EngineEvent::Followed {
+                    tab,
+                    ticket,
+                    followed,
+                },
+            );
+        });
+        Ok(ticket)
     }
 }
 
