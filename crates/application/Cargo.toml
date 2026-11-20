@@ -29,5 +29,13 @@ divan.workspace = true
 name = "session_commit"
 harness = false
 
+[[bench]]
+name = "history_visit"
+harness = false
+
+[[bench]]
+name = "palette_query"
+harness = false
+
 [lints]
 workspace = true

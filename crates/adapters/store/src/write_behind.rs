@@ -3,7 +3,8 @@
 //!
 //! The writer owns the only connection. It coalesces: a snapshot replaces the one of the same
 //! kind still waiting, so a burst of commands costs a write or two, and only the latest state
-//! reaches the disk. Loads go through the same thread and wait for it, so a load sees every save
+//! reaches the disk. History comes entry by entry: the writer keeps the latest change of each
+//! page (its entry, or its removal) and writes only those pages. Loads go through the same thread and wait for it, so a load sees every save
 //! made before it. A failed write is kept for [`PendingWrites::take_error`] instead of being lost
 //! with the thread that saw it.
 
@@ -24,10 +25,11 @@ use quickie_application::{
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
-    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+    BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
 use quickie_domain_settings::SiteZoomsSnapshot;
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
+use url::Url;
 
 use crate::SqliteStore;
 use writer::{Barrier, Job, Save};
@@ -189,6 +191,14 @@ impl LibraryRepo for WriteBehindStore {
 
     fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError> {
         self.hand_over(Save::History(history.clone()))
+    }
+
+    fn upsert_entry(&mut self, entry: &HistoryEntry) -> Result<(), StoreError> {
+        self.hand_over(Save::HistoryEntry(Box::new(entry.clone())))
+    }
+
+    fn remove_entries(&mut self, pages: &[Url]) -> Result<(), StoreError> {
+        self.hand_over(Save::HistoryRemoved(pages.to_vec()))
     }
 
     fn save_bookmarks(&mut self, bookmarks: &BookmarksSnapshot) -> Result<(), StoreError> {

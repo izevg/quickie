@@ -35,7 +35,7 @@ pub use keymap::{
     keymap_lines, load_keymap, rebind, reset_binding,
 };
 pub use library::{CorruptLibrary, Library};
-pub use palette::{Palette, PaletteItem, Sources, Target};
+pub use palette::{Palette, PaletteIndex, PaletteItem, Sources, Target};
 pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
     Entropy, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapFile,

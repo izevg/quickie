@@ -2,11 +2,10 @@
 
 use std::cmp::Ordering;
 
+use nucleo_matcher::Matcher;
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
-use nucleo_matcher::{Config, Matcher, Utf32Str};
-use quickie_domain_kernel::Timestamp;
 
-use crate::{Candidate, Kind, Query};
+use crate::{Candidate, Kind, Query, Text};
 
 /// A candidate that answers the query, with what to highlight.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,70 +24,80 @@ pub struct Ranked<K> {
 /// clearly better match.
 const FRECENCY_WEIGHT: u32 = 4;
 
-/// Ranks the candidates that answer `query`, best first, and keeps at most `limit` of them.
-///
-/// A candidate takes part only if the query's mode admits its kind, and, unless the query text
-/// is empty, only if the text fuzzily matches its title or its detail. Its score is
-///
-/// `best fuzzy score of title and detail + 4 × log2(frecency + 1) + kind boost`,
-///
-/// where an open tab gets 40 and a bookmark 20. Equal scores fall back to the title, then to the
-/// input order, so the result never depends on the sort algorithm. Only the kept candidates
-/// carry match positions, and only `limit` of them are fully sorted.
-#[must_use]
-pub fn rank<K: Clone>(
-    query: &Query,
-    candidates: &[Candidate<K>],
-    now: Timestamp,
-    limit: usize,
-) -> Vec<Ranked<K>> {
-    let mode = query.mode();
-    let pattern = Pattern::new(
-        query.needle(),
-        CaseMatching::Smart,
-        Normalization::Smart,
-        AtomKind::Fuzzy,
-    );
-    let mut matcher = Matcher::new(Config::DEFAULT);
-    let mut chars = Vec::new();
+/// Ranks candidates, keystroke after keystroke. It keeps the fuzzy matcher (with its default
+/// configuration) and its scratch space between rankings, so a keystroke allocates only for the
+/// answers it keeps. `Ranker::default()` makes one.
+#[derive(Debug, Default)]
+pub struct Ranker {
+    matcher: Matcher,
+    /// A candidate's text as characters, when it is not ASCII.
+    chars: Vec<char>,
+}
 
-    let mut hits: Vec<Hit<'_, K>> = candidates
-        .iter()
-        .enumerate()
-        .filter(|(_, candidate)| mode.admits(candidate.kind))
-        .filter_map(|(position, candidate)| {
-            let title = pattern.score(Utf32Str::new(&candidate.title, &mut chars), &mut matcher);
-            let detail = pattern.score(Utf32Str::new(&candidate.detail, &mut chars), &mut matcher);
-            let fuzzy = title.max(detail)?;
-            Some(Hit {
-                score: fuzzy + frecency_bonus(candidate.visits.score(now)) + boost(candidate.kind),
-                position,
-                candidate,
+impl Ranker {
+    /// Ranks the candidates that answer `query`, best first, and keeps at most `limit` of them.
+    ///
+    /// A candidate takes part only if the query's mode admits its kind, and, unless the query
+    /// text is empty, only if the text fuzzily matches its title or its detail. Its score is
+    ///
+    /// `best fuzzy score of title and detail + 4 × log2(frecency + 1) + kind boost`,
+    ///
+    /// where an open tab gets 40 and a bookmark 20. Equal scores fall back to the title, then to
+    /// the input order, so the result never depends on the sort algorithm. Only the kept
+    /// candidates carry match positions, and only `limit` of them are fully sorted.
+    pub fn rank<'c, K>(
+        &mut self,
+        query: &Query,
+        candidates: impl IntoIterator<Item = Candidate<'c, K>>,
+        limit: usize,
+    ) -> Vec<Ranked<K>> {
+        let mode = query.mode();
+        let pattern = Pattern::new(
+            query.needle(),
+            CaseMatching::Smart,
+            Normalization::Smart,
+            AtomKind::Fuzzy,
+        );
+        let Self { matcher, chars } = self;
+
+        let mut hits: Vec<Hit<'c, K>> = candidates
+            .into_iter()
+            .enumerate()
+            .filter(|(_, candidate)| mode.admits(candidate.kind))
+            .filter_map(|(position, candidate)| {
+                let title = pattern.score(candidate.title.haystack(chars), matcher);
+                let detail = pattern.score(candidate.detail.haystack(chars), matcher);
+                let fuzzy = title.max(detail)?;
+                Some(Hit {
+                    score: fuzzy + frecency_bonus(candidate.frecency) + boost(candidate.kind),
+                    position,
+                    candidate,
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    if hits.len() > limit {
-        hits.select_nth_unstable_by(limit, Hit::order);
-        hits.truncate(limit);
+        if hits.len() > limit {
+            hits.select_nth_unstable_by(limit, Hit::order);
+            hits.truncate(limit);
+        }
+        hits.sort_unstable_by(Hit::order);
+
+        hits.into_iter()
+            .map(|hit| Ranked {
+                score: hit.score,
+                title_matches: matches(&pattern, hit.candidate.title, matcher, chars),
+                detail_matches: matches(&pattern, hit.candidate.detail, matcher, chars),
+                key: hit.candidate.key,
+            })
+            .collect()
     }
-    hits.sort_unstable_by(Hit::order);
-
-    hits.into_iter()
-        .map(|hit| Ranked {
-            key: hit.candidate.key.clone(),
-            score: hit.score,
-            title_matches: matches(&pattern, &hit.candidate.title, &mut matcher),
-            detail_matches: matches(&pattern, &hit.candidate.detail, &mut matcher),
-        })
-        .collect()
 }
 
 /// A candidate that passed the filter, before it is kept or dropped.
-struct Hit<'a, K> {
+struct Hit<'c, K> {
     score: u32,
     position: usize,
-    candidate: &'a Candidate<K>,
+    candidate: Candidate<'c, K>,
 }
 
 impl<K> Hit<'_, K> {
@@ -97,7 +106,10 @@ impl<K> Hit<'_, K> {
         other
             .score
             .cmp(&self.score)
-            .then_with(|| self.candidate.title.cmp(&other.candidate.title))
+            .then_with(|| {
+                let title = self.candidate.title.as_str();
+                title.cmp(other.candidate.title.as_str())
+            })
             .then_with(|| self.position.cmp(&other.position))
     }
 }
@@ -125,11 +137,15 @@ fn frecency_bonus(frecency: u64) -> u32 {
 
 /// Matched character positions of `text`, ascending and without repeats; empty when the
 /// pattern does not match it as a whole.
-fn matches(pattern: &Pattern, text: &str, matcher: &mut Matcher) -> Vec<u32> {
-    let mut chars = Vec::new();
+fn matches(
+    pattern: &Pattern,
+    text: Text<'_>,
+    matcher: &mut Matcher,
+    chars: &mut Vec<char>,
+) -> Vec<u32> {
     let mut positions = Vec::new();
     if pattern
-        .indices(Utf32Str::new(text, &mut chars), matcher, &mut positions)
+        .indices(text.haystack(chars), matcher, &mut positions)
         .is_none()
     {
         positions.clear();
