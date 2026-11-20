@@ -1,11 +1,12 @@
 //! The sheets group: E3 decisions a page or an extension asks for, headed by who asks.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
-use quickie_application::Permission;
+use quickie_application::{Permission, PermissionAnswer};
 use quickie_ui_shared::stories::{LIGHT, Scene, Story, Theme, WINDOW};
 use quickie_ui_widgets::{
-    DialogKind, DialogRequest, DialogSheet, ExtensionRequest, ExtensionSheet, Moment,
+    DialogChoice, DialogKind, DialogRequest, DialogSheet, ExtensionRequest, ExtensionSheet, Moment,
     PermissionSheet,
 };
 
@@ -57,7 +58,33 @@ pub const STORIES: &[Story] = &[
     dialog("long-message", LIGHT, dialog_long),
 ];
 
-fn extension_sheet(scene: &mut Scene, moment: Moment, permissions: &[&str], patterns: &[&str]) {
+/// Clicks the answer button `label` (found by what `VoiceOver` reads) and checks it was the
+/// one `answers` recorded last.
+fn answer<T: PartialEq + std::fmt::Debug + Copy>(
+    scene: &mut Scene,
+    answers: &Rc<RefCell<Vec<T>>>,
+    label: &str,
+    expected: T,
+) {
+    let Some(button) = scene.view_labelled(label) else {
+        scene.check(false, format!("an answer button reads {label:?}"));
+        return;
+    };
+    scene.click(&button);
+    let last = answers.borrow().last().copied();
+    scene.check_eq(
+        last,
+        Some(expected),
+        format!("a click on {label:?} answers"),
+    );
+}
+
+fn extension_sheet(
+    scene: &mut Scene,
+    moment: Moment,
+    permissions: &[&str],
+    patterns: &[&str],
+) -> Rc<RefCell<Vec<bool>>> {
     let sheet = ExtensionSheet::new(scene.mtm());
     let request = ExtensionRequest {
         name: "Bitwarden Password Manager".to_owned(),
@@ -65,20 +92,28 @@ fn extension_sheet(scene: &mut Scene, moment: Moment, permissions: &[&str], patt
         permissions: permissions.iter().map(|&name| name.to_owned()).collect(),
         patterns: patterns.iter().map(|&name| name.to_owned()).collect(),
     };
-    sheet.show(scene.host(), scene.window(), &request, |_| {});
+    let answered = Rc::new(RefCell::new(Vec::new()));
+    let record = Rc::clone(&answered);
+    sheet.show(scene.host(), scene.window(), &request, move |allowed| {
+        record.borrow_mut().push(allowed);
+    });
     scene.check(sheet.is_open(), "the sheet is open");
     let said = scene.accessibility().contains("Bitwarden Password Manager");
     scene.check(said, "the sheet names the extension");
     scene.keep(sheet);
+    answered
 }
 
+/// `1` adds, the red default refuses: a click on each answers as its key would.
 fn extension_install(scene: &mut Scene) {
-    extension_sheet(
+    let answered = extension_sheet(
         scene,
         Moment::Install("2025.10.1".to_owned()),
         &["storage", "tabs", "nativeMessaging", "scripting"],
         &["<all_urls>"],
     );
+    answer(scene, &answered, "Add Extension", true);
+    answer(scene, &answered, "Cancel", false);
 }
 
 fn extension_update(scene: &mut Scene) {
@@ -94,25 +129,38 @@ fn extension_request(scene: &mut Scene) {
     extension_sheet(scene, Moment::Running, &[], &["https://*.example.com/*"]);
 }
 
-fn ask(scene: &mut Scene, origin: &str, wanted: Permission) {
+fn ask(scene: &mut Scene, origin: &str, wanted: Permission) -> Rc<RefCell<Vec<PermissionAnswer>>> {
     let sheet = PermissionSheet::new(scene.mtm());
+    let answered = Rc::new(RefCell::new(Vec::new()));
+    let record = Rc::clone(&answered);
     sheet.show(
         scene.host(),
         scene.window(),
         &fixtures::url(origin),
         wanted,
-        |_| {},
+        move |answer| record.borrow_mut().push(answer),
     );
     scene.check(sheet.is_open(), "the sheet is open");
     scene.keep(sheet);
+    answered
 }
 
+/// The buttons answer as their keys do: `1` once, `2` on this site, the red Block (`⎋`, the
+/// default) denies.
 fn permission_camera(scene: &mut Scene) {
-    ask(
+    let answered = ask(
         scene,
         "https://meet.example.com/room/42",
         Permission::Camera,
     );
+    answer(scene, &answered, "Allow once", PermissionAnswer::AllowOnce);
+    answer(
+        scene,
+        &answered,
+        "Allow on this site",
+        PermissionAnswer::AllowOnSite,
+    );
+    answer(scene, &answered, "Block", PermissionAnswer::Deny);
 }
 
 fn permission_microphone(scene: &mut Scene) {
@@ -131,7 +179,14 @@ fn permission_both(scene: &mut Scene) {
     );
 }
 
-fn dialog_show(scene: &mut Scene, kind: DialogKind, message: &str, block: bool) -> Rc<DialogSheet> {
+type Chosen = Rc<RefCell<Vec<DialogChoice>>>;
+
+fn dialog_show(
+    scene: &mut Scene,
+    kind: DialogKind,
+    message: &str,
+    block: bool,
+) -> (Rc<DialogSheet>, Chosen) {
     let sheet = Rc::new(DialogSheet::new(scene.mtm()));
     let request = DialogRequest {
         origin: fixtures::url("https://forms.example.org/apply"),
@@ -139,9 +194,13 @@ fn dialog_show(scene: &mut Scene, kind: DialogKind, message: &str, block: bool) 
         message: message.to_owned(),
         offer_block: block,
     };
-    sheet.show(scene.host(), scene.window(), &request, |_| {});
+    let chosen = Rc::new(RefCell::new(Vec::new()));
+    let record = Rc::clone(&chosen);
+    sheet.show(scene.host(), scene.window(), &request, move |choice| {
+        record.borrow_mut().push(choice);
+    });
     scene.keep(Rc::clone(&sheet));
-    sheet
+    (sheet, chosen)
 }
 
 fn dialog_alert(scene: &mut Scene) {
@@ -153,18 +212,22 @@ fn dialog_alert(scene: &mut Scene) {
     );
 }
 
+/// OK, Cancel, and blocking each answer as their keys `⏎`, `⎋`, `⌘B` do.
 fn dialog_confirm(scene: &mut Scene) {
-    dialog_show(
+    let (_, chosen) = dialog_show(
         scene,
         DialogKind::Confirm,
         "Leave this page? Changes you made may not be saved.",
         true,
     );
+    answer(scene, &chosen, "OK", DialogChoice::Ok);
+    answer(scene, &chosen, "Cancel", DialogChoice::Cancel);
+    answer(scene, &chosen, "Block dialogs", DialogChoice::Block);
 }
 
 /// The prompt's field takes the keyboard and keeps what is typed, Cyrillic included.
 fn dialog_prompt(scene: &mut Scene) {
-    let sheet = dialog_show(
+    let (sheet, _) = dialog_show(
         scene,
         DialogKind::Prompt {
             default: String::new(),

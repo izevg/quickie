@@ -141,10 +141,13 @@ impl Flipped {
     }
 }
 
-/// A pane: its title in the band the titlebar's buttons sit in, a hairline under it, and the
-/// rest for the pane's content.
+/// A pane: its title in the band the titlebar's buttons sit in, a status at the band's right
+/// end when the pane has one ("✓ Protection is on"), a hairline under it, and the rest for the
+/// pane's content.
 pub struct Page {
     view: Retained<Flipped>,
+    status: Retained<NSTextField>,
+    glyph: RefCell<Option<Retained<NSImageView>>>,
 }
 
 impl Page {
@@ -170,11 +173,49 @@ impl Page {
             ),
             mtm,
         ));
-        Self { view }
+        let status = label("", TextRole::RowDetail, &color::secondary_label(), mtm);
+        status.setHidden(true);
+        view.addSubview(&status);
+        Self {
+            view,
+            status,
+            glyph: RefCell::new(None),
+        }
     }
 
     pub fn view(&self) -> &NSView {
         &self.view
+    }
+
+    /// Shows `text` at the right end of the title band, after the SF Symbol `glyph`, both in
+    /// `tint`; `None` takes it away.
+    pub fn set_status(&self, status: Option<(&str, &str, &NSColor)>) {
+        if let Some(glyph) = self.glyph.borrow_mut().take() {
+            glyph.removeFromSuperview();
+        }
+        let Some((text, glyph_name, tint)) = status else {
+            self.status.setHidden(true);
+            return;
+        };
+        set(&self.status, text);
+        self.status.setTextColor(Some(tint));
+        self.status.sizeToFit();
+        self.status.setHidden(false);
+        let size = self.status.frame().size;
+        let right = PANE_WIDTH - space::XL;
+        self.status.setFrameOrigin(NSPoint::new(
+            right - size.width,
+            ((Self::HEADER - size.height) / 2.0).round(),
+        ));
+        if let Some(glyph) = symbol(glyph_name, "", TextRole::RowDetail, tint, self.view.mtm()) {
+            let glyph_size = glyph.frame().size;
+            glyph.setFrameOrigin(NSPoint::new(
+                right - size.width - space::XS - glyph_size.width,
+                ((Self::HEADER - glyph_size.height) / 2.0).round(),
+            ));
+            self.view.addSubview(&glyph);
+            *self.glyph.borrow_mut() = Some(glyph);
+        }
     }
 
     /// Where the content goes: everything under the header.
@@ -210,6 +251,11 @@ impl ScrollPage {
 
     pub fn view(&self) -> &NSView {
         self.page.view()
+    }
+
+    /// The page's status in the title band; see [`Page::set_status`].
+    pub fn set_status(&self, status: Option<(&str, &str, &NSColor)>) {
+        self.page.set_status(status);
     }
 
     /// The column the content goes in; it starts at `space-xl` from the top and the sides.

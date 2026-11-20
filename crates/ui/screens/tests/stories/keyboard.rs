@@ -9,7 +9,7 @@ use quickie_domain_commands::{Catalog, Chord, CommandId, Keymap, KeymapError, Pl
 use quickie_ui_screens::{KeysState, Pane, Recorded, SettingsAction};
 use quickie_ui_shared::stories::{Key, Modifiers, Scene};
 
-use crate::{Settings, go, open, tables};
+use crate::{Settings, go, open, row_labels, tables};
 
 /// What the browser does with a recorded press: the story knows the keys it pressed, so it
 /// reads the press by its key code, checks the chord against the keymap as the browser does,
@@ -54,15 +54,15 @@ fn refusal(keys: &str, refused: &Rejection, catalog: &Catalog) -> String {
     }
 }
 
-/// The defaults, and a user entry the keymap refused: `⌘T` for Bookmark Page, which Open New
-/// Tab already has.
+/// The defaults, and a user entry the keymap refused: `⌘T` for Bookmark Page while the page
+/// has the keyboard, which Open New Tab already has.
 fn lines_with_conflict() -> Vec<BindingLine> {
     let keymap = Keymap::defaults(Platform::MacOs);
     let mut lines = keymap_lines(&keymap, &Catalog::builtin(), &[]);
     if let Some(bookmark) = lines.iter().position(|line| line.title == "Bookmark Page") {
         let refused = BindingLine {
             keys: Some("⌘T".to_owned()),
-            when: None,
+            when: Some("pageFocused && !inputFocused".to_owned()),
             source: BindingSource::User,
             conflict: Some("Open New Tab".to_owned()),
             ..lines[bookmark].clone()
@@ -85,6 +85,13 @@ pub fn table(scene: &mut Scene) {
     scene.type_text("bookmark");
     // `↓` ends the search's editing, which applies it, and goes down to the table.
     scene.press(Key::Down);
+    // Rows are AppKit's proxies in the accessibility tree; their views carry the labels.
+    let refused = "Bookmark Page, ⌘T, when pageFocused && !inputFocused, Conflict, Already runs \
+                   Open New Tab";
+    scene.check(
+        row_labels(scene.host()).contains(&refused.to_owned()),
+        "VoiceOver reads the refused row whole",
+    );
 }
 
 /// The whole table, as the pane opens.

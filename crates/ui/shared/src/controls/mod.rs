@@ -15,7 +15,7 @@ use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSRange, N
 
 pub use hint_bar::hint_bar;
 pub use keycap::{KeycapStyle, keycap_group, keycap_group_styled};
-pub use pill::Pill;
+pub use pill::{Pill, PillPart, PillTone};
 
 use crate::tokens::TextRole;
 
