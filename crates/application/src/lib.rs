@@ -6,6 +6,7 @@
 
 mod agent;
 mod browsing;
+mod engine;
 mod error;
 #[cfg(test)]
 mod fakes;
@@ -13,12 +14,15 @@ mod keymap;
 mod library;
 mod palette;
 mod ports;
-mod prompts;
-mod settings;
 mod shields;
+mod site;
 
 pub use agent::{Agent, AnswerEvent, AskError, Asking, LocalFound, detect_local, list_models};
 pub use browsing::Browsing;
+pub use engine::{
+    Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, FindStep, Followed, Found,
+    LinkTarget, Navigated, PageRect, ReplyToken,
+};
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, SecretError, StoreError,
 };
@@ -31,6 +35,5 @@ pub use ports::{
     LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore, SessionRepo,
     ShieldsRepo, ShieldsSnapshot, StopSignal, ZoomRepo,
 };
-pub use prompts::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts};
-pub use settings::Zoom;
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};
+pub use site::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Zoom};

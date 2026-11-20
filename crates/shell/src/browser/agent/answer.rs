@@ -12,10 +12,10 @@ use std::time::Duration;
 
 use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
 use objc2::MainThreadMarker;
-use quickie_application::{AnswerEvent, Asking, StopSignal};
+use quickie_application::{AnswerEvent, Asking, FindStep, StopSignal};
 use quickie_domain_agents::{PageScope, PageText, Question, Request, Skill, SkillId};
 use quickie_domain_browsing::{Focus, JarChoice, TabId, WindowId};
-use quickie_engine_webkit::{FindStep, UrlSessionHttp};
+use quickie_engine_webkit::UrlSessionHttp;
 use quickie_llm::OpenAiClient;
 use quickie_ui_shared::Trigger;
 use quickie_ui_widgets::{Activity, AnswerHeader, PanelRequest, SettingsRequest, agent_wording};
