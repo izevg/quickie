@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Quickie override (engine/overrides, copied over the tree by engine/scripts/apply).
+// Quickie override (engine/chromium/overrides, copied over the tree by engine/chromium/scripts/apply).
 // Why: Quickie hosts web contents in windows its Rust shell owns, without Views' BrowserView
 // (docs/architecture.md, sections 3 and 4.4). This is the stock factory of Chromium
 // 156.0.8078.109 plus one hook, quickie::MaybeCreateBrowserWindow, asked first. A whole-file
@@ -38,7 +38,7 @@
 // strong definition is in //quickie/browser_window/window_factory.mm; this weak default keeps
 // targets that do not link //quickie (unit_tests, browser_tests) linking.
 // TODO(verify): the strong definition wins at link time (see the same note in
-// engine/patches/startup/browser-main-parts.patch).
+// engine/chromium/patches/startup/browser-main-parts.patch).
 namespace quickie {
 __attribute__((weak)) std::unique_ptr<BrowserWindow, BrowserWindowDeleter>
 MaybeCreateBrowserWindow(BrowserWindowInterface* browser) {

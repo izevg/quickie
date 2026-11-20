@@ -1,176 +1,150 @@
-# Engine: Chromium for Quickie
+# Engine
 
-> Status: P1 scaffold (2026-11-19). **Never compiled.** It was written without a Chromium
-> checkout, against Chromium sources read on chromium.googlesource.com at the pinned tag. Every
-> assumption that only a real build can confirm is marked `TODO(verify)` in the code and listed
-> below. The first build on a real machine is expected to fail in a few of those places.
+Quickie's engine is our fork of WebKit, patched and built by us
+([architecture.md](../docs/architecture.md), "Decision: our own WebKit"). Until the fork ships,
+both profiles run on the system `WKWebView` through `engine-webkit`. The Chromium scaffold is
+parked under [chromium/](chromium/README.md) as reference.
 
 This page lives in `engine/` rather than `docs/` because `docs/` already holds its four files
 (the [rule of four](../AGENTS.md#the-rule-of-four)).
 
-## What gets built
-
-Chromium Extended Stable, with the ungoogled-chromium patches, pruning and domain substitution
-([privacy.md](../docs/privacy.md)), plus ours: two small patches, one file override, and
-`//quickie`, the C++ and Objective-C++ glue that hands the window to the Rust shell
-([architecture.md](../docs/architecture.md), sections 3 and 4.4).
-
-| Pin ([chromium.pin](chromium.pin)) | Value | Source, checked 2026-11-19 |
-|---|---|---|
-| Chromium | 156.0.8078.109 (`f8ec2e9b`) | Chromium Dash, Extended channel, Mac; released 2026-11-17 |
-| ungoogled-chromium | 156.0.8078.79-1 | GitHub tags; no tag for .109 exists, the M156 series is applied to it |
-| ungoogled-chromium-macos | 156.0.8078.79-1.1 | GitHub tags; only `fix-disabling-safebrowsing.patch` is applied |
-| depot_tools | `e0ac4551` | `main` on 2026-11-19; self-update is off (`DEPOT_TOOLS_UPDATE=0`) |
-| cxx | 1.0.202 | The copy Chromium vendors at the pin; `Cargo.toml` pins the same |
-
-## Machine
-
-Apple Silicon, **at least 64 GB of RAM and 150 GB free** on an APFS volume, a checkout path
-without spaces, current Xcode with the macOS SDK, `python3` (depot_tools brings its own), and
-[mise](https://mise.jdx.dev) for the repository's own gates. Everything lands in `.build/`
-(ignored): about 40 GB for the no-history checkout and 60-100 GB for the output.
-
-## Fetch, apply, build
-
-```sh
-engine/scripts/sync     # depot_tools, Chromium at the tag (no history), ungoogled series
-engine/scripts/apply    # pruning, ungoogled patches, domain substitution, ours, overrides, //quickie
-engine/scripts/build    # args.gn, gn gen, gn check //quickie/*, autoninja chrome
-open .build/chromium/src/out/Quickie/Chromium.app
-```
-
-Each script is idempotent and refuses to start with less free disk than `QUICKIE_MIN_FREE_GB`
-(default 25). `apply` stamps the tree; editing `engine/quickie/`, `engine/overrides/` or `crates/`
-needs only another `apply` (links and copies) and `build`. Changing the pin or `engine/patches/`
-needs `engine/scripts/sync --reset` first, which discards everything `apply` did.
-
-| Variable | Default | Used by |
-|---|---|---|
-| `QUICKIE_BUILD_DIR` | `<repo>/.build` | all |
-| `QUICKIE_MIN_FREE_GB` | `25` | all |
-| `QUICKIE_MACOS_PATCHES` | `ungoogled-chromium/macos/fix-disabling-safebrowsing.patch` | apply |
-| `PATCH_BIN` | `patch` on `PATH` | apply (ungoogled's `patches.py`) |
-| `QUICKIE_OUT` | `out/Quickie` | build |
-| `QUICKIE_JOBS` | one per 2 GB of RAM, at most one per CPU | build |
-
-## Layout
-
 | Path | What |
 |---|---|
-| [chromium.pin](chromium.pin), [gclient.template](gclient.template) | What is fetched |
-| [scripts/](scripts/) | `sync`, `apply`, `build`, and `args.gn` (written after ungoogled's `flags.gn`, so ours win) |
-| [patches/](patches/) | Our patch series, applied after ungoogled's: `startup/link-quickie.patch` links `//quickie` into Chrome; `startup/browser-main-parts.patch` adds Quickie's `ChromeBrowserMainExtraParts` |
-| [overrides/](overrides/) | Whole files copied over the tree: the `BrowserWindow` factory, with a hook asked first |
-| [quickie/](quickie/) | `//quickie` (linked as `src/quickie`): `main_parts`, `bridge/`, `browser_window/`, `keyboard/` |
-| [../crates/adapters/engine-chromium](../crates/adapters/engine-chromium) | The Rust side of the bridge (linked as `src/quickie_crates`) |
+| [webkit/webkit.pin](webkit/webkit.pin) | The fork, the branch, the commit that is built, the date it was checked |
+| [webkit/scripts/sync](webkit/scripts/sync) | Fetches exactly the pinned commit into `.build/webkit` |
+| [webkit/scripts/build](webkit/scripts/build) | Builds the macOS Release frameworks with `build-webkit` |
+| [webkit/scripts/package](webkit/scripts/package) | Packs them with `BUILD-INFO` and a sha256 |
+| [../.github/workflows/webkit.yml](../.github/workflows/webkit.yml) | Runs the three on CI, attests and uploads the result |
+| [chromium/](chromium/README.md) | The parked Chromium scaffold |
 
-### How the pieces meet
+## Where it is built: CI only
 
-- **Startup.** `MainParts` (`quickie/main_parts.cc`) adds `--no-startup-window`, remembers the
-  initial profile, and calls `ShellStart()` in Rust after browser start.
-- **Tabs.** `bridge/quickie_bridge.h` is the C++ side of the cxx bridge, keyed by the domain's
-  `u64` tab id: create, show, navigate, close, adopt, destroy a jar. Events go back to Rust:
-  navigation committed, title changed, page opened a tab. `bridge/tab_registry.*` maps tab ids to
-  WebContents and keeps one `Browser` per (shell window, profile), so Chromium's `TabStripModel`
-  stays the truth about live pages (architecture section 4.3) and `chrome.tabs` sees them.
-- **The port.** `ChromiumEngine` in the Rust crate implements the application's `EnginePort` on
-  the bridge. It keeps what the C++ side leaves to Rust: which tabs have a page, the tab a window
-  is to show before the shell attached its host view (shown on `attach_host`), and which
-  throwaway jars got a profile (`destroy_jar` of a jar whose tabs were never shown calls nothing).
-  Events are recorded, never handled inside a bridge call: Rust asks `ScheduleWake` to post
-  `RunWake`, and the shell drains the one queue of `EngineEvent`s (`drain`) from that task, like
-  the `WebKit` engine's waker.
-- **Window.** The factory override asks `quickie::MaybeCreateBrowserWindow` first. Browsers the
-  registry creates, and normal or popup Browsers Chromium creates on its own, get a
-  `QuickieBrowserWindow`: no Views, the active page's `NSView` added under the shell's host view.
-  DevTools, apps and picture-in-picture keep Chromium's windows.
-- **Keys.** `QuickieBrowserWindow::PreHandleKeyboardEvent` offers each key-down to Rust before
-  the renderer (reserved shortcuts), `HandleKeyboardEvent` once the page declined it.
-- **Throwaway jars.** One off-the-record profile per jar, made with
-  `OTRProfileID::CreateUniqueForDevTools()`: Chromium lets only primary, DevTools and Media
-  Router OTR profiles host `Browser` windows (`chrome/browser/profiles/profile.cc`), and this is
-  how CDP's `Target.createBrowserContext` makes its isolated contexts. Storage is in memory and
-  goes with `ProfileDestroyer::DestroyOTRProfileWhenAppropriate`.
-- **Linking.** Both hooks into Chromium code (`CreateBrowserMainExtraParts`,
-  `MaybeCreateBrowserWindow`) have weak defaults on Chromium's side, so test targets that do not
-  link `//quickie` still link. The Rust crate builds under GN with the `chromium` feature; Cargo
-  builds it without, where every engine call fails as unavailable and nothing references a C++
-  symbol (tests never call FFI; `ChromiumEngine` is tested against a fake bridge).
+The engine is built on GitHub-hosted runners, never on a developer's machine: a WebKit checkout
+plus its build output is tens of gigabytes and hours of a laptop's CPU. `sync` and `build` refuse
+to run outside CI unless `QUICKIE_WEBKIT_LOCAL=1` is set.
 
-## Verified at the pin
+The `webkit` workflow runs on `workflow_dispatch` and on pushes to `main` and `release/**` that
+touch `engine/webkit/`, the workflow, or its disk cleanup script. One job, `webkit-macos`:
 
-Read in the 156.0.8078.109 sources: the `ChromeBrowserMainExtraParts` hooks and where
-`ChromeBrowserMainParts::Create` adds parts; the factory body copied into the override;
-`BrowserWindowCreateParams::window` is test-only (`CHECK_IS_TEST`), hence the factory hook; every
-pure virtual of `BrowserWindow` and `ui::BaseWindow`, cross-checked with `WebUIBrowserWindow`;
-`TabStripModel` insert, detach, activate and close; `TabStripModelChange::Insert`;
-`WebContents::Create`, `GetNativeView().GetNativeNSView()`, `UpdateWebContentsVisibility`;
-`NavigationController` load, back, forward, reload; the `WebContentsObserver` hooks; the OTR
-profile rules and `ProfileDestroyer`; `NativeWebKeyboardEvent::os_event` as `OwnedNSEvent::Get()`;
-the `rust_static_library` parameters (`cxx_bindings`, `allow_unsafe`, `features`, `edition`) and
-the generated header path; the cxx include path `third_party/rust/cxx/v1/cxx.h`; the GN args in
-`args.gn` that exist at the pin; both patches apply (`patch --dry-run`) to the pinned files, and
-no ungoogled patch touches their hunks. The cxx-generated C++ for `ffi.rs` compiled against
-`quickie_bridge.h` (`clang++ -fsyntax-only` with cxx 1.0.202's header) before `ScheduleWake` and
-`RunWake` were added; that check is not repeated yet (see below).
+1. **Runner.** `xcode-27`: macOS 27 with Xcode 27 on Apple silicon (3 CPUs, 7 GB RAM), free for
+   public repositories. WebKit main needs Xcode 26.2 or later (`checkRequiredSystemConfig` in
+   `Tools/Scripts/webkitdirs.pm`) and takes its deployment target from the SDK, so the newest
+   image gives frameworks for the newest macOS. `workflow_dispatch` takes another runner label
+   and Xcode (`macos-26` with `Xcode_26.6.app`, for example).
+2. **Free disk.** [free-disk-macos.sh](../.github/scripts/free-disk-macos.sh) deletes every Xcode
+   but the selected one, the simulator runtimes, the Android SDK, .NET, GHCup, CodeQL and the
+   browsers, printing the free space after each step.
+3. **Metal toolchain.** `xcodebuild -downloadComponent MetalToolchain`; Xcode 26 and later ship
+   without it, and WebCore and WebGPU compile shaders.
+4. **Sync** ([sync](webkit/scripts/sync)): `git fetch --depth 1 --filter=blob:none` of the pinned
+   commit by hash, then a sparse checkout of everything except `LayoutTests`, `JSTests`,
+   `PerformanceTests`, `ManualTests`, `WebDriverTests` and `Websites`. `Source/`, `Tools/`,
+   `Configurations/`, `WebKitLibraries/`, `WebKit.xcworkspace` and the root CMake files stay:
+   `build-webkit` reads them for both the Xcode (macOS) and the CMake (GTK) build. Re-running
+   at the same pin only re-applies the sparse patterns. It checks the free disk first
+   (`QUICKIE_MIN_FREE_GB`, default 15) and prints the commit, whether the branch has moved on,
+   the checkout's size and the disk left.
+5. **Build** ([build](webkit/scripts/build)): `Tools/Scripts/build-webkit` with the flags below,
+   the full transcript in `.build/webkit-build.log` (uploaded as `webkit-macos-build-log`), a
+   heartbeat on the console every five minutes, and a time budget (`QUICKIE_BUILD_MINUTES`, 300
+   on CI) that stops the build and exits 124 before the 6-hour job limit. The heartbeat makes a
+   run that ran out of time still say how far it got.
+6. **Package** ([package](webkit/scripts/package)): `WebKitBuild/Release/*.framework`,
+   `*.dylib` and `*.xpc` plus `BUILD-INFO` into `webkit-macos-arm64-<commit12>.tar.gz`, with its
+   `.sha256`. The XPC services sit next to the frameworks;
+   `WebKit.framework/Versions/A/XPCServices/*.xpc` are relative links to them, so the archive is
+   unpacked as one directory and never split.
+7. **Attest and upload**, in the same job that built the archive: a build provenance
+   attestation of the archive (`actions/attest-build-provenance`), then the artifact
+   `webkit-macos-arm64-<commit12>` (archive, sha256, `BUILD-INFO`), kept 30 days.
 
-## TODO(verify)
+### Build flags
 
-| Where | What only a build or a run can tell |
+None of them changes what a web page sees; each is explained next to it in
+[build](webkit/scripts/build).
+
+| Flag | Why |
 |---|---|
-| [scripts/sync](scripts/sync) | gclient `--no-history` with a solution pinned to `refs/tags/...` |
-| [scripts/apply](scripts/apply) | Whether more of the ungoogled macOS series is needed with depot_tools toolchains |
-| [scripts/apply](scripts/apply) | Domain substitution on a git checkout (files listed but absent) |
-| [scripts/apply](scripts/apply) | Apple's `patch` vs GNU patch for ungoogled's series (`PATCH_BIN`) |
-| [scripts/apply](scripts/apply) | Siso remote execution and the symlinks out of the checkout (local builds follow them) |
-| [scripts/args.gn](scripts/args.gn) | Official build with `symbol_level = 0` (dSYM steps) |
-| [patches/startup/browser-main-parts.patch](patches/startup/browser-main-parts.patch), [overrides/](overrides/) | ld64 resolves the weak defaults to the strong definitions in `//quickie` |
-| [quickie/BUILD.gn](quickie/BUILD.gn) | Dependency labels (`gn check`); `crate_root` outside the target's directory; GN targets for the crate's new dependencies (`quickie-application`, `quickie-domain-browsing`, `url`) |
-| [quickie/bridge/quickie_bridge.cc](quickie/bridge/quickie_bridge.cc) | `ScheduleWake`: `base::BindOnce(&RunWake)` on the cxx-generated `extern "Rust"` function; the generated `ffi.rs.h` still passes `clang++ -fsyntax-only` with `ScheduleWake` and `RunWake` (`base/task/sequenced_task_runner.h`) |
-| [../crates/adapters/engine-chromium/src/engine/inbox.rs](../crates/adapters/engine-chromium/src/engine/inbox.rs) | A commit keeps the last title until the page reports one: that Chromium calls `TitleWasSet` after every cross-document commit, even without a `<title>` (`content/browser/web_contents/web_contents_impl.cc`) |
-| [quickie/bridge/tab_registry.h](quickie/bridge/tab_registry.h) | DevTools-prefixed OTR profiles as jars: other `IsDevTools()` effects; extensions off there (`chrome/browser/profiles/profile.cc`) |
-| [quickie/bridge/tab_registry.cc](quickie/bridge/tab_registry.cc) | A Browser Chromium creates may get its first tab before the factory returns (covered by a posted scan); pages Chromium destroys are not reported to Rust yet |
-| [quickie/main_parts.cc](quickie/main_parts.cc) | Dock-icon reopen (`chrome/browser/app_controller_mac.mm`) still creates a Browser |
-| [quickie/browser_window/quickie_browser_window.mm](quickie/browser_window/quickie_browser_window.mm) | `Close()` leads to the Browser's deletion without a `views::Widget` |
-| same | `GetWebContentsModalDialogHost()` is nullptr: JavaScript `alert`, HTTP auth (`components/web_modal`) |
-| same | `GetExclusiveAccessContext()` is nullptr: fullscreen, pointer lock (`chrome/browser/ui/exclusive_access`) |
-| same | `GetLocationBar()`, `CreateFindBar()`, `GetAutofillBubbleHandler()` are nullptr; the intent picker drops its callback |
-| same | Unhandled key equivalents no longer reach Chromium's main menu (`browser_view.cc`, `HandleKeyboardEvent`) |
-| same | The page view goes below the shell's overlay views in the host view |
+| `--release` | Optimized, assertions off |
+| `--only=Everything up to WebKit` | The frameworks and their XPC services only; the default scheme also builds MiniBrowser, WebKitTestRunner, DumpRenderTree and TestWebKitAPI |
+| `--lto-mode=none` | WebKit's Release default is ThinLTO, whose links are the heaviest steps in memory and time on a 7 GB runner (not measured yet). Revisit for shipping builds |
+| `GCC_GENERATE_DEBUGGING_SYMBOLS=NO`, `DEBUG_INFORMATION_FORMAT=dwarf` | No debug info and no dSYM step: less disk and time |
+| `COMPILATION_CACHE_CAS_PATH=.build/webkit-cas` | Xcode's compilation cache (on in WebKit's configurations) kept where it is measured and can be handed on |
 
-## Open questions for the first build
+No `--no-<feature>` flags: turning features off would change web behaviour.
 
-1. Does `gclient sync --no-history` at the tag, then `apply`, leave a tree that `gn gen` accepts
-   (pruning with `--keep-contingent-paths`, domain substitution on a git checkout)?
-2. Which `gn check` errors does `//quickie` have? Expect missing dependency labels.
-3. Does the M156 ungoogled series (cut for .79) apply cleanly to .109?
-4. Does `alert()` crash with a null modal dialog host? If so, a minimal
-   `WebContentsModalDialogHost` on the host view is the first follow-up.
-5. Does a Browser actually close and get deleted when its last tab moves to another jar's
-   Browser, and does `DestroyJar` then free the OTR profile?
-6. Starting the shell: `ShellStart()` in the Rust bridge is a no-op until the composition root
-   (`crates/shell`) exists. The plan is an `extern "Rust"` symbol the shell crate defines and this
-   crate declares, so the adapter never depends on the shell; GN then links the shell crate into
-   `//quickie`.
-7. Rust crates beyond `cxx`: the adapter now depends on `quickie-application`, so every workspace
-   crate it reaches needs a GN `rust_static_library`, and third-party crates go through `gnrt`
-   into `.build/` (architecture section 1).
-8. Pages closed by Chromium itself (`window.close()`, a crashed renderer) need an engine event so
-   the domain moves the tab to the trash instead of losing track of it.
-9. Opened pages: `EnginePort::adopt` binds the engine's page handle to the new tab before
-   `Browsing::adopt` shows it (resolved). Still open: pages Chromium opened and Rust never adopts
-   have no bridge call to close them; they go only with their jar or the Browser.
-10. The `HttpPort` on `SimpleURLLoader` (`net_bridge/`) must never follow a redirect, whole or
-    streamed: set the redirect mode to error or manual and deliver the 3xx as the answer, as
-    `UrlSessionHttp` does. Following one would re-send an LLM prompt, the page included, to an
-    unvalidated host, possibly over plain http. The contract is on `HttpPort::stream`; port the
-    redirect tests of `crates/adapters/engine-webkit/src/network/tests.rs` with it.
+### Numbers
 
-## Rebasing to a new Extended Stable
+The first green build, at `a6331649` on 2026-11-20
+([run 44666598719](https://github.com/izevg/quickie/actions/runs/44666598719)), on `xcode-27`
+(macOS 27.0.1, Xcode 27.2, SDK 27.2, 3 CPUs, 7 GB RAM):
 
-1. Update [chromium.pin](chromium.pin) (Chromium Dash, ungoogled tags), and `cxx` in
-   `Cargo.toml` to the copy vendored at the new tag.
-2. `engine/scripts/sync --reset && engine/scripts/apply`. A failing hunk in
-   [patches/](patches/) is regenerated against the new file; [overrides/](overrides/) are diffed
-   against the new upstream file and the hook carried over (search for "Quickie").
-3. Re-check the `BrowserWindow` pure virtuals against `chrome/browser/ui/browser_window.h`.
+| | |
+|---|---|
+| Free disk before / after cleanup | 36.8 GB / 128.1 GB (180 GB volume): Xcodes +6.8, simulators +58.9, the rest +25.6; 1 min 40 s |
+| Sparse checkout | 1.9 GB, 1 min 24 s |
+| Build | 2 h 17 min, 5,499 objects, peak swap 0.45 GB, 17 GB of disk used |
+| `WebKitBuild` / compilation cache | 9.0 GB / 4.8 GB |
+| Archive | 77.6 MB (291 MB unpacked: WebCore 108 MB, WebKit 62 MB, JavaScriptCore 45 MB, libwebrtc 14 MB) |
+| Whole job | 2 h 21 min of the 6 h limit |
+
+The archive also carries `libWebCoreTestSupport.dylib`, which `Everything up to WebKit` builds;
+the app bundle leaves it out.
+
+## Bumping the pin
+
+1. Read the new commit off the fork: `git ls-remote https://github.com/izevg/WebKit refs/heads/main`
+   (or the patch branch, once there is one).
+2. Put it into [webkit.pin](webkit/webkit.pin) as `WEBKIT_COMMIT`, with `WEBKIT_CHECKED` set to
+   today (UTC), and the subject line in the comment.
+3. Open a pull request; once it lands on `release/**` or `main`, the push builds it. To build a
+   branch before that, run the workflow by hand:
+   `gh workflow run webkit.yml --repo izevg/quickie --ref <branch>`.
+
+`sync` prints whether the branch has moved past the pin, so a stale pin shows in every run.
+
+Our patches will be commits on a branch of the fork (rebased onto WebKit main, or onto the
+Safari release branch the decision names); the pin then names that branch and its head. No patch
+files are kept here, and no git submodule.
+
+## How `engine-webkit` will consume the artifact
+
+Not wired yet; this is the plan the artifact is shaped for.
+
+1. **Fetch and verify.** A task downloads the artifact of the pinned commit
+   (`gh run download --name webkit-macos-arm64-<commit12>`), checks the sha256 and
+   `gh attestation verify <archive> --repo izevg/quickie`, and unpacks it into
+   `.build/webkit-frameworks/`. `BUILD-INFO` names the WebKit commit, Xcode and SDK; a mismatch
+   with `webkit.pin` is an error.
+2. **Development.** The shell runs against the unpacked frameworks with `DYLD_FRAMEWORK_PATH`
+   (and `__XPC_DYLD_FRAMEWORK_PATH` for the XPC services), as WebKit's own `run-minibrowser`
+   does. `engine-webkit` keeps using the `WKWebView` API through `objc2`; only the frameworks
+   underneath change.
+3. **The app bundle.** The frameworks go into `Quickie.app/Contents/Frameworks/`, signed with the
+   app. The hardened runtime ignores `DYLD_*`, so the shipping build needs install names the app
+   resolves itself (`@rpath`) or WebKit's staged-framework layout, as Safari Technology Preview
+   uses; which one is decided with the first bundle (open question below).
+
+## Linux (planned)
+
+WebKitGTK from the same pin is a first-class target and comes next. The planned
+`webkit-linux` job is sketched at the end of [webkit.yml](../.github/workflows/webkit.yml):
+`ubuntu-24.04` and `ubuntu-24.04-arm`, the same `sync`, dependencies from WebKit's SDK container
+(`wkdev-sdk`, pinned by digest), `build-webkit --gtk --release` without docs, introspection,
+MiniBrowser and API tests, `ninja install` into a staging prefix, then the same tar, sha256 and
+attestation. `sync` is already portable; `build` and `package` grow a GTK branch then.
+
+## Open questions
+
+1. Headroom: a clean build takes 2 h 17 min of the 6 h limit. If WebKit grows past the budget
+   (300 min), the plan is chained jobs that hand `WebKitBuild/` and the compilation cache
+   (14 GB together) to the next job as an artifact; Xcode's compilation cache turns the rebuild
+   after a fresh checkout into cache hits. A larger runner is the paid alternative.
+2. WebKit main's clean build races on `availability-overlay.yaml` (JavaScriptCore's
+   `testLibJSCToolsHelper` does not depend on bmalloc, which writes it); [build](webkit/scripts/build)
+   writes the file first. Fix upstream, or in the fork, and drop the workaround.
+3. Install names for the app bundle: `@rpath` build settings or WebKit's staged frameworks.
+4. ThinLTO for shipping builds: with 3.5 h of headroom it may fit; measure its time and memory
+   first. It changes speed, not behaviour.
+5. Which Safari release branch the fork follows for macOS and which WebKitGTK stable branch for
+   Linux, so one patch series applies to both (the decision's "one pinned WebKit revision").

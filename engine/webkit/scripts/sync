@@ -1,0 +1,115 @@
+#!/bin/sh
+# Fetches the WebKit commit in engine/webkit/webkit.pin into .build/webkit (never tracked): one
+# commit, no history (--depth 1), no blobs until checkout (--filter=blob:none), and a sparse
+# checkout without the test and website trees, which the build never reads. Safe to re-run: a
+# checkout already at the pin only gets its sparse patterns re-applied.
+#
+#   engine/webkit/scripts/sync
+#
+# The engine is built on CI only (engine/README.md). Outside CI (CI unset) the script refuses to
+# run unless QUICKIE_WEBKIT_LOCAL=1, so a stray run does not fill a laptop's disk.
+#
+# Environment:
+#   QUICKIE_BUILD_DIR      where the checkout goes (default: <repo>/.build); no spaces
+#   QUICKIE_MIN_FREE_GB    refuse to run below this much free disk (default: 15)
+#   QUICKIE_WEBKIT_LOCAL   set to 1 to allow a run outside CI
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
+pin=$root/engine/webkit/webkit.pin
+build=${QUICKIE_BUILD_DIR:-$root/.build}
+min_free_gb=${QUICKIE_MIN_FREE_GB:-15}
+dir=$build/webkit
+
+die() {
+  printf 'sync: %s\n' "$1" >&2
+  exit 1
+}
+
+# Top-level trees the build does not need. build-webkit compiles Source/ with the tools and
+# configurations in Tools/, Configurations/, WebKitLibraries/ and WebKit.xcworkspace (macOS) or
+# CMake files at the root (GTK, WPE), so everything else at the root stays; only these go:
+#   LayoutTests       the layout test suite, most of the repository's size
+#   JSTests           JavaScriptCore's test suite
+#   PerformanceTests  benchmarks (Speedometer, JetStream, MotionMark, ...)
+#   ManualTests       pages for manual testing
+#   WebDriverTests    the WebDriver test suite
+#   Websites          webkit.org and other sites
+excluded='LayoutTests JSTests PerformanceTests ManualTests WebDriverTests Websites'
+
+[ -f "$pin" ] || die "no pin at $pin"
+# shellcheck source=/dev/null # engine/webkit/webkit.pin: plain assignments, nothing to check
+. "$pin"
+for key in WEBKIT_REPO WEBKIT_BRANCH WEBKIT_COMMIT WEBKIT_CHECKED; do
+  eval "value=\${$key:-}"
+  # shellcheck disable=SC2154 # value is assigned by the eval above
+  [ -n "$value" ] || die "$key is missing in $pin"
+done
+case "$WEBKIT_COMMIT" in
+  *[!0-9a-f]*) die "WEBKIT_COMMIT must be a full 40-character commit hash: $WEBKIT_COMMIT" ;;
+esac
+[ "${#WEBKIT_COMMIT}" -eq 40 ] || die "WEBKIT_COMMIT must be a full 40-character commit hash"
+
+case "$build" in
+  *' '*) die "WebKit does not build in a path with spaces: $build" ;;
+esac
+if [ -z "${CI:-}" ] && [ "${QUICKIE_WEBKIT_LOCAL:-}" != 1 ]; then
+  die "the engine builds on CI only; set QUICKIE_WEBKIT_LOCAL=1 to fetch it here anyway"
+fi
+
+# Refuses to start on a nearly full disk: a checkout that runs out of space halfway is slower to
+# repair than to refetch.
+mkdir -p "$dir"
+free_gb=$(df -Pk "$dir" | awk 'NR == 2 { print int($4 / 1048576) }')
+if [ "$free_gb" -lt "$min_free_gb" ]; then
+  die "only ${free_gb} GB free on the disk of $dir; need ${min_free_gb} GB (QUICKIE_MIN_FREE_GB)"
+fi
+
+if [ ! -d "$dir/.git" ]; then
+  git init -q "$dir"
+  git -C "$dir" remote add origin "$WEBKIT_REPO"
+fi
+git -C "$dir" remote set-url origin "$WEBKIT_REPO"
+# Blobs come on demand from the promisor remote; checkout fetches them in one batch.
+git -C "$dir" config remote.origin.promisor true
+git -C "$dir" config remote.origin.partialclonefilter blob:none
+
+# Non-cone patterns: everything, minus the excluded top-level trees. Written directly rather than
+# with `git sparse-checkout set`, which needs a checked-out HEAD.
+git -C "$dir" config core.sparseCheckout true
+git -C "$dir" config core.sparseCheckoutCone false
+sparse=$(git -C "$dir" rev-parse --git-path info/sparse-checkout)
+case "$sparse" in /*) ;; *) sparse=$dir/$sparse ;; esac
+mkdir -p "$(dirname -- "$sparse")"
+{
+  printf '/*\n'
+  for tree in $excluded; do
+    printf '!/%s/\n' "$tree"
+  done
+} >"$sparse"
+
+head=$(git -C "$dir" rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null || true)
+if [ "$head" = "$WEBKIT_COMMIT" ]; then
+  # Already at the pin: only bring the working tree in line with the patterns.
+  git -C "$dir" sparse-checkout reapply
+else
+  # GitHub serves any reachable commit by hash, so the pin needs no branch or tag to exist.
+  git -C "$dir" fetch -q --depth 1 --filter=blob:none --no-tags origin "$WEBKIT_COMMIT"
+  git -C "$dir" checkout -q --detach "$WEBKIT_COMMIT"
+fi
+actual=$(git -C "$dir" rev-parse 'HEAD^{commit}')
+[ "$actual" = "$WEBKIT_COMMIT" ] || die "the checkout is at $actual, but webkit.pin says $WEBKIT_COMMIT"
+
+branch_head=$(git ls-remote "$WEBKIT_REPO" "refs/heads/$WEBKIT_BRANCH" | awk '{ print $1 }')
+size=$(du -sk "$dir" | awk '{ printf "%.1f GB", $1 / 1048576 }')
+free_after=$(df -Pk "$dir" | awk 'NR == 2 { print int($4 / 1048576) }')
+printf 'sync: WebKit %s from %s\n' "$WEBKIT_COMMIT" "$WEBKIT_REPO"
+printf 'sync:   %s\n' "$(git -C "$dir" log -1 --format='%cI %s')"
+if [ "$branch_head" = "$WEBKIT_COMMIT" ]; then
+  printf 'sync:   %s is still at the pin (checked %s)\n' "$WEBKIT_BRANCH" "$WEBKIT_CHECKED"
+else
+  printf 'sync:   %s is now at %s; the pin was checked %s\n' \
+    "$WEBKIT_BRANCH" "${branch_head:-<unknown>}" "$WEBKIT_CHECKED"
+fi
+printf 'sync:   sparse, without: %s\n' "$excluded"
+printf 'sync:   %s in %s, %s GB free\n' "$size" "$dir" "$free_after"

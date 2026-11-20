@@ -1,4 +1,4 @@
-# What the engine is built from. POSIX sh syntax: engine/scripts/* source this file.
+# What the engine is built from. POSIX sh syntax: engine/chromium/scripts/* source this file.
 #
 # Checked on 2026-11-19 against:
 # - Chromium Dash, Extended Stable for Mac:
@@ -8,11 +8,11 @@
 # - ungoogled-chromium tags (GitHub API): the newest M156 tag is 156.0.8078.79-1. There is no
 #   tag for .109; the series of the same milestone is applied to the newer patch release, which
 #   ungoogled's own platform builds also do between tags. A hunk that fails is a rebase item,
-#   see engine/README.md.
+#   see engine/chromium/README.md.
 # - ungoogled-chromium-macos tags: 156.0.8078.79-1.1 (only a curated subset is applied).
 #
 # Bump all of these together, on every Extended Stable release (every 8 weeks) and every security
-# respin, and re-run engine/scripts/sync and apply.
+# respin, and re-run engine/chromium/scripts/sync and apply.
 
 CHROMIUM_VERSION=156.0.8078.109
 CHROMIUM_COMMIT=f8ec2e9b4054b80e455132faba2ce1a3548be61b

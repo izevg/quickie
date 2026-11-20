@@ -1,5 +1,5 @@
-# .gclient for a no-history checkout of the pinned Chromium tag. engine/scripts/sync replaces
-# @CHROMIUM_VERSION@ with the value from engine/chromium.pin and writes the result to
+# .gclient for a no-history checkout of the pinned Chromium tag. engine/chromium/scripts/sync replaces
+# @CHROMIUM_VERSION@ with the value from engine/chromium/chromium.pin and writes the result to
 # .build/chromium/.gclient. Python syntax (gclient reads it with exec).
 #
 # Vars come from //DEPS at the pinned tag (checked 2026-11-19, 156.0.8078.109):

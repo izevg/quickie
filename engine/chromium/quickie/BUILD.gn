@@ -1,13 +1,13 @@
 # //quickie: Quickie's code inside the Chromium tree (docs/architecture.md, section 4.4).
-# engine/scripts/apply links engine/quickie here as src/quickie, and the repository's crates/ as
-# src/quickie_crates; engine/patches/startup/link-quickie.patch links this target into Chrome.
+# engine/chromium/scripts/apply links engine/chromium/quickie here as src/quickie, and the repository's crates/ as
+# src/quickie_crates; engine/chromium/patches/startup/link-quickie.patch links this target into Chrome.
 #
 # P1 components: bridge/ (cxx bridge and the tab registry), browser_window/ (the BrowserWindow
 # without BrowserView), keyboard/ (key equivalents for the Rust shell). The others in section 4.4
 # (swipe, shields, net_bridge, privacy, agent_bridge) come in later phases.
 #
 # Dependency labels were read from the BUILD.gn files at 156.0.8078.109;
-# TODO(verify): engine/scripts/build runs `gn check` on //quickie/*, which names any missing one.
+# TODO(verify): engine/chromium/scripts/build runs `gn check` on //quickie/*, which names any missing one.
 
 import("//build/rust/rust_static_library.gni")
 
@@ -92,6 +92,6 @@ rust_static_library("engine_chromium") {
   # The generated C++ includes bridge/quickie_bridge.h.
   # TODO(verify): the crate now also depends on quickie-application, quickie-domain-browsing and
   # url (crates/adapters/engine-chromium/Cargo.toml); each needs a GN target here, the workspace
-  # crates as rust_static_library and url through gnrt (engine/README.md, open question 7).
+  # crates as rust_static_library and url through gnrt (engine/chromium/README.md, open question 7).
   deps = [ ":bridge_header" ]
 }

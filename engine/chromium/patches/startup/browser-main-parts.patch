@@ -1,5 +1,5 @@
 Why: Quickie's shell starts from the browser's main parts. This adds one ChromeBrowserMainExtraParts
-made by //quickie (engine/quickie/main_parts.cc), right after the macOS parts. The default
+made by //quickie (engine/chromium/quickie/main_parts.cc), right after the macOS parts. The default
 definition is weak and returns nullptr, so targets that do not link //quickie (unit_tests,
 browser_tests) still link; the strong definition in //quickie replaces it in the product.
 TODO(verify): ld64 picks the strong definition because //quickie is a source_set (object

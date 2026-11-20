@@ -1,5 +1,5 @@
-//! The cxx bridge to `//quickie/bridge` (`engine/quickie/bridge/quickie_bridge.h`). Both sides
-//! change together: a signature here is a signature there.
+//! The cxx bridge to `//quickie/bridge` (`engine/chromium/quickie/bridge/quickie_bridge.h`). Both
+//! sides change together: a signature here is a signature there.
 //!
 //! Chromium builds C++ without exceptions, so no function returns `Result`: failures come back as
 //! `false` and [`crate::bridge::Ffi`] turns them into errors.
@@ -124,7 +124,8 @@ pub(crate) fn on_engine_event(event: &EngineEvent) {
 
 /// TODO(after the shell crate exists): start the shell here. The composition root is not an
 /// adapter, so this crate cannot call it; the plan is an `extern "Rust"` symbol the shell crate
-/// defines, declared here, resolved when GN links both (engine/README.md, open questions).
+/// defines, declared here, resolved when GN links both (engine/chromium/README.md, open
+/// questions).
 fn shell_start() {}
 
 pub(crate) fn handle_key_equivalent(
