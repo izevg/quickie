@@ -158,7 +158,7 @@ impl<R: AgentRepo, S: SecretStore, E: Entropy> Agent<R, S, E> {
 
     fn commit(&mut self, next: Option<LlmEndpoint>) -> Result<(), AppError> {
         let snapshot = next.as_ref().map(LlmEndpoint::snapshot);
-        self.repo.save_endpoint(snapshot.as_ref())?;
+        self.repo.save_endpoint(snapshot)?;
         self.endpoint = next;
         Ok(())
     }

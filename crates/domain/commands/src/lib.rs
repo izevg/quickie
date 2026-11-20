@@ -22,7 +22,7 @@ pub use key::{
     Platform,
 };
 pub use keymap::{
-    BindingError, Conflict, KeyBinding, Keymap, KeymapEntry, KeymapError, Resolution, Unbinding,
-    WhenContext, WhenError, WhenExpr,
+    BindingError, Conflict, ContextFlag, FocusedView, KeyBinding, Keymap, KeymapEntry, KeymapError,
+    Resolution, Unbinding, WhenContext, WhenError, WhenExpr,
 };
 pub use quickie_domain_kernel::{CommandId, CommandIdError};

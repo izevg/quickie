@@ -55,6 +55,12 @@ impl TabCycle {
         self.order[self.cursor]
     }
 
+    /// The position of the selected tab in [`Self::order`], for the switcher to highlight.
+    #[must_use]
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
     /// The order the switcher shows, fixed for the whole cycle.
     #[must_use]
     pub fn order(&self) -> &[TabId] {
@@ -101,6 +107,18 @@ mod tests {
         let cycle = TabCycle::begin(&ids(&[3, 1, 2]), Direction::Backward).unwrap();
 
         assert_eq!(cycle.selected(), id(2));
+    }
+
+    #[test]
+    fn the_cursor_is_the_selections_position_in_the_order() {
+        let mut cycle = TabCycle::begin(&ids(&[3, 1, 2]), Direction::Forward).unwrap();
+        let first = cycle.cursor();
+
+        cycle.step(Direction::Forward);
+
+        assert_eq!(first, 1);
+        assert_eq!(cycle.cursor(), 2);
+        assert_eq!(cycle.order()[cycle.cursor()], cycle.selected());
     }
 
     #[test]

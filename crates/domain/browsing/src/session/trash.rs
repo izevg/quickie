@@ -1,6 +1,7 @@
 //! Closed tabs, kept for 30 days so that closing never loses a tab.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use quickie_domain_kernel::Timestamp;
 
@@ -18,26 +19,26 @@ pub struct ClosedTab {
     pub closed_at: Timestamp,
 }
 
-/// Closed tabs, oldest first.
+/// Closed tabs, oldest first; shared with the snapshots taken of them, like live tabs.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Trash(VecDeque<ClosedTab>);
+pub(crate) struct Trash(VecDeque<Arc<ClosedTab>>);
 
 impl Trash {
-    pub(crate) fn from_oldest_first(entries: Vec<ClosedTab>) -> Self {
+    pub(crate) fn from_oldest_first(entries: Vec<Arc<ClosedTab>>) -> Self {
         Self(entries.into())
     }
 
-    pub(crate) fn push(&mut self, entry: ClosedTab) {
+    pub(crate) fn push(&mut self, entry: Arc<ClosedTab>) {
         self.0.push_back(entry);
     }
 
-    pub(crate) fn pop_latest(&mut self) -> Option<ClosedTab> {
+    pub(crate) fn pop_latest(&mut self) -> Option<Arc<ClosedTab>> {
         self.0.pop_back()
     }
 
     /// Removes and returns the entries whose retention is over. Checks every entry, so a clock
     /// that jumped backwards between closes cannot shield an old one.
-    pub(crate) fn purge(&mut self, now: Timestamp) -> Vec<ClosedTab> {
+    pub(crate) fn purge(&mut self, now: Timestamp) -> Vec<Arc<ClosedTab>> {
         let (expired, kept) = std::mem::take(&mut self.0)
             .into_iter()
             .partition(|entry| now.millis_since(entry.closed_at) >= RETENTION_MS);
@@ -45,18 +46,20 @@ impl Trash {
         expired.into()
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &ClosedTab> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Arc<ClosedTab>> {
         self.0.iter()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{ClosedTab, RETENTION_MS, Trash};
     use crate::{Jar, Profile, Tab, TabId, Timestamp};
 
-    fn closed(id: u64, at: u64) -> ClosedTab {
-        ClosedTab {
+    fn closed(id: u64, at: u64) -> Arc<ClosedTab> {
+        Arc::new(ClosedTab {
             tab: Tab {
                 id: TabId::new(Profile::Main, id),
                 url: "https://example.test/".parse().unwrap(),
@@ -64,7 +67,7 @@ mod tests {
                 jar: Jar::Main,
             },
             closed_at: Timestamp::from_millis(at),
-        }
+        })
     }
 
     #[test]

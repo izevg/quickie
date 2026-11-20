@@ -34,7 +34,7 @@ pub(crate) fn save(db: &mut Connection, snapshot: &SiteZoomsSnapshot) -> Result<
     tx.execute("DELETE FROM site_zooms", []).map_err(failed)?;
     {
         let mut insert = tx
-            .prepare("INSERT INTO site_zooms (position, site, percent) VALUES (?1, ?2, ?3)")
+            .prepare_cached("INSERT INTO site_zooms (position, site, percent) VALUES (?1, ?2, ?3)")
             .map_err(failed)?;
         for (position, (site, percent)) in snapshot.sites.iter().enumerate() {
             insert

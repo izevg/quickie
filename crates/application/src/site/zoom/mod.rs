@@ -93,7 +93,7 @@ impl<R: ZoomRepo> Zoom<R> {
                 let mut next = self.sites.clone();
                 let level = next.step(site, step);
                 if next != self.sites {
-                    self.repo.save_site_zooms(&next.snapshot())?;
+                    self.repo.save_site_zooms(next.snapshot())?;
                     self.sites = next;
                 }
                 Ok(level)

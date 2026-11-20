@@ -11,5 +11,12 @@ indexmap.workspace = true
 quickie-domain-kernel.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+divan.workspace = true
+
+[[bench]]
+name = "keymap_resolve"
+harness = false
+
 [lints]
 workspace = true

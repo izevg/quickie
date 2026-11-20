@@ -40,15 +40,15 @@ impl ShieldsRepo for FakeShieldsRepo {
         }
     }
 
-    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError> {
+    fn save_sites(&mut self, sites: SitePoliciesSnapshot) -> Result<(), StoreError> {
         self.save("sites")?;
-        self.saved.sites = sites.clone();
+        self.saved.sites = sites;
         Ok(())
     }
 
-    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError> {
+    fn save_lists(&mut self, lists: FilterListSetSnapshot) -> Result<(), StoreError> {
         self.save("lists")?;
-        self.saved.lists = lists.clone();
+        self.saved.lists = lists;
         Ok(())
     }
 

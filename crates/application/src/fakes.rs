@@ -160,11 +160,11 @@ impl SessionRepo for FakeRepo {
         }
     }
 
-    fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError> {
+    fn save(&mut self, snapshot: SessionSnapshot) -> Result<(), StoreError> {
         if self.save_fails.get() {
             return Err(StoreError("save".to_owned()));
         }
-        self.saved = Some(snapshot.clone());
+        self.saved = Some(snapshot);
         self.saves += 1;
         Ok(())
     }
