@@ -1,7 +1,8 @@
 //! The development engine's content blocker: the application's [`ContentBlockerPort`] on
 //! `WKContentRuleList`s for requests, and on the cosmetic filters and scriptlets of
-//! [`cosmetic`] for what requests cannot show, all in the user content controller every page
-//! shares, so every page, those open before the rules arrived and popups included, gets them.
+//! [`cosmetic`] for what requests cannot show, all in the user content controllers pages share
+//! (one for the main jar, one for every throwaway jar), so every page, those open before the
+//! rules arrived and popups included, gets them.
 //!
 //! Installing never blocks the main thread. The filter lists are converted on a worker thread;
 //! `WKContentRuleListStore` compiles the result on its own queue and answers on the main thread.
@@ -73,11 +74,11 @@ impl std::fmt::Debug for WebKitContentBlocker {
 }
 
 impl WebKitContentBlocker {
-    /// A blocker that keeps compiled rules in `store`, installs them in `controller`, and
-    /// hands the lists to `cosmetics`.
+    /// A blocker that keeps compiled rules in `store`, installs them in every one of
+    /// `controllers`, and hands the lists to `cosmetics`.
     pub(crate) fn new(
         store: Retained<WKContentRuleListStore>,
-        controller: Retained<WKUserContentController>,
+        controllers: Vec<Retained<WKUserContentController>>,
         cosmetics: Rc<Cosmetics>,
         mtm: MainThreadMarker,
     ) -> Self {
@@ -85,7 +86,7 @@ impl WebKitContentBlocker {
             state: Rc::new(State {
                 mtm,
                 store,
-                controller,
+                controllers,
                 generation: Cell::new(0),
                 wanted: RefCell::new(None),
                 status: RefCell::new(BlockerStatus::Idle),
@@ -137,7 +138,8 @@ unsafe impl Send for Document {}
 struct State {
     mtm: MainThreadMarker,
     store: Retained<WKContentRuleListStore>,
-    controller: Retained<WKUserContentController>,
+    /// The main jar's controller and the throwaway jars' one: the same rules in each.
+    controllers: Vec<Retained<WKUserContentController>>,
     /// Counts installs; work started for an earlier one is dropped.
     generation: Cell<u64>,
     /// The fingerprint of the rules installed or on their way, `None` after a failure so that
@@ -361,11 +363,14 @@ impl State {
         lists: &[Retained<WKContentRuleList>],
         parts: &[Part],
     ) {
-        // SAFETY: the controller is valid, on the main thread it belongs to.
-        unsafe { this.controller.removeAllContentRuleLists() };
-        for list in lists {
-            // SAFETY: the controller and the list are valid, on the main thread they belong to.
-            unsafe { this.controller.addContentRuleList(list) };
+        for controller in &this.controllers {
+            // SAFETY: the controller is valid, on the main thread it belongs to.
+            unsafe { controller.removeAllContentRuleLists() };
+            for list in lists {
+                // SAFETY: the controller and the list are valid, on the main thread they
+                // belong to.
+                unsafe { controller.addContentRuleList(list) };
+            }
         }
         let compiled = parts.first().map_or_else(SystemTime::now, |part| {
             UNIX_EPOCH + Duration::from_secs(part.compiled)

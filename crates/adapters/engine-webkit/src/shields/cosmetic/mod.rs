@@ -4,7 +4,8 @@
 //! sites do; the lists answer those with cosmetic filters (hide this, run that procedure) and
 //! scriptlets (small scripts that change the page's own objects before its scripts run, such as
 //! `json-prune` on a player's ad placements). `adblock` says what each host gets; Quickie runs
-//! it with two user scripts in the controller every page shares:
+//! it with two user scripts in each controller pages share (the main jar's and the throwaway
+//! jars'):
 //!
 //! - **Page world**, at document start, in every frame: each known host's scriptlet calls and
 //!   Quickie's own scriptlet library ([`library`]), evaluated only on a host that has some.
@@ -136,7 +137,8 @@ impl Filters {
 /// The cosmetic side of the shields of every page of an engine. Lives on the main thread.
 pub(crate) struct Cosmetics {
     mtm: MainThreadMarker,
-    controller: Retained<WKUserContentController>,
+    /// The main jar's controller and the throwaway jars' one: the same scripts in each.
+    controllers: Vec<Retained<WKUserContentController>>,
     world: Retained<WKContentWorld>,
     filters: RefCell<Option<Arc<Filters>>>,
     /// Names the lists the filters are built from, `None` without lists.
@@ -152,10 +154,10 @@ pub(crate) struct Cosmetics {
 }
 
 impl Cosmetics {
-    /// Cosmetic shields for every page of `controller`; nothing is hidden until
+    /// Cosmetic shields for every page of each of `controllers`; nothing is hidden until
     /// [`Self::install`] has lists.
     pub(crate) fn new(
-        controller: Retained<WKUserContentController>,
+        controllers: Vec<Retained<WKUserContentController>>,
         mtm: MainThreadMarker,
     ) -> Rc<Self> {
         // SAFETY: a named world is created on first use and shared while it lives.
@@ -163,7 +165,7 @@ impl Cosmetics {
             unsafe { WKContentWorld::worldWithName(&NSString::from_str("quickie-shields"), mtm) };
         let this = Rc::new(Self {
             mtm,
-            controller,
+            controllers,
             world,
             filters: RefCell::new(None),
             lists: RefCell::new(None),
@@ -173,17 +175,18 @@ impl Cosmetics {
             waiting: RefCell::new(HashMap::new()),
             installed: RefCell::new(Vec::new()),
         });
-        let handler = ShieldsHandler::new(Rc::downgrade(&this), mtm);
-        // SAFETY: the controller retains the handler for as long as it lives; this is the only
-        // handler under the name in the shields world, which only this module uses, and the
-        // engine makes one `Cosmetics` per controller.
-        unsafe {
-            this.controller
-                .addScriptMessageHandlerWithReply_contentWorld_name(
+        for controller in &this.controllers {
+            let handler = ShieldsHandler::new(Rc::downgrade(&this), mtm);
+            // SAFETY: the controller retains the handler for as long as it lives; this is the
+            // only handler under the name in the shields world, which only this module uses,
+            // and the engine makes one `Cosmetics` for its controllers.
+            unsafe {
+                controller.addScriptMessageHandlerWithReply_contentWorld_name(
                     ProtocolObject::from_ref(&*handler),
                     &this.world,
                     &NSString::from_str(HANDLER),
                 );
+            }
         }
         this
     }
@@ -376,22 +379,26 @@ impl Cosmetics {
         drop(spawned);
     }
 
-    /// Replaces this module's user scripts in the controller with ones made from what is known
-    /// now; every other script stays, in its order.
+    /// Replaces this module's user scripts in the controllers with ones made from what is known
+    /// now; every other script (Quickie's own, an extension's content scripts) stays, in its
+    /// order: `WebKit` has no public call that removes one script, so all go and the others
+    /// come back as the same objects.
     fn reinstall_scripts(&self) {
         let mut installed = self.installed.borrow_mut();
         if !installed.is_empty() {
-            // SAFETY: a getter; the array is a copy.
-            let all = unsafe { self.controller.userScripts() };
-            // SAFETY: the controller is valid, on the main thread it belongs to.
-            unsafe { self.controller.removeAllUserScripts() };
-            for script in all.to_vec() {
-                if !installed
-                    .iter()
-                    .any(|ours| Retained::as_ptr(ours) == Retained::as_ptr(&script))
-                {
-                    // SAFETY: the script came from this controller and is still valid.
-                    unsafe { self.controller.addUserScript(&script) };
+            for controller in &self.controllers {
+                // SAFETY: a getter; the array is a copy.
+                let all = unsafe { controller.userScripts() };
+                // SAFETY: the controller is valid, on the main thread it belongs to.
+                unsafe { controller.removeAllUserScripts() };
+                for script in all.to_vec() {
+                    if !installed
+                        .iter()
+                        .any(|ours| Retained::as_ptr(ours) == Retained::as_ptr(&script))
+                    {
+                        // SAFETY: the script came from this controller and is still valid.
+                        unsafe { controller.addUserScript(&script) };
+                    }
                 }
             }
             installed.clear();
@@ -421,8 +428,10 @@ impl Cosmetics {
                     &world,
                 )
             };
-            // SAFETY: the controller retains the script.
-            unsafe { self.controller.addUserScript(&script) };
+            for controller in &self.controllers {
+                // SAFETY: the controller retains the script; a script may be in several.
+                unsafe { controller.addUserScript(&script) };
+            }
             installed.push(script);
         }
     }
@@ -622,6 +631,17 @@ mod tests {
                 r#"{"selector":[{"type":"css-selector","arg":"div"},{"type":"has-text","arg":"Sponsored"}]}"#
             ]
         );
+    }
+
+    // The extensions test relies on it: a page on 127.0.0.1 makes the shields replace their
+    // scripts.
+    #[test]
+    fn an_ip_address_host_gets_its_own_rules() {
+        let filters = Filters::build(&[list(FilterListId::EasyList, "127.0.0.1##.local-ad\n")]);
+
+        let bundle = filters.lookup("127.0.0.1", &[]);
+
+        assert_eq!(bundle.css, [".local-ad{display:none!important}"]);
     }
 
     #[test]

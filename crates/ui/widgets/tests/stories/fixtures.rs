@@ -123,17 +123,16 @@ impl World {
 
     /// The palette use case's answer to `text`, as the browser asks it.
     pub fn answer(&self, text: &str) -> Vec<PaletteItem> {
-        self.palette.query(
-            text,
-            50,
-            &Sources {
+        self.palette
+            .open(&Sources {
                 session: &self.session,
                 history: &self.history,
                 bookmarks: &self.bookmarks,
                 shortcuts: &self.shortcuts,
                 keymap: &self.keymap,
-            },
-        )
+                extensions: &[],
+            })
+            .query(text, 50)
     }
 
     /// The titles of the window's tabs, in opening order.

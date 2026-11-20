@@ -4,7 +4,8 @@ use quickie_domain_library::{Bookmarks, History, Keyword, SearchShortcuts, Tag, 
 use quickie_domain_palette::Kind;
 use url::Url;
 
-use super::{Palette, PaletteItem, Sources, Target};
+use super::{Palette, PaletteIndex, PaletteItem, Sources, Target};
+use crate::ExtensionOffer;
 use crate::fakes::FakeClock;
 
 fn url(path: &str) -> Url {
@@ -28,6 +29,7 @@ struct World {
     bookmarks: Bookmarks,
     shortcuts: SearchShortcuts,
     keymap: Keymap,
+    extensions: Vec<ExtensionOffer>,
 }
 
 impl World {
@@ -40,6 +42,7 @@ impl World {
             bookmarks: Bookmarks::new(),
             shortcuts: SearchShortcuts::defaults(),
             keymap: Keymap::defaults(Platform::MacOs),
+            extensions: Vec::new(),
         }
     }
 
@@ -65,19 +68,107 @@ impl World {
         self.bookmarks.save(&url(path), title.to_owned(), NOW);
     }
 
-    fn query(&self, text: &str, limit: usize) -> Vec<PaletteItem> {
+    fn open(&self) -> PaletteIndex {
         let palette = Palette::new(Catalog::builtin(), FakeClock::default());
-        palette.query(
-            text,
-            limit,
-            &Sources {
-                session: &self.session,
-                history: &self.history,
-                bookmarks: &self.bookmarks,
-                shortcuts: &self.shortcuts,
-                keymap: &self.keymap,
+        palette.open(&Sources {
+            session: &self.session,
+            history: &self.history,
+            bookmarks: &self.bookmarks,
+            shortcuts: &self.shortcuts,
+            keymap: &self.keymap,
+            extensions: &self.extensions,
+        })
+    }
+
+    /// The answer of a palette opened for this one query.
+    fn query(&self, text: &str, limit: usize) -> Vec<PaletteItem> {
+        self.open().query(text, limit)
+    }
+}
+
+mod extensions {
+    use quickie_domain_commands::KeyStroke;
+    use quickie_domain_settings::ExtensionId;
+
+    use super::*;
+    use crate::{ExtensionRun, ExtensionTrigger};
+
+    const BITWARDEN: &str = "nngceckbapebfimnlniiiahkandclblb";
+
+    fn trigger(run: ExtensionRun) -> ExtensionTrigger {
+        ExtensionTrigger {
+            id: ExtensionId::try_from(BITWARDEN).unwrap(),
+            run,
+        }
+    }
+
+    fn world() -> World {
+        let mut world = World::new();
+        world.extensions = vec![
+            ExtensionOffer {
+                trigger: trigger(ExtensionRun::Action),
+                title: "Bitwarden: Open".to_owned(),
+                stroke: Some(KeyStroke::parse("cmd+shift+y", Platform::MacOs).unwrap()),
             },
-        )
+            ExtensionOffer {
+                trigger: trigger(ExtensionRun::Command("autofill_login".to_owned())),
+                title: "Bitwarden: Autofill".to_owned(),
+                stroke: None,
+            },
+        ];
+        world
+    }
+
+    #[test]
+    fn running_extensions_are_commands_with_their_keys() {
+        let mut items = world().query(">bitwarden", 10);
+        items.sort_by(|a, b| a.title.cmp(&b.title));
+
+        assert_eq!(
+            targets(&items),
+            [
+                Target::Extension(trigger(ExtensionRun::Command("autofill_login".to_owned()))),
+                Target::Extension(trigger(ExtensionRun::Action)),
+            ]
+        );
+        assert_eq!(items[1].title, "Bitwarden: Open");
+        assert_eq!(items[1].detail, "Extension");
+        assert_eq!(items[1].kind, Kind::Command);
+        assert_eq!(items[1].glyphs, ["⇧⌘Y"]);
+        assert_eq!(items[0].glyphs, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_pasted_store_page_offers_to_install_first() {
+        let mut world = world();
+        let page = format!("https://chromewebstore.google.com/detail/bitwarden/{BITWARDEN}");
+        world.visit("x", &page, 1);
+
+        let items = world.query(&format!("  {page} "), 10);
+
+        assert_eq!(
+            items[0].target,
+            Target::InstallExtension(Url::parse(&page).unwrap())
+        );
+        assert_eq!(items[0].title, "Install Extension from Chrome Web Store");
+        assert_eq!(items[0].detail, page);
+        assert_eq!(items[0].kind, Kind::Command);
+        assert_eq!(items.len(), 2);
+        assert_eq!(world.query(&page, 1).len(), 1);
+        assert_eq!(world.query(&page, 0), []);
+    }
+
+    #[test]
+    fn other_pages_offer_no_install() {
+        let world = world();
+
+        let items = world.query("https://example.test/x", 10);
+
+        assert!(
+            items
+                .iter()
+                .all(|item| !matches!(item.target, Target::InstallExtension(_)))
+        );
     }
 }
 
@@ -220,6 +311,21 @@ mod going_to {
     }
 
     #[test]
+    fn a_page_never_visited_adds_no_frecency() {
+        let mut world = World::new();
+        world.bookmark("a", "A");
+        world.visit("b", "B", 1);
+
+        let items = world.query("", 10);
+
+        // The visit is worth 4 × log2(101) = 24 points, the bookmark 20 and nothing more.
+        assert_eq!(
+            targets(&items),
+            [Target::Url(url("b")), Target::Url(url("a"))]
+        );
+    }
+
+    #[test]
     fn a_bookmark_takes_the_frecency_of_its_page() {
         let mut world = World::new();
         world.bookmark("rare", "Rare");
@@ -280,6 +386,49 @@ mod going_to {
 
         assert_eq!(best[0].target, Target::Url(url("page/9999")));
         assert_eq!(all.len(), 50);
+    }
+}
+
+mod open {
+    use super::*;
+
+    /// A world with something for every mode.
+    fn full() -> World {
+        let mut world = World::new();
+        world.tab("t", "Tab · über");
+        world.bookmark("b", "Bookmark");
+        world.bookmarks.tag(&url("b"), tag("rust")).unwrap();
+        world.visit("h", "History", 2);
+        world
+    }
+
+    #[test]
+    fn an_open_palette_answers_each_keystroke_as_a_fresh_one_would() {
+        let world = full();
+        let typed = [
+            "", "b", "bo", "über", ">rel", "#", "#ru", "!gh x", "?summ", "@a", "h",
+        ];
+        let mut index = world.open();
+
+        let typing: Vec<Vec<PaletteItem>> = typed.iter().map(|t| index.query(t, 10)).collect();
+
+        let fresh: Vec<Vec<PaletteItem>> = typed.iter().map(|t| world.query(t, 10)).collect();
+        assert_eq!(typing, fresh);
+    }
+
+    #[test]
+    fn an_open_palette_answers_from_what_it_gathered() {
+        let mut world = full();
+        let mut index = world.open();
+
+        world.visit("later", "Later", 1);
+
+        let found = index.query("later", 10);
+        assert_eq!(found, []);
+        assert_eq!(
+            targets(&world.query("later", 10)),
+            [Target::Url(url("later"))]
+        );
     }
 }
 

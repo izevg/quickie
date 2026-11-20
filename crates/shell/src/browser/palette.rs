@@ -1,11 +1,15 @@
-//! The command palette: each edit re-queries the palette use case synchronously (it answers
-//! from memory within a frame), and choosing a row runs its [`Target`]. A `?` row asks the
-//! agent: nothing goes to the endpoint while the user types, only on `⏎`.
+//! The command palette: showing it gathers what it offers once ([`Palette::open`]), and each
+//! edit only ranks that again, synchronously, within a frame. When the session or the library
+//! changes while it shows, the next edit gathers afresh. Choosing a row runs its [`Target`]. A
+//! `?` row asks the agent: nothing goes to the endpoint while the user types, only on `⏎`.
+//!
+//! [`Palette::open`]: quickie_application::Palette::open
 
-use quickie_application::{Navigation, PaletteItem, Sources, Target};
+use quickie_application::{Navigation, PaletteIndex, Sources, Target};
 use url::Url;
 
 use super::Browser;
+use crate::Addons;
 use crate::input::keystroke::OverlayKey;
 
 /// How many answers a query asks for; the list shows eight and scrolls the rest.
@@ -42,30 +46,47 @@ impl Browser {
         self.cancel_cycle();
         self.hide_find();
         self.command_palette.show(&host, &ns_window, prefix);
+        self.palette_sources_changed();
         self.requery();
+    }
+
+    /// The session, the library, or the keymap changed: the palette gathers afresh at its next
+    /// edit, and lets go of what it gathered until then.
+    pub(super) fn palette_sources_changed(&self) {
+        self.palette_index.borrow_mut().take();
     }
 
     /// Answers what the field holds now.
     fn requery(&self) {
         let text = self.command_palette.text();
-        let items = self.answer(&text);
+        let items = {
+            let mut index = self.palette_index.borrow_mut();
+            index
+                .get_or_insert_with(|| self.open_index())
+                .query(&text, ANSWERS)
+        };
         self.command_palette.set_items(&items);
         *self.results.borrow_mut() = items;
     }
 
-    /// The palette use case's answer to `text`, from the session, the library, and the keymap.
-    fn answer(&self, text: &str) -> Vec<PaletteItem> {
+    /// What the palette offers, gathered from the session, the library, and the keymap.
+    fn open_index(&self) -> PaletteIndex {
         let browsing = self.browsing.borrow();
         let library = self.library.borrow();
         let keymap = self.keymap.borrow();
-        let sources = Sources {
+        let extensions = self
+            .extensions
+            .borrow()
+            .as_ref()
+            .map_or_default(Addons::offers);
+        self.palette.open(&Sources {
             session: browsing.session(),
             history: library.history(),
             bookmarks: library.bookmarks(),
             shortcuts: library.shortcuts(),
             keymap: &keymap,
-        };
-        self.palette.query(text, ANSWERS, &sources)
+            extensions: &extensions,
+        })
     }
 
     pub(super) fn palette_key(&self, key: OverlayKey) {
@@ -123,6 +144,14 @@ impl Browser {
             Target::Ask(question) => {
                 self.command_palette.hide();
                 self.ask_question(question);
+            }
+            Target::InstallExtension(page) => {
+                self.command_palette.hide();
+                self.install_from_store(&page);
+            }
+            Target::Extension(trigger) => {
+                self.command_palette.hide();
+                self.run_extension(&trigger);
             }
         }
     }

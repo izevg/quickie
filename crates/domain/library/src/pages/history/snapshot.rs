@@ -1,16 +1,15 @@
 //! History as plain data: the only door between the store and the aggregate.
 
-use indexmap::IndexMap;
 use url::Url;
 
-use super::{History, HistoryEntry, RECENT_VISITS};
+use super::{History, HistoryEntry, Keyed, RECENT_VISITS};
 use crate::is_web;
 use crate::pages::is_page_url;
 
 /// A whole history as plain data, for the store to write and read back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistorySnapshot {
-    /// Entries, least recently visited first.
+    /// Entries, least recently visited first; restoring accepts them in any order.
     pub entries: Vec<HistoryEntry>,
 }
 
@@ -20,6 +19,9 @@ pub enum CorruptHistory {
     /// Two entries name the same page.
     #[error("{0} appears twice")]
     DuplicateEntry(Url),
+    /// Two entries claim the same last visit.
+    #[error("{0} shares its last visit with another page")]
+    SharedLastVisit(Url),
     /// An entry is not an http or https page.
     #[error("{0} is not a web page")]
     NotWeb(Url),
@@ -38,28 +40,37 @@ pub enum CorruptHistory {
 }
 
 impl History {
-    /// Rebuilds a history from a snapshot, checking every invariant once, here.
+    /// Rebuilds a history from a snapshot, checking every invariant once, here. It keeps up to
+    /// [`HISTORY_CAP`](super::HISTORY_CAP) pages; a snapshot past that, saved under a larger
+    /// cap, shrinks back at the next new page. The next visit is numbered after the latest one.
     ///
     /// # Errors
     ///
     /// The first [`CorruptHistory`] found.
     pub fn restore(snapshot: HistorySnapshot) -> Result<Self, CorruptHistory> {
-        let mut entries = IndexMap::with_capacity(snapshot.entries.len());
+        let mut history = Self::new();
+        history.entries.reserve(snapshot.entries.len());
         for entry in snapshot.entries {
             check_entry(&entry)?;
-            let url = entry.url.clone();
-            if entries.insert(url.clone(), entry).is_some() {
-                return Err(CorruptHistory::DuplicateEntry(url));
+            if history.entries.contains(&entry.url) {
+                return Err(CorruptHistory::DuplicateEntry(entry.url));
             }
+            let number = entry.last_visit;
+            if history.recency.contains_key(&number) {
+                return Err(CorruptHistory::SharedLastVisit(entry.url));
+            }
+            history.next = history.next.max(number.next());
+            let (index, _) = history.entries.insert_full(Keyed(entry));
+            history.recency.insert(number, index);
         }
-        Ok(Self { entries })
+        Ok(history)
     }
 
     /// The history as plain data; `restore(snapshot())` gives back an equal history.
     #[must_use]
     pub fn snapshot(&self) -> HistorySnapshot {
         HistorySnapshot {
-            entries: self.entries.values().cloned().collect(),
+            entries: self.oldest_first().cloned().collect(),
         }
     }
 }

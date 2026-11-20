@@ -201,8 +201,13 @@ impl Browser {
         }
     }
 
-    /// The content blocker tells the browser each time the latest rules are installed or fail.
+    /// Fetches what is due at start, and has the content blocker tell the browser each time the
+    /// latest rules are installed or fail.
     pub(in crate::browser) fn wire_shields(&self) {
+        // Only lists the user enabled and that never arrived, or stale ones when the user keeps
+        // lists fresh: nothing on a fresh profile.
+        let due = self.shields.borrow().due_fetches();
+        self.fetch_lists(due);
         let settled = self.this.clone();
         self.shields.borrow_mut().blocker_mut().on_settled(move || {
             if let Some(browser) = settled.upgrade() {

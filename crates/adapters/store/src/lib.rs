@@ -1,5 +1,6 @@
 //! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
-//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`] and [`ZoomRepo`]. The user's
+//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`], [`ZoomRepo`] and
+//! [`ExtensionsRepo`]. The user's
 //! own `keybindings.json` is a [`KeymapRepo`] too, and the keymap editor's
 //! [`KeymapFile`](quickie_application::KeymapFile): [`KeybindingsFile`].
 //!
@@ -9,6 +10,7 @@
 //! thread.
 
 mod downloads;
+mod extensions;
 mod library;
 mod schema;
 mod session;
@@ -24,18 +26,19 @@ pub use write_behind::{PendingWrites, SETTLE, WriteBehindStore};
 use std::path::Path;
 
 use quickie_application::{
-    AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
-    ShieldsSnapshot, StoreError, ZoomRepo,
+    AgentRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
+    SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
-    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+    BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::SiteZoomsSnapshot;
+use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use rusqlite::Connection;
 use settings::{agent, keymap, zoom};
+use url::Url;
 
 /// The SQLite store.
 #[derive(Debug)]
@@ -97,6 +100,14 @@ impl LibraryRepo for SqliteStore {
         library::save_history(&mut self.db, history)
     }
 
+    fn upsert_entry(&mut self, entry: &HistoryEntry) -> Result<(), StoreError> {
+        library::upsert_history_entry(&mut self.db, entry)
+    }
+
+    fn remove_entries(&mut self, pages: &[Url]) -> Result<(), StoreError> {
+        library::remove_history_entries(&mut self.db, pages)
+    }
+
     fn save_bookmarks(&mut self, bookmarks: &BookmarksSnapshot) -> Result<(), StoreError> {
         library::save_bookmarks(&mut self.db, bookmarks)
     }
@@ -133,6 +144,16 @@ impl ZoomRepo for SqliteStore {
 
     fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
         zoom::save(&mut self.db, &zooms)
+    }
+}
+
+impl ExtensionsRepo for SqliteStore {
+    fn load_extensions(&self) -> Result<InstalledExtensionsSnapshot, StoreError> {
+        extensions::load(&self.db)
+    }
+
+    fn save_extensions(&mut self, snapshot: InstalledExtensionsSnapshot) -> Result<(), StoreError> {
+        extensions::save(&mut self.db, &snapshot)
     }
 }
 

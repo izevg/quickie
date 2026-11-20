@@ -116,6 +116,27 @@ WebKit calls it only because the delegate responds to it, and the private action
 for `blockedLoad` only when it responds to that selector. Without it the counts stay at zero.
 Counts live in memory per page and are never stored.
 
+### Web extensions
+
+- A fresh profile has no extension, and installing one is always the user's request: a Chrome
+  Web Store page pasted into the palette or open in the tab ("Install Extension from URL…"), or
+  a `.crx`, `.zip`, or folder chosen on disk. Nothing is suggested, preinstalled, or fetched
+  in the background.
+- Installing from the store asks Google's update service once (`clients2.google.com`), then
+  downloads the package from the host it names, accepted only on Google's update hosts over
+  https. The package is kept only if its CRX3 signatures hold and prove the extension's id, and
+  its SHA-256 matches what the store announced.
+- Updates come only when the user asks ("Check Extension Updates"), or, if the user turned on
+  "Update automatically", once a day. That is a connection on the browser's own initiative, so
+  it is off by default, like "keep lists fresh".
+- Every request goes through the engine's network stack (`HttpPort`), with no cookies or
+  credentials. What an extension itself fetches is page traffic of the main profile.
+- An extension runs only after the user approved what it asks for in a sheet, and gets only
+  that; a later request for more asks again. It never runs in the agent's profile and gets no
+  access to throwaway jars' tabs and data. On the system `WebKit` throwaway pages have their
+  own user content controller, with the same content rule lists and shields scripts but none
+  of the extensions' content scripts, so those never reach a throwaway page.
+
 ### Downloads in a throwaway jar
 
 - The file is saved to `~/Downloads` like any other: the user asked for it.

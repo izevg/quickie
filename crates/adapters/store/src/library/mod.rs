@@ -10,9 +10,10 @@ use std::collections::HashSet;
 
 use quickie_application::{LibrarySnapshot, StoreError};
 use quickie_domain_library::{
-    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+    BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
 use rusqlite::{Connection, Transaction};
+use url::Url;
 
 use crate::{downloads, failed};
 
@@ -57,6 +58,19 @@ pub(crate) fn save_history(
     snapshot: &HistorySnapshot,
 ) -> Result<(), StoreError> {
     save(db, HISTORY, |tx| history::save(tx, snapshot))
+}
+
+/// Saves one history entry over its page's row in one transaction, leaving the other rows.
+pub(crate) fn upsert_history_entry(
+    db: &mut Connection,
+    entry: &HistoryEntry,
+) -> Result<(), StoreError> {
+    save(db, HISTORY, |tx| history::upsert(tx, entry))
+}
+
+/// Removes these pages' history rows in one transaction.
+pub(crate) fn remove_history_entries(db: &mut Connection, pages: &[Url]) -> Result<(), StoreError> {
+    save(db, HISTORY, |tx| history::remove(tx, pages))
 }
 
 /// Replaces the saved bookmarks in one transaction.

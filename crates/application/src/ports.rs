@@ -10,9 +10,9 @@ use quickie_domain_agents::{
 };
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
 use quickie_domain_library::{
-    BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
+    BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::SiteZoomsSnapshot;
+use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{
     ContentHash, FilterListId, FilterListSetSnapshot, Site, SitePoliciesSnapshot,
 };
@@ -60,7 +60,8 @@ pub struct LibrarySnapshot {
 }
 
 /// Where the library persists (`shell.sqlite` in the product). Each aggregate saves on its own,
-/// so a visit never rewrites the bookmarks.
+/// so a visit never rewrites the bookmarks; history even saves entry by entry, so a visit never
+/// rewrites the other pages either.
 pub trait LibraryRepo {
     /// Every part of the library that was ever saved.
     ///
@@ -69,12 +70,29 @@ pub trait LibraryRepo {
     /// The store could not be read.
     fn load_library(&self) -> Result<LibrarySnapshot, StoreError>;
 
-    /// Replaces the saved history, atomically.
+    /// Replaces the saved history, atomically. Only for a change that touches much of it, such
+    /// as forgetting the last hour; a visit saves its one entry.
     ///
     /// # Errors
     ///
     /// The store could not be written.
     fn save_history(&mut self, history: &HistorySnapshot) -> Result<(), StoreError>;
+
+    /// Saves one entry of history over the saved entry of its page, or beside the others when
+    /// the page has none, without touching the rest. Its `last_visit` keeps the saved order.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn upsert_entry(&mut self, entry: &HistoryEntry) -> Result<(), StoreError>;
+
+    /// Removes these pages' entries from the saved history, atomically; a page without one is
+    /// skipped.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn remove_entries(&mut self, pages: &[Url]) -> Result<(), StoreError>;
 
     /// Replaces the saved bookmarks, atomically.
     ///
@@ -260,6 +278,26 @@ pub trait ShieldsRepo {
     ///
     /// The store could not be written.
     fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError>;
+}
+
+/// Where the installed extensions persist (`shell.sqlite` in the product).
+pub trait ExtensionsRepo {
+    /// The extensions as last saved; none on a profile that never saved them.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be read.
+    fn load_extensions(&self) -> Result<InstalledExtensionsSnapshot, StoreError>;
+
+    /// Replaces the saved extensions, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_extensions(
+        &mut self,
+        extensions: InstalledExtensionsSnapshot,
+    ) -> Result<(), StoreError>;
 }
 
 /// The network, for the browser's own requests, such as fetching a filter list or asking the

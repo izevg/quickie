@@ -9,7 +9,8 @@ pub use bookmarks::{
     Bookmark, Bookmarks, BookmarksSnapshot, CorruptBookmarks, NotSaved, Saved, Tag, TagError,
 };
 pub use history::{
-    CorruptHistory, Forgotten, History, HistoryEntry, HistorySnapshot, RECENT_VISITS, Recorded,
+    CorruptHistory, Forgotten, HISTORY_CAP, History, HistoryEntry, HistorySnapshot, RECENT_VISITS,
+    Recorded, VisitNumber, Visited,
 };
 
 use url::Url;

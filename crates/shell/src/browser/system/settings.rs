@@ -126,6 +126,7 @@ impl Browser {
         };
         screen.set_general(&self.general_state());
         screen.set_shields(&self.shields_state());
+        screen.set_extensions(&self.extensions_state());
         let problems = self.keymap_problems.borrow();
         screen.set_keys(&KeysState {
             file: self.keybindings.path().display().to_string(),
@@ -241,8 +242,28 @@ impl Browser {
             SettingsAction::Record(command, press) => return self.recorded(&command, &press),
             SettingsAction::Rebind(command, chord) => self.rebind(command, chord),
             SettingsAction::ResetBinding(command) => self.reset_binding(command),
+            SettingsAction::SetExtension(id, on) => self.set_extension(&id, on),
+            SettingsAction::RemoveExtension(id) => self.remove_extension(&id),
+            SettingsAction::ChooseExtensionFile => self.install_extension_file(),
+            SettingsAction::CheckExtensionUpdates => self.check_extension_updates(),
+            SettingsAction::AutoUpdateExtensions(on) => self.auto_update_extensions(on),
         }
         self.refresh_settings();
+    }
+
+    /// The first keys bound to `command`, as keycaps: `⌘P`; empty when none are.
+    pub(in crate::browser) fn keys_of(&self, command: &str) -> String {
+        CommandId::try_from(command)
+            .ok()
+            .and_then(|id| {
+                let keymap = self.keymap.borrow();
+                let platform = keymap.platform();
+                keymap
+                    .bindings_for(&id)
+                    .next()
+                    .map(|binding| binding.chord.glyphs(platform))
+            })
+            .unwrap_or_default()
     }
 
     /// A key pressed while `command` records: read as the keymap reads every press, and

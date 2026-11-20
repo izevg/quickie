@@ -154,4 +154,60 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         percent INTEGER NOT NULL
     ) STRICT;
 ",
+    // 10: history row by row: a page's row is keyed by its URL alone and ordered by the number
+    // of its last visit instead of a position, so a visit writes its own row, never the table.
+    // Its newest visit times sit in the row, comma-separated. Existing rows keep their order:
+    // a position becomes the number of the last visit (plus one, as numbers start at 1).
+    "
+    CREATE TABLE history_by_page (
+        url TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        visit_count INTEGER NOT NULL,
+        last_visit INTEGER NOT NULL,
+        recent_visits TEXT NOT NULL
+    ) STRICT, WITHOUT ROWID;
+    INSERT INTO history_by_page (url, title, visit_count, last_visit, recent_visits)
+        SELECT url, title, visit_count, position + 1, coalesce(
+            (SELECT group_concat(visited_at, ',' ORDER BY rank)
+                FROM history_visits WHERE entry = position),
+            ''
+        )
+        FROM history;
+    DROP TABLE history_visits;
+    DROP TABLE history;
+    ALTER TABLE history_by_page RENAME TO history;
+    CREATE INDEX history_by_last_visit ON history (last_visit);
+",
+    // 11: the installed web extensions in install order, what each was granted, the sites the
+    // user allowed or blocked each on, and, in at most one row, whether updates come on their
+    // own and when they were last looked for.
+    "
+    CREATE TABLE extensions (
+        position INTEGER PRIMARY KEY,
+        id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('chrome_web_store', 'file', 'folder')),
+        location TEXT NOT NULL,
+        enabled INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE extension_grants (
+        extension TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('permission', 'pattern')),
+        name TEXT NOT NULL,
+        PRIMARY KEY (extension, kind, name)
+    ) STRICT;
+    CREATE TABLE extension_sites (
+        extension TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+        rank INTEGER NOT NULL,
+        site TEXT NOT NULL,
+        access TEXT NOT NULL CHECK (access IN ('allowed', 'blocked')),
+        PRIMARY KEY (extension, rank)
+    ) STRICT;
+    CREATE TABLE extension_updates (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        auto_update INTEGER NOT NULL,
+        last_checked INTEGER
+    ) STRICT;
+",
 ];

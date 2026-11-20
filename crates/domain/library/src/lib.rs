@@ -15,8 +15,9 @@ pub use downloads::{
     DownloadsSnapshot,
 };
 pub use pages::{
-    Bookmark, Bookmarks, BookmarksSnapshot, CorruptBookmarks, CorruptHistory, Forgotten, History,
-    HistoryEntry, HistorySnapshot, NotSaved, RECENT_VISITS, Recorded, Saved, Tag, TagError,
+    Bookmark, Bookmarks, BookmarksSnapshot, CorruptBookmarks, CorruptHistory, Forgotten,
+    HISTORY_CAP, History, HistoryEntry, HistorySnapshot, NotSaved, RECENT_VISITS, Recorded, Saved,
+    Tag, TagError, VisitNumber, Visited,
 };
 pub use quickie_domain_kernel::Timestamp;
 pub use shortcuts::{

@@ -978,6 +978,7 @@ dependencies = [
  "objc2-web-kit",
  "quickie-application",
  "quickie-domain-browsing",
+ "quickie-domain-settings",
  "quickie-domain-shields",
  "serde_json",
  "tempfile",
@@ -1015,10 +1016,14 @@ dependencies = [
 name = "quickie-system"
 version = "0.0.0"
 dependencies = [
+ "core-foundation",
  "quickie-application",
  "quickie-domain-agents",
+ "quickie-domain-settings",
  "security-framework",
+ "security-framework-sys",
  "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1031,6 +1036,7 @@ dependencies = [
  "objc2-foundation",
  "quickie-application",
  "quickie-domain-commands",
+ "quickie-domain-settings",
  "quickie-domain-shields",
  "quickie-ui-shared",
  "quickie-ui-widgets",

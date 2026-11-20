@@ -80,6 +80,24 @@ pub enum Action {
     DebugKeys,
     /// Any of the developer tools' commands: Web Inspector opens from the page.
     DevTools,
+    /// Installing, updating, and placing web extensions.
+    Extensions(ExtensionsAction),
+}
+
+/// What an extensions command asks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtensionsAction {
+    /// An extension from the active Chrome Web Store page, or one pasted into the palette.
+    InstallFromUrl,
+    /// An extension from a file or folder on disk.
+    InstallFromFile,
+    CheckUpdates,
+    /// Extensions off (`true`) or back on on the active page's site.
+    OnSite {
+        off: bool,
+    },
+    /// The Settings window's Extensions pane.
+    Show,
 }
 
 impl Action {
@@ -163,6 +181,20 @@ impl Action {
             "quickie.agent.settings" => Self::ShowAgentSettings,
             "quickie.app.settings" => Self::ShowSettings,
             "quickie.debug.keys" => Self::DebugKeys,
+            "quickie.extensions.installFromUrl" => {
+                Self::Extensions(ExtensionsAction::InstallFromUrl)
+            }
+            "quickie.extensions.installFromFile" => {
+                Self::Extensions(ExtensionsAction::InstallFromFile)
+            }
+            "quickie.extensions.checkUpdates" => Self::Extensions(ExtensionsAction::CheckUpdates),
+            "quickie.extensions.offOnSite" => {
+                Self::Extensions(ExtensionsAction::OnSite { off: true })
+            }
+            "quickie.extensions.onOnSite" => {
+                Self::Extensions(ExtensionsAction::OnSite { off: false })
+            }
+            "quickie.extensions.settings" => Self::Extensions(ExtensionsAction::Show),
             _ => return None,
         };
         Some(action)
@@ -236,6 +268,7 @@ impl Browser {
         match action {
             Action::SetDefaultBrowser => return self.set_default_browser(),
             Action::RevealProfile => return self.reveal_profile(),
+            Action::Extensions(action) => return self.extension_command(action),
             _ => {}
         }
         let Some((window, _)) = self.current() else {
@@ -293,9 +326,20 @@ impl Browser {
             | Action::ShowAgentAnswer
             | Action::ShowAgentSettings
             | Action::ShowSettings
-            | Action::DebugKeys => {}
+            | Action::DebugKeys
+            | Action::Extensions(_) => {}
         }
         self.settle(window);
+    }
+
+    fn extension_command(&self, action: ExtensionsAction) {
+        match action {
+            ExtensionsAction::InstallFromUrl => self.install_extension_from_url(),
+            ExtensionsAction::InstallFromFile => self.install_extension_file(),
+            ExtensionsAction::CheckUpdates => self.check_extension_updates(),
+            ExtensionsAction::OnSite { off } => self.extensions_on_site(off),
+            ExtensionsAction::Show => self.show_extensions(),
+        }
     }
 
     pub(super) fn navigate(&self, window: WindowId, navigation: &Navigation) {

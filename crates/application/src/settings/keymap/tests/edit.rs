@@ -4,7 +4,7 @@ use quickie_domain_commands::{
 
 use super::{command, entry, load, runs};
 use crate::fakes::FakeKeymapRepo;
-use crate::keymap::{RebindError, Rejection, check_binding, rebind, reset_binding};
+use crate::settings::keymap::{RebindError, Rejection, check_binding, rebind, reset_binding};
 use crate::{AppError, KeybindingText, StoreError};
 
 fn id(text: &str) -> CommandId {

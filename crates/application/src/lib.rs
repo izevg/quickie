@@ -10,10 +10,10 @@ mod engine;
 mod error;
 #[cfg(test)]
 mod fakes;
-mod keymap;
 mod library;
 mod palette;
 mod ports;
+mod settings;
 mod shields;
 mod site;
 
@@ -24,23 +24,29 @@ pub use browsing::Browsing;
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::conformance;
 pub use engine::{
-    Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, EventQueue, FindStep,
-    Followed, Found, LinkTarget, PageContent, PageRect, ReplyToken, Ticket,
+    Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, EngineEvent,
+    EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
+    ExtensionPackages, FindStep, Followed, Found, LinkTarget, PackageSource, PageContent, PageRect,
+    ReplyToken, Ticket, Unpacked, WindowTabs,
 };
 pub use error::{
-    AppError, BlockerError, EngineError, HttpError, LlmError, SecretError, StoreError,
-};
-pub use keymap::{
-    BindingLine, BindingSource, LoadedKeymap, RebindError, RejectedEntry, Rejection, check_binding,
-    keymap_lines, load_keymap, rebind, reset_binding,
+    AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,
 };
 pub use library::{CorruptLibrary, Library};
-pub use palette::{Palette, PaletteItem, Sources, Target};
+pub use palette::{Palette, PaletteIndex, PaletteItem, Sources, Target};
 pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
-    Entropy, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapFile,
-    KeymapRepo, LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore,
-    SessionRepo, ShieldsRepo, ShieldsSnapshot, StopSignal, ZoomRepo,
+    Entropy, ExtensionsRepo, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText,
+    KeymapFile, KeymapRepo, LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation,
+    SecretStore, SessionRepo, ShieldsRepo, ShieldsSnapshot, StopSignal, ZoomRepo,
+};
+pub use settings::extensions::{
+    Approval, ExtensionOffer, ExtensionRun, ExtensionTrigger, Extensions, Fetched, ReadOutcome,
+    UpdateCheck, UpdateOffer, fetch_packages, parse_answer,
+};
+pub use settings::keymap::{
+    BindingLine, BindingSource, LoadedKeymap, RebindError, RejectedEntry, Rejection, check_binding,
+    keymap_lines, load_keymap, rebind, reset_binding,
 };
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};
 pub use site::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Zoom};

@@ -137,11 +137,11 @@ ninth context means regrouping first.
 | `kernel` | IDs (`TabId`, `WindowId`, `CommandId`, ...), `Timestamp`, `Site`, shared value types | — |
 | `browsing` | `Window`, `Tab` (id, engine ref, pinned slot, last active), `MruStack`, `ClosedTabTrash` | MRU updates synchronously on activation; a closed tab stays 30 days in the trash |
 | `commands` | `Command`, `Keymap`, `KeyBinding` (chord, `when`), `WhenExpr`, `KeyStroke` (key code + ASCII) | Browser-reserved shortcuts never reach the page; a binding conflict is a validation error |
-| `palette` | `Query` (prefixes `>` `@` `#` `?` `!`), `Candidate`, `Frecency` | First batch within 16 ms, then streaming |
-| `library` | `HistoryEntry`, `Download` | Local only |
+| `palette` | `Query` (prefixes `>` `@` `#` `?` `!`), `Candidate` (text kept in `Texts`), `Frecency`, `Ranker` | Candidates are gathered, cut into characters, and scored once when the palette opens; a keystroke only ranks. First batch within 16 ms, then streaming |
+| `library` | `History` of `HistoryEntry`, `Download` | Local only. History keeps at most `HISTORY_CAP` (100 000) pages, pushing out the page visited longest ago; it is ordered by a last-visit number that only grows, and a visit saves its own entry, never the table |
 | `shields` | `SitePolicy`, `FilterListSet`, `FingerprintPolicy` | Per-site exceptions; lists only from allowed sources |
 | `agents` | `AgentSession` (built-in or external), `Mode` (Ask or Act), `ToolCall`, `CapabilityGrant`, `PendingAction`, `ProvenanceSet`, `LlmEndpoint` (base URL, model, key ref) | **Ask** only reads the current page of `main`, on an explicit request. **Act** only in the agent profile, URLs only from provenance, irreversible actions only after approval |
-| `settings` | `Preferences`; `SiteZooms` with `ZoomLevel` (Safari's steps, 50 % to 300 %) | A site at 100 % is not listed; a throwaway jar's zoom is never saved |
+| `settings` | `Preferences`; `SiteZooms` with `ZoomLevel` (Safari's steps, 50 % to 300 %); `InstalledExtensions` (`ExtensionId`, `ExtensionVersion`, `Grants`, `SiteAccess`) | A site at 100 % is not listed; a throwaway jar's zoom is never saved; an extension is listed only once the user approved what it asks for; updates on their own only when the user lets them, once a day |
 
 **Ports** (`crates/application`), all traits:
 
@@ -149,6 +149,8 @@ ninth context means regrouping first.
 |---|---|---|
 | `Engine` bundle: `EnginePort` (tab lifecycle) + capability ports `PageSurface`, `PageContent`, `PageZoom`, `PageAsks`, `Downloads`, and for the agent profile `Automation`, `RequestGate`; one `EngineEvent` stream | driven | `engine-webkit`, `engine-cef` (agent profile), `engine-chromium` (post-MVP fork); see "Engines" below |
 | `HttpPort` | driven | supplied by the engine (`Engine::Http`): Chromium or CEF network stack, `NSURLSession` on WebKit; the shell never builds one |
+| `ExtensionHost` (capability), `ExtensionPackages` | driven | `engine-webkit` (`WKWebExtensionController`, main profile only); `system` checks CRX3 signatures with Security.framework and keeps packages |
+| `ExtensionsRepo` | driven | `store` |
 | `LlmPort` | driven | `llm`: OpenAI-compatible client on top of `HttpPort` |
 | `SessionRepo`, `LibraryRepo`, `KeymapRepo`, `ShieldsRepo`, `AuditLog` | driven | `store` (rusqlite; saves go to a write-behind thread off the main thread) |
 | `ContentBlockerPort` | driven | engine: `adblock` in the network service (product), `WKContentRuleList` (development) |
@@ -215,6 +217,14 @@ browser's own traffic bypassed the engine's network stack.
 - **Policy lives in use cases.** Download ids, zoom on commit, automatic answers to dialogs and
   permissions, and collecting page text for the agent are application code driving the ports,
   tested against the in-memory fake; the shell only routes.
+- **Web extensions are a capability.** `CAPS.web_extensions` (`Capabilities` in
+  `application/src/engine/`) says an engine runs them; the `Extensions` use case needs an
+  `ExtensionHost`, which reports through its own `ExtensionEvent` stream (a package read, a
+  permission asked, a popup, a tab to open, activate, or close) and is told the windows and
+  tabs (`arrange`). On the system WebKit it is one `WKWebExtensionController` for the main
+  profile, attached to every main-jar page; WebKit types stay in the adapter, and the shell
+  sees only the popup's view. Store installs and updates follow the Chrome Web Store's update
+  protocol through `HttpPort`, only on request ([privacy.md](privacy.md)).
 - **An engine per profile.** Tab and window ids carry their `Profile` (`Main`, `Agent`), and each
   profile has its own session, so a tab never moves between engines and ids never collide. The
   agent profile's tabs are never persisted: the agent leaves an audit log, not tabs. The shell
@@ -271,8 +281,12 @@ What we accept:
   what Web Extensions on WebKit run.
 
 How it is built:
-- **One pinned WebKit revision for both platforms**: a release branch Apple ships in Safari for
-  macOS and the matching WebKitGTK stable branch for Linux, chosen so our patches apply to both.
+- **One pinned WebKit revision for both platforms**: the WebKitGTK/WPE stable series
+  (`webkitglib/2.54` today, release tags `webkitgtk-2.54.N`), the one branch both ports build
+  from, so one patch set serves macOS and Linux. Apple's Mac-only security fixes are
+  cherry-picked from each Apple security note; the base moves to the next stable series about
+  every six months. Decided 2026-11-20 over two bases (a Safari branch for macOS, the stable
+  series for Linux), which would double every patch and rebase.
 - **Patches grouped by meaning** under `engine/` (rule of four), each with its reason; the macOS
   port links the result into the app bundle (frameworks and their XPC services, as Playwright and
   Safari Technology Preview do), the Linux port into the GTK build.

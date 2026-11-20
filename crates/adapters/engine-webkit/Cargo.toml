@@ -18,6 +18,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSPrintInfo",
   "NSPrintOperation",
   "NSResponder",
+  "NSScreen",
   "NSView",
   "NSWindow",
 ] }
@@ -27,12 +28,14 @@ objc2-foundation = { workspace = true, features = [
   "NSData",
   "NSDate",
   "NSDictionary",
+  "NSEnumerator",
   "NSError",
   "NSGeometry",
   "NSKeyValueObserving",
   "NSOperation",
   "NSProgress",
   "NSRunLoop",
+  "NSSet",
   "NSString",
   "NSTimer",
   "NSURL",
@@ -69,6 +72,19 @@ objc2-web-kit = { workspace = true, features = [
   "WKURLSchemeTask",
   "WKUserContentController",
   "WKUserScript",
+  "WKWebExtension",
+  "WKWebExtensionAction",
+  "WKWebExtensionCommand",
+  "WKWebExtensionContext",
+  "WKWebExtensionController",
+  "WKWebExtensionControllerConfiguration",
+  "WKWebExtensionControllerDelegate",
+  "WKWebExtensionMatchPattern",
+  "WKWebExtensionPermission",
+  "WKWebExtensionTab",
+  "WKWebExtensionTabConfiguration",
+  "WKWebExtensionWindow",
+  "WKWebExtensionWindowConfiguration",
   "WKWebView",
   "WKWebViewConfiguration",
   "WKWebsiteDataStore",
@@ -76,6 +92,7 @@ objc2-web-kit = { workspace = true, features = [
 ] }
 quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
+quickie-domain-settings.workspace = true
 quickie-domain-shields.workspace = true
 serde_json.workspace = true
 url.workspace = true
@@ -100,6 +117,12 @@ harness = false
 # The application's engine conformance suite (crates/application/src/engine/conformance).
 [[test]]
 name = "conformance"
+harness = false
+
+# Web extensions: the test extension in tests/extension read, run, commanded, and kept out of
+# throwaway jars.
+[[test]]
+name = "extensions"
 harness = false
 
 # The tab overview's pictures: taken, sized, and dropped with their tabs.
