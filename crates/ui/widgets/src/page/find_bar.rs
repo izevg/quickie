@@ -1,5 +1,5 @@
 //! The find bar (`⌘F`): an E2 glass pill at the top right of the window with the query field,
-//! the match count ("3 of 12"), previous and next, and close
+//! the match count ("3 / 12", read as "3 of 12"), previous and next, and close
 //! (`docs/design/mocks/navigation/find/`). It is opened from the keyboard, so it appears and
 //! disappears instantly.
 //!
@@ -18,13 +18,15 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSButton, NSControlTextDidChangeNotification, NSFocusRingType,
-    NSTextAlignment, NSTextField, NSTextInputClient, NSTextView, NSView, NSWindow,
+    NSAccessibility, NSAutoresizingMaskOptions, NSButton, NSControlTextDidChangeNotification,
+    NSFocusRingType, NSTextAlignment, NSTextField, NSTextInputClient, NSTextView, NSView, NSWindow,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{
+    NSNotification, NSNotificationCenter, NSPoint, NSRange, NSRect, NSSize, NSString,
+};
 use quickie_domain_browsing::FindMatches;
 use quickie_ui_shared::tokens::{TextRole, color, space};
-use quickie_ui_shared::{Elevation, GlassSurface, Trigger, motion, symbol};
+use quickie_ui_shared::{Elevation, GlassSurface, StyledText, Trigger, motion, symbol};
 
 /// The bar's size: a pill, its height twice the overlay radius.
 const WIDTH: f64 = 380.0;
@@ -183,6 +185,7 @@ impl FindBar {
                 Trigger::Keyboard,
             );
             self.count.setStringValue(&NSString::new());
+            self.count.setAccessibilityLabel(None);
             self.open.set(true);
         }
         window.makeFirstResponder(Some(&self.field));
@@ -214,26 +217,45 @@ impl FindBar {
         self.field.setStringValue(&NSString::from_str(query));
     }
 
-    /// Shows how many matches the query has and which is current; nothing for an empty query.
+    /// Shows how many matches the query has and which is current, `3 / 17` with the total
+    /// dimmed; nothing for an empty query. `VoiceOver` reads `3 of 17`.
     pub fn set_matches(&self, matches: FindMatches) {
-        let text = if self.query().is_empty() {
+        let spoken = if self.query().is_empty() {
             String::new()
         } else {
             matches.to_string()
         };
-        self.count.setStringValue(&NSString::from_str(&text));
-        let tint = if matches.total() == 0 && !text.is_empty() {
-            color::destructive()
-        } else {
-            color::secondary_label()
+        let font = TextRole::RowDetail.mono_font();
+        let shown = match (matches.current(), matches.total()) {
+            _ if spoken.is_empty() => StyledText::new("", &font, &color::label()),
+            (Some(current), total) if total > 0 => {
+                let current = current.to_string();
+                let styled = StyledText::new(
+                    &format!("{current} / {total}"),
+                    &font,
+                    &color::tertiary_label(),
+                );
+                styled.style(
+                    NSRange::new(0, current.encode_utf16().count()),
+                    &font,
+                    &color::label(),
+                );
+                styled
+            }
+            (_, 0) => StyledText::new(&spoken, &font, &color::destructive()),
+            _ => StyledText::new(&spoken, &font, &color::secondary_label()),
         };
-        self.count.setTextColor(Some(&tint));
+        self.count.setAttributedStringValue(shown.string());
+        self.count
+            .setAccessibilityLabel(Some(&NSString::from_str(&spoken)));
     }
 
-    /// The match count on screen.
+    /// The match count as `VoiceOver` reads it: `3 of 12`, `No matches`.
     #[must_use]
     pub fn matches_text(&self) -> String {
-        self.count.stringValue().to_string()
+        self.count
+            .accessibilityLabel()
+            .map_or_else(String::new, |label| label.to_string())
     }
 
     /// The bar's surface, for a render.
@@ -251,7 +273,7 @@ impl FindBar {
             "magnifyingglass",
             "Find",
             TextRole::RowTitle,
-            &color::secondary_label(),
+            &color::accent(),
             mtm,
         ) {
             let size = glyph.frame().size;

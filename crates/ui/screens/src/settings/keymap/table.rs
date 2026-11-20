@@ -13,7 +13,7 @@ use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAnimationContext, NSBeep, NSControl, NSControlTextEditingDelegate, NSEvent,
+    NSAccessibility, NSAnimationContext, NSBeep, NSControl, NSControlTextEditingDelegate, NSEvent,
     NSEventModifierFlags, NSResponder, NSSearchField, NSSearchFieldDelegate, NSTableColumn,
     NSTableRowView, NSTableView, NSTableViewDataSource, NSTableViewDelegate, NSTextField,
     NSTextFieldDelegate, NSTextView, NSView,
@@ -220,10 +220,15 @@ define_class!(
         #[unsafe(method_id(tableView:rowViewForRow:))]
         fn row_view(&self, _table: &NSTableView, row: NSInteger) -> Option<Retained<NSTableRowView>> {
             let model = self.ivars().model.borrow();
-            let tone = model
-                .line_at(row)
-                .map_or(Tone::Plain, |(index, line)| model.state(index).tone(line));
-            Some(RowView::new(tone, self.mtm()).into_super())
+            let line = model.line_at(row);
+            let tone = line.map_or(Tone::Plain, |(index, line)| model.state(index).tone(line));
+            let view = RowView::new(tone, self.mtm());
+            // The row reads whole: `VoiceOver` stops at rows, not at their cells.
+            if let Some((index, line)) = line {
+                let spoken = row::spoken(line, model.state(index));
+                view.setAccessibilityLabel(Some(&NSString::from_str(&spoken)));
+            }
+            Some(view.into_super())
         }
 
         #[unsafe(method(tableViewSelectionDidChange:))]

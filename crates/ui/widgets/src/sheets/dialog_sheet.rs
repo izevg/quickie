@@ -130,33 +130,23 @@ fn content(request: &DialogRequest, choices: &[DialogChoice]) -> SheetContent {
         .map(|choice| match choice {
             DialogChoice::Ok => answer("OK", "⏎", Emphasis::Primary),
             DialogChoice::Cancel => answer("Cancel", "⎋", Emphasis::Plain),
-            DialogChoice::Block => answer("Block dialogs from this page", "⌘B", Emphasis::Plain),
+            DialogChoice::Block => answer("Block dialogs", "⌘B", Emphasis::Plain),
         })
         .collect();
-    let mut hints = vec![("⏎".to_owned(), "OK".to_owned())];
-    hints.push((
-        "⎋".to_owned(),
-        if request.kind == DialogKind::Alert {
-            "close"
-        } else {
-            "cancel"
-        }
-        .to_owned(),
-    ));
     SheetContent {
         header: header(&before, &owner, &after, " says"),
-        glyph: None,
+        icon: None,
         lines: vec![SheetLine {
             text: request.message.clone(),
             role: TextRole::RowTitle,
             dimmed: false,
         }],
+        card: None,
         field: match &request.kind {
             DialogKind::Prompt { default } => Some(default.clone()),
             DialogKind::Alert | DialogKind::Confirm => None,
         },
         answers,
-        hints,
     }
 }
 
@@ -165,6 +155,7 @@ fn answer(label: &str, keys: &str, emphasis: Emphasis) -> SheetAnswer {
         label: label.to_owned(),
         keys: keys.to_owned(),
         emphasis,
+        symbol: None,
     }
 }
 

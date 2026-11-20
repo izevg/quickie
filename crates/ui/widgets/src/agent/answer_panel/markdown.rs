@@ -6,8 +6,9 @@
 //! cannot pass for another site), and nothing but `http` and `https` links is clickable at
 //! all. No HTML is interpreted; it shows as the characters it is.
 //!
-//! Handled: headings, bullets, code spans and fenced blocks, `**strong**`, links, images, and
-//! table rows (set in monospace so the columns line up). Everything else is text as written.
+//! Handled: headings, bullets, code spans and fenced blocks, `**strong**`, `*emphasis*`, links,
+//! images, and table rows (set in monospace so the columns line up). Everything else is text as
+//! written.
 
 use url::Url;
 
@@ -18,6 +19,8 @@ pub enum Style {
     Body,
     /// `**strong**` text.
     Strong,
+    /// `*emphasized*` text, in italics.
+    Emphasis,
     /// Code, a code block, a table row.
     Code,
     /// A heading line.
@@ -136,12 +139,13 @@ fn bullet(line: &str) -> Option<&str> {
         .find_map(|mark| line.strip_prefix(mark))
 }
 
-/// The inline spans of `text`: strong, code, images, and links in body text.
+/// The inline spans of `text`: strong, emphasis, code, images, and links in body text.
 fn inline(text: &str, spans: &mut Vec<Span>) {
     let mut plain = String::new();
     let mut rest = text;
     while let Some(c) = rest.chars().next() {
         let found = strong(rest)
+            .or_else(|| emphasis(rest))
             .or_else(|| code(rest))
             .or_else(|| image(rest))
             .or_else(|| link(rest));
@@ -172,6 +176,22 @@ fn strong(text: &str) -> Found<'_> {
         vec![Span::new(&inner[..end], Style::Strong)],
         &inner[end + 2..],
     ))
+}
+
+/// `*emphasis*`: a single star hugging its text on both sides, so `a * b` and `2 * 3` stay
+/// as written.
+fn emphasis(text: &str) -> Found<'_> {
+    let inner = text.strip_prefix('*')?;
+    let first = inner.chars().next()?;
+    if first == '*' || first.is_whitespace() {
+        return None;
+    }
+    let end = inner.find('*')?;
+    let body = &inner[..end];
+    if body.ends_with(char::is_whitespace) {
+        return None;
+    }
+    Some((vec![Span::new(body, Style::Emphasis)], &inner[end + 1..]))
 }
 
 fn code(text: &str) -> Found<'_> {
@@ -272,6 +292,34 @@ mod tests {
                 span(" d", Style::Body),
             ]
         );
+    }
+
+    #[test]
+    fn single_stars_set_emphasis_in_italics() {
+        assert_eq!(
+            render("is *limited by law*."),
+            [
+                span("is ", Style::Body),
+                span("limited by law", Style::Emphasis),
+                span(".", Style::Body),
+            ]
+        );
+        assert_eq!(
+            render("**a** *b*"),
+            [
+                span("a", Style::Strong),
+                span(" ", Style::Body),
+                span("b", Style::Emphasis),
+            ]
+        );
+    }
+
+    #[test]
+    fn stars_that_do_not_hug_text_stay_text() {
+        assert_eq!(render("2 * 3 * 4"), [span("2 * 3 * 4", Style::Body)]);
+        assert_eq!(render("*open"), [span("*open", Style::Body)]);
+        assert_eq!(render("a *b * c"), [span("a *b * c", Style::Body)]);
+        assert_eq!(render("**"), [span("**", Style::Body)]);
     }
 
     #[test]

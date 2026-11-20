@@ -10,6 +10,7 @@ use objc2_app_kit::{NSColor, NSImageView, NSLineBreakMode, NSTextField, NSView};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use quickie_application::{BindingLine, BindingSource};
+use quickie_ui_shared::form::Paint;
 use quickie_ui_shared::tokens::{TextRole, color, radius, space};
 use quickie_ui_shared::{KeycapStyle, Plate, keycap_group_styled, symbol};
 
@@ -295,42 +296,91 @@ fn recording_box(
     plate.into_super()
 }
 
-/// The clause in SF Mono; nothing for a binding that holds everywhere.
+/// The clause in SF Mono on a chip, red when the row is in conflict; `—` for a binding that
+/// holds everywhere.
 fn when(view: &NSView, line: &BindingLine, mtm: MainThreadMarker) {
+    let size = view.frame().size;
     let Some(clause) = &line.when else {
+        let dash = label("—", TextRole::Caption, &color::tertiary_label(), mtm);
+        let height = dash.frame().size.height;
+        dash.setFrameOrigin(NSPoint::new(
+            space::MD,
+            ((size.height - height) / 2.0).round(),
+        ));
+        view.addSubview(&dash);
         return;
     };
-    let size = view.frame().size;
-    let field = text(
-        clause,
-        TextRole::Caption,
-        true,
-        &color::secondary_label(),
-        mtm,
-    );
+    let conflict = line.conflict.is_some();
+    let (tint, fill, border): (Retained<NSColor>, Paint, Paint) = if conflict {
+        (
+            color::destructive(),
+            color::destructive_fill,
+            color::destructive_line,
+        )
+    } else {
+        (color::label(), color::group_fill, color::separator)
+    };
+    let field = text(clause, TextRole::Caption, true, &tint, mtm);
     field.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
     field.setToolTip(Some(&NSString::from_str(clause)));
-    let height = field.frame().size.height;
-    field.setFrame(NSRect::new(
-        NSPoint::new(space::MD, ((size.height - height) / 2.0).round()),
-        NSSize::new(size.width - space::MD * 2.0, height),
+    let text_size = field.frame().size;
+    let room = size.width - space::MD * 2.0;
+    let chip_size = NSSize::new(
+        (text_size.width + space::SM * 2.0).min(room).ceil(),
+        (text_size.height + space::XS).ceil(),
+    );
+    let chip = Plate::new(Some(fill), Some(border), radius::KEYCAP - 2.0, mtm);
+    chip.setFrame(NSRect::new(
+        NSPoint::new(space::MD, ((size.height - chip_size.height) / 2.0).round()),
+        chip_size,
     ));
-    view.addSubview(&field);
+    field.setFrame(NSRect::new(
+        NSPoint::new(
+            space::SM,
+            ((chip_size.height - text_size.height) / 2.0).round(),
+        ),
+        NSSize::new(chip_size.width - space::SM * 2.0, text_size.height),
+    ));
+    chip.addSubview(&field);
+    view.addSubview(&chip);
 }
 
-/// `Default`, `User`, `Conflict`, or `Recording`.
-fn source(view: &NSView, line: &BindingLine, state: RowState<'_>, mtm: MainThreadMarker) {
-    let (text_value, tint): (&str, Retained<NSColor>) = match (state, line.source) {
-        (RowState::Recording(_), _) => ("Recording", color::accent()),
-        (RowState::Idle, _) if line.conflict.is_some() => ("Conflict", color::destructive()),
-        (RowState::Idle, BindingSource::User) => ("User", color::label()),
+/// What the row says about where its binding comes from: `Default`, `User`, `Conflict`, or
+/// `Recording`, and in what color.
+fn origin(line: &BindingLine, state: RowState<'_>) -> (&'static str, Paint) {
+    match (state, line.source) {
+        (RowState::Recording(_), _) => ("Recording", color::accent),
+        (RowState::Idle, _) if line.conflict.is_some() => ("Conflict", color::destructive),
+        (RowState::Idle, BindingSource::User) => ("User", color::label),
         (RowState::Idle, BindingSource::Default) if line.keys.is_none() => {
-            ("", color::secondary_label())
+            ("", color::tertiary_label)
         }
-        (RowState::Idle, BindingSource::Default) => ("Default", color::secondary_label()),
-    };
+        (RowState::Idle, BindingSource::Default) => ("Default", color::tertiary_label),
+    }
+}
+
+/// What `VoiceOver` reads for a row: the command, its keys, when they hold, and their source.
+pub fn spoken(line: &BindingLine, state: RowState<'_>) -> String {
+    let mut parts = vec![line.title.to_owned()];
+    parts.push(line.keys.clone().unwrap_or_else(|| "no keys".to_owned()));
+    if let Some(clause) = &line.when {
+        parts.push(format!("when {clause}"));
+    }
+    let (source, _) = origin(line, state);
+    if !source.is_empty() {
+        parts.push(source.to_owned());
+    }
+    if let Some(problem) = state.problem(line) {
+        parts.push(problem);
+    }
+    parts.join(", ")
+}
+
+/// Where the binding comes from, in SF Mono.
+fn source(view: &NSView, line: &BindingLine, state: RowState<'_>, mtm: MainThreadMarker) {
+    let (text_value, tint) = origin(line, state);
     let size = view.frame().size;
-    let field = text(text_value, TextRole::Caption, false, &tint, mtm);
+    let field = text(text_value, TextRole::Caption, true, &tint(), mtm);
     let height = field.frame().size.height;
     field.setFrame(NSRect::new(
         NSPoint::new(space::MD, ((size.height - height) / 2.0).round()),
@@ -352,4 +402,57 @@ fn text(
         field.sizeToFit();
     }
     field
+}
+
+#[cfg(test)]
+mod tests {
+    use quickie_application::{BindingLine, BindingSource};
+    use quickie_domain_commands::CommandId;
+
+    use super::{RowState, spoken};
+
+    fn line(keys: Option<&str>, when: Option<&str>, source: BindingSource) -> BindingLine {
+        BindingLine {
+            command: CommandId::try_from("quickie.tab.reload").unwrap(),
+            title: "Reload Page",
+            keys: keys.map(str::to_owned),
+            when: when.map(str::to_owned),
+            source,
+            conflict: None,
+        }
+    }
+
+    #[test]
+    fn a_row_reads_its_command_keys_clause_and_source() {
+        assert_eq!(
+            spoken(
+                &line(Some("⌘R"), Some("pageFocused"), BindingSource::Default),
+                RowState::Idle
+            ),
+            "Reload Page, ⌘R, when pageFocused, Default"
+        );
+        assert_eq!(
+            spoken(&line(None, None, BindingSource::User), RowState::Idle),
+            "Reload Page, no keys, User"
+        );
+        assert_eq!(
+            spoken(&line(None, None, BindingSource::Default), RowState::Idle),
+            "Reload Page, no keys"
+        );
+    }
+
+    #[test]
+    fn a_conflict_says_what_the_keys_already_run() {
+        let mut taken = line(Some("⌘T"), None, BindingSource::User);
+        taken.conflict = Some("Open New Tab".to_owned());
+
+        assert_eq!(
+            spoken(&taken, RowState::Idle),
+            "Reload Page, ⌘T, Conflict, Already runs Open New Tab"
+        );
+        assert_eq!(
+            spoken(&taken, RowState::Recording(None)),
+            "Reload Page, ⌘T, Recording"
+        );
+    }
 }

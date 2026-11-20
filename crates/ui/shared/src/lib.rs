@@ -1,7 +1,7 @@
 //! FSD `shared` layer of Quickie's UI: design tokens, glass surfaces by elevation, motion, and
 //! the views every overlay is made of: keycaps, pills, hint bars, the query field, the list,
-//! toggle rows, the E3 sheet, and the tab card of the switcher and the overview; and how sizes
-//! and ages read. No domain knowledge lives here; see
+//! toggle rows, the E3 sheet with its answer buttons, and the tab card of the switcher and the
+//! overview; and how sizes and ages read. No domain knowledge lives here; see
 //! `docs/design/system.md` for every value.
 
 #![expect(
@@ -24,11 +24,15 @@ pub mod tab_card;
 pub mod tokens;
 
 pub use controls::{
-    KeycapStyle, Pill, StyledText, hint_bar, keycap_group, keycap_group_styled, symbol,
+    KeycapStyle, Pill, PillPart, PillTone, StyledText, hint_bar, keycap_group, keycap_group_styled,
+    symbol,
 };
 pub use field::QueryField;
 pub use form::{FormGroup, Plate, ToggleRow};
 pub use glass::{Elevation, GlassSurface, Scrim};
 pub use list::{ListRow, ListView};
 pub use motion::{Motion, Trigger};
-pub use sheet::{Emphasis, Sheet, SheetAnswer, SheetContent, SheetLine, header};
+pub use sheet::{
+    Emphasis, Sheet, SheetAnswer, SheetCard, SheetContent, SheetIcon, SheetLine, header,
+    keyed_button, named_header,
+};

@@ -15,7 +15,7 @@ use std::process::ExitCode;
 use std::rc::{Rc, Weak};
 
 use objc2::rc::Retained;
-use objc2_app_kit::{NSColor, NSTableView, NSView};
+use objc2_app_kit::{NSAccessibility, NSColor, NSTableView, NSView};
 use objc2_foundation::{NSPoint, NSRect};
 use quickie_application::{BindingLine, keymap_lines};
 use quickie_domain_commands::{Catalog, Keymap, Platform};
@@ -77,7 +77,47 @@ const STORIES: &[Story] = &[
     ),
     settings("agent", "agent", LIGHT_DARK, agent),
     settings("agent", "agent-problem", LIGHT, agent_problem),
+    settings("agent", "agent-search", LIGHT, agent_search),
 ];
+
+/// The sidebar's search keeps the panes that set what is typed, and `⏎` shows the first:
+/// "ollama" finds the Agent pane. `VoiceOver` reads the sidebar's rows by their panes.
+fn agent_search(scene: &mut Scene) {
+    let settings = open(scene, None);
+    scene.check(
+        row_labels(scene.host()).contains(&"Privacy & Shields".to_owned()),
+        "VoiceOver reads a sidebar row by its pane",
+    );
+    settings.screen.search_panes();
+    scene.type_text("ollama");
+    scene.press(Key::Return);
+    scene.check(
+        scene.accessibility().contains("value=\"Agent\""),
+        "⏎ in the search shows the first pane it kept",
+    );
+    scene.check_eq(
+        row_labels(scene.host()),
+        vec!["Agent".to_owned()],
+        "the search keeps only the panes that match",
+    );
+}
+
+/// What `VoiceOver` reads for each row of the tables on the page, the sidebar's first. Rows
+/// are `AppKit`'s proxies in the accessibility tree; their views carry the labels, made here
+/// since a window that is never shown has not made them yet.
+pub fn row_labels(view: &NSView) -> Vec<String> {
+    tables(view)
+        .iter()
+        .flat_map(|table| {
+            (0..table.numberOfRows()).filter_map(|row| {
+                table
+                    .rowViewAtRow_makeIfNecessary(row, true)
+                    .and_then(|row| row.accessibilityLabel())
+                    .map(|label| label.to_string())
+            })
+        })
+        .collect()
+}
 
 fn main() -> ExitCode {
     if stories::run(STORIES, env!("CARGO_MANIFEST_DIR")) {

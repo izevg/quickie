@@ -69,6 +69,14 @@ pub const STORIES: &[Story] = &[
     },
     Story {
         group: "page",
+        widget: "origin-chip",
+        state: "russian-path",
+        themes: LIGHT,
+        window: WINDOW,
+        scene: chip_russian,
+    },
+    Story {
+        group: "page",
         widget: "load-progress-line",
         state: "loading",
         themes: LIGHT_DARK,
@@ -225,8 +233,9 @@ fn find_steps(scene: &mut Scene) {
 
 fn chip(scene: &mut Scene, url: &str, blocked: Option<u32>) {
     let chip = OriginChip::new(scene.mtm());
-    if let Some(origin) = Origin::of(&fixtures::url(url)) {
-        chip.show(scene.host(), &origin, blocked);
+    let url = fixtures::url(url);
+    if let Some(origin) = Origin::of(&url) {
+        chip.show(scene.host(), &origin, url.path(), blocked);
     }
     scene.check(chip.text().is_some(), "the chip shows");
     scene.keep(chip);
@@ -238,6 +247,15 @@ fn chip_https(scene: &mut Scene) {
 
 fn chip_http(scene: &mut Scene) {
     chip(scene, "http://127.0.0.1:8080/", None);
+}
+
+/// A percent-encoded Cyrillic path reads as words, cut when long.
+fn chip_russian(scene: &mut Scene) {
+    chip(
+        scene,
+        "https://ru.wikipedia.org/wiki/%D0%9C%D0%BE%D1%81%D0%BA%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B9_%D0%BA%D1%80%D0%B5%D0%BC%D0%BB%D1%8C",
+        None,
+    );
 }
 
 fn chip_blocked(scene: &mut Scene) {

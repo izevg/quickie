@@ -88,6 +88,7 @@ fn mixed() -> Vec<Download> {
 
 fn downloads_show(scene: &mut Scene, list: &[Download]) -> Rc<DownloadsPopover> {
     let popover = Rc::new(DownloadsPopover::new(scene.mtm()));
+    popover.set_folder("~/Downloads");
     popover.show(scene.host(), list, Trigger::Keyboard);
     scene.keep(Rc::clone(&popover));
     popover
