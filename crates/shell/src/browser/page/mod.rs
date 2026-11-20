@@ -78,26 +78,14 @@ impl Browser {
         self.page.seen.borrow_mut().remove(&window);
     }
 
-    /// After the engine reported: matches of a find, loading progress, and the origin of what
-    /// committed.
-    pub(super) fn page_reports(&self) {
-        let (progressed, found) = {
-            let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
-                return;
-            };
-            let engine = browsing.engine_mut();
-            (engine.take_progressed(), engine.take_found())
-        };
-        for found in found {
-            self.found(&found);
-        }
-        if progressed {
-            let windows: Vec<WindowId> = self.windows.borrow().keys().copied().collect();
-            for window in windows {
-                self.show_progress(window);
+    /// A tab's page loaded more, or stopped: the progress line of every window it is active in.
+    pub(super) fn loading(&self, tab: TabId, progress: Option<f64>) {
+        let windows: Vec<WindowId> = self.windows.borrow().keys().copied().collect();
+        for window in windows {
+            if self.active(window) == Some(tab) {
+                self.set_progress(window, progress);
             }
         }
-        self.page_changes();
     }
 
     /// For every window whose active tab or origin changed: the origin chip, and on a tab
@@ -132,6 +120,7 @@ impl Browser {
                 if self.page.find_tab.get().is_some_and(|find| find != tab) {
                     self.hide_find();
                 }
+                self.crash_notice(window, tab);
             }
             if change != Change::Nothing {
                 self.show_origin(window, &url);
@@ -149,13 +138,18 @@ impl Browser {
 
     /// The window's active tab's loading, on its progress line.
     fn show_progress(&self, window: WindowId) {
-        let Some(host) = self.window(window).and_then(|window| window.contentView()) else {
-            return;
-        };
         let progress = self.active(window).and_then(|tab| {
             let mut browsing = self.browsing.try_borrow_mut().ok()?;
             browsing.engine_mut().progress(tab)
         });
+        self.set_progress(window, progress);
+    }
+
+    /// The window's progress line at `progress`; gone for `None`.
+    fn set_progress(&self, window: WindowId, progress: Option<f64>) {
+        let Some(host) = self.window(window).and_then(|window| window.contentView()) else {
+            return;
+        };
         let mut lines = self.page.lines.borrow_mut();
         let line = lines
             .entry(window)

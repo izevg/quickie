@@ -40,7 +40,7 @@ use asks::delegate::PageUi;
 /// Where a page's reports and requests go. Called on the main thread, sometimes from inside a
 /// call into the view: a hook records, it never calls back into the engine.
 pub(crate) struct Hooks {
-    /// Navigations, titles, loading, links to open elsewhere, closing, full screen.
+    /// Navigations, titles, loading, links to open elsewhere, closing, full screen, crashes.
     pub(crate) on_event: Box<dyn Fn(PageEvent)>,
     /// A dialog or a permission, from the origin in the URL, waiting for its reply.
     pub(crate) on_ask: Box<dyn Fn(Url, AskKind, Reply)>,
@@ -327,10 +327,7 @@ impl WebPage {
 
     /// How much of the page has loaded, `0.0 ..= 1.0`, while it loads; `None` once it is done.
     pub(crate) fn progress(&self) -> Option<f64> {
-        // SAFETY: getters with no preconditions.
-        let loading = unsafe { self.view.isLoading() };
-        // SAFETY: as above.
-        loading.then(|| unsafe { self.view.estimatedProgress() }.clamp(0.0, 1.0))
+        observer::progress_of(&self.view)
     }
 
     /// Selects a match of `query` as `step` says and marks all of them; `done` hears how many

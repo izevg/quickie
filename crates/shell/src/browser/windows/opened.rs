@@ -3,47 +3,37 @@
 //! for a popup or a plain `target=_blank`, behind for `⌘`-click and middle-click. A page that
 //! calls `window.close()` closes its tab into the trash, as `⌘W` would.
 
-use quickie_domain_browsing::Focus;
+use quickie_domain_browsing::{Focus, TabId};
+use quickie_engine_webkit::OpenedPage;
+use url::Url;
 
 use super::super::Browser;
 
 impl Browser {
-    /// Adopts every page pages opened since the last time; a foreground one is shown.
-    pub(in crate::browser) fn adopt_opened(&self) {
-        let pages = {
-            let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
-                return;
-            };
-            browsing.engine_mut().take_opened()
-        };
-        for page in pages {
-            let (focus, opener) = (page.focus, page.opener);
-            let adopted =
-                self.run(|browsing| browsing.adopt(page.opener, page.page, page.url, page.focus));
-            if adopted.is_none() || focus == Focus::Background {
-                continue;
+    /// Adopts a page a page opened; a foreground one is shown.
+    pub(in crate::browser) fn adopt_opened(
+        &self,
+        opener: TabId,
+        page: OpenedPage,
+        url: Url,
+        focus: Focus,
+    ) {
+        let adopted = self.run(|browsing| browsing.adopt(opener, page, url, focus));
+        if adopted.is_none() || focus == Focus::Background {
+            return;
+        }
+        if let Some(window) = self.window_of(opener) {
+            if let Some(ns_window) = self.window(window) {
+                ns_window.makeKeyAndOrderFront(None);
             }
-            if let Some(window) = self.window_of(opener) {
-                if let Some(ns_window) = self.window(window) {
-                    ns_window.makeKeyAndOrderFront(None);
-                }
-                self.settle(window);
-            }
+            self.settle(window);
         }
     }
 
-    /// Closes the tabs whose pages closed themselves.
-    pub(in crate::browser) fn close_closed_pages(&self) {
-        let closed = {
-            let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
-                return;
-            };
-            browsing.engine_mut().take_closed()
-        };
-        for tab in closed {
-            if let Some(window) = self.window_of(tab) {
-                self.close_tab_in(window, tab);
-            }
+    /// Closes the tab whose page closed itself.
+    pub(in crate::browser) fn closed_by_page(&self, tab: TabId) {
+        if let Some(window) = self.window_of(tab) {
+            self.close_tab_in(window, tab);
         }
     }
 }

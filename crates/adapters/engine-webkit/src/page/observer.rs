@@ -1,6 +1,7 @@
 //! Watches one `WKWebView`: its committed navigations, the navigations that become downloads,
-//! and the links it opens elsewhere (as its navigation delegate), its title, loading, and full
-//! screen (by key-value observation), turned into [`PageEvent`]s.
+//! the links it opens elsewhere, and the end of its web content process (as its navigation
+//! delegate), its title, loading, and full screen (by key-value observation), turned into
+//! [`PageEvent`]s.
 
 use std::ffi::c_void;
 use std::rc::Rc;
@@ -25,7 +26,7 @@ use crate::downloads::wants_download;
 
 /// What a page reports while it lives. Delivered on the main thread, sometimes from inside a
 /// call into the view: a handler must only record it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PageEvent {
     /// The main frame committed a navigation: the URL is the page's now.
     Committed {
@@ -33,8 +34,9 @@ pub(crate) enum PageEvent {
         title: Option<String>,
     },
     TitleChanged(Option<String>),
-    /// The page started or stopped loading, or loaded more of it.
-    Progress,
+    /// The page started or stopped loading, or loaded more of it: how much, `0.0 ..= 1.0`, or
+    /// `None` once it stopped.
+    Progress(Option<f64>),
     /// A navigation became a download; it needs a delegate before this call returns.
     Download(Retained<WKDownload>),
     /// A link the user opened in another tab (`⌘`-click, middle-click); the page stays.
@@ -46,6 +48,9 @@ pub(crate) enum PageEvent {
     Closed,
     /// The page entered (`true`) or left full screen.
     Fullscreen(bool),
+    /// The web content process that rendered the page terminated: the view is blank until it
+    /// loads again.
+    Crashed,
 }
 
 /// The title is observed by its key path.
@@ -89,7 +94,7 @@ define_class!(
             if key_path == TITLE {
                 on_event(PageEvent::TitleChanged(title_of(view)));
             } else if PROGRESS.contains(&key_path.as_str()) {
-                on_event(PageEvent::Progress);
+                on_event(PageEvent::Progress(progress_of(view)));
             } else if key_path == FULLSCREEN {
                 // SAFETY: a getter with no preconditions.
                 match unsafe { view.fullscreenState() } {
@@ -160,6 +165,12 @@ define_class!(
                 WKNavigationResponsePolicy::Allow
             };
             decide.call((policy,));
+        }
+
+        /// `WebKit` does not reload a page whose process died: it stays blank until it is told.
+        #[unsafe(method(webViewWebContentProcessDidTerminate:))]
+        fn content_process_terminated(&self, _view: &WKWebView) {
+            (self.ivars().hooks.on_event)(PageEvent::Crashed);
         }
 
         #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
@@ -245,6 +256,15 @@ impl PageObserver {
 /// Every key path the observer watches.
 fn key_paths() -> impl Iterator<Item = &'static str> {
     [TITLE, FULLSCREEN].into_iter().chain(PROGRESS)
+}
+
+/// How much of the view's page has loaded, `0.0 ..= 1.0`, while it loads; `None` once it is
+/// done.
+pub(crate) fn progress_of(view: &WKWebView) -> Option<f64> {
+    // SAFETY: getters with no preconditions.
+    let loading = unsafe { view.isLoading() };
+    // SAFETY: as above.
+    loading.then(|| unsafe { view.estimatedProgress() }.clamp(0.0, 1.0))
 }
 
 fn url_of(view: &WKWebView) -> Option<String> {

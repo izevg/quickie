@@ -7,14 +7,14 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use quickie_application::{EngineError, EnginePort, Navigation};
-use quickie_domain_browsing::{Jar, JarId, Profile, TabId, WindowId};
+use quickie_application::{EngineError, EngineEvent, EnginePort, Navigation};
+use quickie_domain_browsing::{Focus, Jar, JarId, Profile, TabId, WindowId};
 use url::Url;
 
-use super::{ChromiumEngine, Navigated, OpenedPage, PageHandle};
+use super::{ChromiumEngine, PageHandle};
 use crate::bridge::{Bridge, BridgeError, KeyEquivalent, NavigationKind};
 use crate::ffi;
-use crate::ffi::bridge::{EngineEvent, EngineEventKind};
+use crate::ffi::bridge::{EngineEvent as BridgeEvent, EngineEventKind};
 
 /// A bridge call, as the C++ side would have received it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,13 +155,30 @@ fn with_pages(tabs: &[u64]) -> (ChromiumEngine, Rc<FakeBridge>) {
 }
 
 fn report(kind: EngineEventKind, raw: u64, opener: Option<u64>, text: &str) {
-    ffi::on_engine_event(&EngineEvent {
+    ffi::on_engine_event(&BridgeEvent {
         kind,
         tab: raw,
         has_opener: opener.is_some(),
         opener: opener.unwrap_or(0),
         text: text.to_owned(),
     });
+}
+
+type Event = EngineEvent<PageHandle>;
+
+/// What the engine holds for the shell now.
+fn drained(engine: &mut ChromiumEngine) -> Vec<Event> {
+    let mut events = Vec::new();
+    engine.drain(&mut events);
+    events
+}
+
+fn committed(raw: u64, at: &str, title: &str) -> Event {
+    EngineEvent::Committed {
+        tab: tab(raw),
+        url: url(at),
+        title: title.to_owned(),
+    }
 }
 
 fn rejected(text: &str) -> Result<(), EngineError> {
@@ -549,7 +566,7 @@ fn a_closed_tab_reports_nothing_more() {
 
     engine.close(tab(7)).unwrap();
 
-    assert_eq!(engine.take_navigations(), []);
+    assert_eq!(drained(&mut engine), []);
 }
 
 #[test]
@@ -570,15 +587,7 @@ fn closing_a_tab_keeps_what_other_tabs_reported() {
 
     engine.close(tab(7)).unwrap();
 
-    assert_eq!(
-        engine.take_navigations(),
-        [Navigated {
-            tab: tab(8),
-            url: url("https://b.test/"),
-            title: String::new(),
-            committed: true,
-        }]
-    );
+    assert_eq!(drained(&mut engine), [committed(8, "https://b.test/", "")]);
 }
 
 // ---- destroy_jar ---------------------------------------------------------------------------
@@ -660,7 +669,7 @@ fn a_refused_throwaway_page_gives_its_jar_no_profile() {
 // ---- events --------------------------------------------------------------------------------
 
 #[test]
-fn a_commit_and_a_title_fold_into_one_navigation() {
+fn a_commit_and_a_title_fold_into_one_visit() {
     let (mut engine, _fake) = with_pages(&[7]);
 
     report(
@@ -671,58 +680,8 @@ fn a_commit_and_a_title_fold_into_one_navigation() {
     );
     report(EngineEventKind::TitleChanged, 7, None, "A");
 
-    assert_eq!(
-        engine.take_navigations(),
-        [Navigated {
-            tab: tab(7),
-            url: url("https://a.test/"),
-            title: "A".to_owned(),
-            committed: true,
-        }]
-    );
-    assert_eq!(engine.take_navigations(), []);
-}
-
-#[test]
-fn navigations_come_one_per_tab_in_first_change_order() {
-    let (mut engine, _fake) = with_pages(&[7, 8]);
-
-    report(
-        EngineEventKind::NavigationCommitted,
-        8,
-        None,
-        "https://b.test/",
-    );
-    report(
-        EngineEventKind::NavigationCommitted,
-        7,
-        None,
-        "https://a.test/",
-    );
-    report(
-        EngineEventKind::NavigationCommitted,
-        8,
-        None,
-        "https://c.test/",
-    );
-
-    assert_eq!(
-        engine.take_navigations(),
-        [
-            Navigated {
-                tab: tab(8),
-                url: url("https://c.test/"),
-                title: String::new(),
-                committed: true,
-            },
-            Navigated {
-                tab: tab(7),
-                url: url("https://a.test/"),
-                title: String::new(),
-                committed: true,
-            }
-        ]
-    );
+    assert_eq!(drained(&mut engine), [committed(7, "https://a.test/", "A")]);
+    assert_eq!(drained(&mut engine), []);
 }
 
 #[test]
@@ -735,7 +694,7 @@ fn a_later_commit_keeps_the_title_until_the_page_sets_one() {
         "https://a.test/",
     );
     report(EngineEventKind::TitleChanged, 7, None, "A");
-    engine.take_navigations();
+    drained(&mut engine);
 
     report(
         EngineEventKind::NavigationCommitted,
@@ -745,18 +704,13 @@ fn a_later_commit_keeps_the_title_until_the_page_sets_one() {
     );
 
     assert_eq!(
-        engine.take_navigations(),
-        [Navigated {
-            tab: tab(7),
-            url: url("https://a.test/#part"),
-            title: "A".to_owned(),
-            committed: true,
-        }]
+        drained(&mut engine),
+        [committed(7, "https://a.test/#part", "A")]
     );
 }
 
 #[test]
-fn a_title_after_the_report_of_its_commit_is_no_visit() {
+fn a_title_after_the_report_of_its_commit_renames_the_visit() {
     let (mut engine, _fake) = with_pages(&[7]);
     report(
         EngineEventKind::NavigationCommitted,
@@ -764,39 +718,18 @@ fn a_title_after_the_report_of_its_commit_is_no_visit() {
         None,
         "https://a.test/",
     );
-    engine.take_navigations();
+    drained(&mut engine);
 
     report(EngineEventKind::TitleChanged, 7, None, "Loaded");
 
     assert_eq!(
-        engine.take_navigations(),
-        [Navigated {
+        drained(&mut engine),
+        [EngineEvent::Titled {
             tab: tab(7),
             url: url("https://a.test/"),
             title: "Loaded".to_owned(),
-            committed: false,
         }]
     );
-}
-
-#[test]
-fn a_title_before_any_commit_or_unchanged_is_not_news() {
-    let (mut engine, _fake) = with_pages(&[7]);
-    report(EngineEventKind::TitleChanged, 7, None, "Early");
-    let early = engine.take_navigations();
-    report(
-        EngineEventKind::NavigationCommitted,
-        7,
-        None,
-        "https://a.test/",
-    );
-    report(EngineEventKind::TitleChanged, 7, None, "A");
-    engine.take_navigations();
-
-    report(EngineEventKind::TitleChanged, 7, None, "A");
-
-    assert_eq!(early, []);
-    assert_eq!(engine.take_navigations(), []);
 }
 
 #[test]
@@ -805,11 +738,11 @@ fn a_commit_whose_url_does_not_parse_is_dropped() {
 
     report(EngineEventKind::NavigationCommitted, 7, None, "not a url");
 
-    assert_eq!(engine.take_navigations(), []);
+    assert_eq!(drained(&mut engine), []);
 }
 
 #[test]
-fn opened_pages_come_in_order_with_their_opener() {
+fn opened_pages_come_in_order_with_their_opener_in_front() {
     let (mut engine, _fake) = with_pages(&[7]);
 
     report(
@@ -818,36 +751,38 @@ fn opened_pages_come_in_order_with_their_opener() {
         Some(7),
         "https://b.test/",
     );
-    report(EngineEventKind::PageOpenedTab, 91, None, "");
+    report(EngineEventKind::PageOpenedTab, 91, None, "https://c.test/");
+    report(EngineEventKind::PageOpenedTab, 92, Some(7), "");
 
     assert_eq!(
-        engine.take_opened(),
+        drained(&mut engine),
         [
-            OpenedPage {
+            EngineEvent::Opened {
+                opener: tab(7),
                 page: PageHandle(90),
-                opener: Some(tab(7)),
-                url: Some(url("https://b.test/"))
+                url: url("https://b.test/"),
+                focus: Focus::Foreground,
             },
-            OpenedPage {
-                page: PageHandle(91),
-                opener: None,
-                url: None
+            EngineEvent::Opened {
+                opener: tab(7),
+                page: PageHandle(92),
+                url: url("about:blank"),
+                focus: Focus::Foreground,
             }
         ]
     );
-    assert_eq!(engine.take_opened(), []);
+    assert_eq!(drained(&mut engine), []);
 }
 
 #[test]
 fn an_unknown_event_is_dropped_without_a_wake() {
     let (mut engine, fake) = engine();
-    engine.on_navigated(|| {});
+    engine.set_waker(|| {});
 
     report(EngineEventKind { repr: 200 }, 7, None, "x");
 
     assert_eq!(fake.wakes.get(), 0);
-    assert_eq!(engine.take_navigations(), []);
-    assert_eq!(engine.take_opened(), []);
+    assert_eq!(drained(&mut engine), []);
 }
 
 // ---- adopt ---------------------------------------------------------------------------------
@@ -908,7 +843,7 @@ fn events_wake_the_shell_once_per_batch_from_a_posted_task() {
     let (mut engine, fake) = with_pages(&[7]);
     let woken = Rc::new(Cell::new(0));
     let count = Rc::clone(&woken);
-    engine.on_navigated(move || count.set(count.get() + 1));
+    engine.set_waker(move || count.set(count.get() + 1));
 
     report(
         EngineEventKind::NavigationCommitted,
@@ -942,7 +877,7 @@ fn setting_a_waker_wakes_it_for_events_already_waiting() {
     let (mut engine, fake) = with_pages(&[7]);
     report(EngineEventKind::PageOpenedTab, 90, Some(7), "");
 
-    engine.on_navigated(|| {});
+    engine.set_waker(|| {});
 
     assert_eq!(fake.wakes.get(), 1);
 }
@@ -951,7 +886,7 @@ fn setting_a_waker_wakes_it_for_events_already_waiting() {
 fn setting_a_waker_with_nothing_waiting_posts_nothing() {
     let (mut engine, fake) = engine();
 
-    engine.on_navigated(|| {});
+    engine.set_waker(|| {});
 
     assert_eq!(fake.wakes.get(), 0);
 }
@@ -959,7 +894,7 @@ fn setting_a_waker_with_nothing_waiting_posts_nothing() {
 #[test]
 fn events_the_shell_left_get_the_next_wake() {
     let (mut engine, fake) = with_pages(&[7]);
-    engine.on_navigated(|| {});
+    engine.set_waker(|| {});
     report(
         EngineEventKind::NavigationCommitted,
         7,
@@ -981,12 +916,12 @@ fn a_drained_inbox_needs_no_further_wake() {
     )));
     let drained = Rc::new(RefCell::new(Vec::new()));
     let (shell, sink) = (Rc::downgrade(&engine), Rc::clone(&drained));
-    engine.borrow_mut().on_navigated(move || {
+    engine.borrow_mut().set_waker(move || {
         if let Some(engine) = shell.upgrade() {
-            sink.borrow_mut().extend(engine.borrow_mut().take_opened());
+            engine.borrow_mut().drain(&mut sink.borrow_mut());
         }
     });
-    report(EngineEventKind::PageOpenedTab, 90, None, "");
+    report(EngineEventKind::PageOpenedTab, 90, Some(7), "");
 
     ffi::run_wake();
 
@@ -1005,14 +940,14 @@ fn an_event_during_a_wake_is_posted_once_the_wake_returns() {
     let wakes_inside = Rc::new(Cell::new(usize::MAX));
     let inside = Rc::clone(&wakes_inside);
     let probe = Rc::clone(&fake);
-    engine.borrow_mut().on_navigated(move || {
+    engine.borrow_mut().set_waker(move || {
         if let Some(engine) = shell.upgrade() {
-            engine.borrow_mut().take_opened();
+            engine.borrow_mut().drain(&mut Vec::new());
         }
-        report(EngineEventKind::PageOpenedTab, 91, None, "");
+        report(EngineEventKind::PageOpenedTab, 91, Some(7), "");
         inside.set(probe.wakes.get());
     });
-    report(EngineEventKind::PageOpenedTab, 90, None, "");
+    report(EngineEventKind::PageOpenedTab, 90, Some(7), "");
 
     ffi::run_wake();
 
@@ -1040,10 +975,10 @@ fn keys_reach_the_engines_key_handler() {
 fn a_dropped_engine_hears_nothing_more() {
     let fake = Rc::new(FakeBridge::default());
     let mut engine = ChromiumEngine::with_bridge(Rc::clone(&fake) as Rc<dyn Bridge>, |_| true);
-    engine.on_navigated(|| {});
+    engine.set_waker(|| {});
     drop(engine);
 
-    report(EngineEventKind::PageOpenedTab, 90, None, "");
+    report(EngineEventKind::PageOpenedTab, 90, Some(7), "");
 
     assert_eq!(fake.wakes.get(), 0);
     assert!(!ffi::handle_key_equivalent(0x11, 0, 0, false));

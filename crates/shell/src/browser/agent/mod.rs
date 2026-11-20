@@ -42,6 +42,8 @@ pub struct AgentUi {
     generation: Cell<u64>,
     /// The answer streaming now.
     running: RefCell<Option<Running>>,
+    /// The pages being read for the latest ask, until every text arrived.
+    reading: RefCell<Option<answer::Reading>>,
     /// The tab the answer is about: its citations are found there.
     asked: Cell<Option<TabId>>,
     /// The tab whose page shows a citation's marks.
@@ -69,6 +71,7 @@ impl AgentUi {
             secrets,
             generation: Cell::new(0),
             running: RefCell::new(None),
+            reading: RefCell::new(None),
             asked: Cell::new(None),
             cited: Cell::new(None),
         }
