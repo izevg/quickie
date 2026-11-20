@@ -4,7 +4,8 @@
 //!
 //! A press is read by [`read`]: held with `fn`/Globe it is the system's and passes untouched;
 //! otherwise it becomes a [`KeyStroke`] (a Latin letter as the layout names it, any other key by
-//! its US position). Then, in order: an open `⌃⇥` cycle takes `⎋`; a sheet takes its keys;
+//! its US position). Then, in order: an open `⌃⇥` cycle takes `⎋`, and once its switcher
+//! shows, the letters, digits, space and `⌫` it filters with; a sheet takes its keys;
 //! the overview and link hints take theirs; an open overlay takes its fixed keys; and the keymap
 //! resolves the stroke in the current [`WhenContext`] to a command, the first half of a chord,
 //! or nothing. Nothing passes on to the page, the field, or the menu bar, so `⌘C`, `⌘H`, `⌘M`,
@@ -150,6 +151,9 @@ impl Browser {
     pub(super) fn route(&self, stroke: KeyStroke) -> Outcome {
         if self.cycle.borrow().is_some() && stroke.key == Key::Escape {
             self.cancel_cycle();
+            return Outcome::Overlay;
+        }
+        if self.switcher_key(stroke) {
             return Outcome::Overlay;
         }
         if self.extension_sheet_key(stroke).is_some() {

@@ -2,7 +2,7 @@
 //! the tab overlays read. English and Russian titles, and one far too long.
 
 use quickie_application::{Clock, Palette, PaletteItem, Sources};
-use quickie_domain_browsing::{Focus, JarChoice, Profile, Session, TabId, Timestamp, WindowId};
+use quickie_domain_browsing::{Focus, JarChoice, Profile, Session, Timestamp, WindowId};
 use quickie_domain_commands::{Catalog, Keymap, Platform};
 use quickie_domain_library::{Bookmarks, History, SearchShortcuts, Tag};
 use url::Url;
@@ -75,7 +75,6 @@ impl Clock for Stopped {
 pub struct World {
     pub session: Session,
     pub window: WindowId,
-    pub tabs: Vec<TabId>,
     pub history: History,
     pub bookmarks: Bookmarks,
     pub shortcuts: SearchShortcuts,
@@ -87,14 +86,12 @@ impl World {
     pub fn new(tabs: &[(&str, &str)]) -> Self {
         let mut session = Session::new(Profile::Main);
         let window = session.open_window();
-        let mut opened = Vec::new();
         let mut history = History::new();
         for &(address, title) in tabs {
             let page = url(address);
             if let Ok(tab) = session.open(window, page.clone(), JarChoice::Main, Focus::Foreground)
             {
                 let _ = session.navigated(tab, page.clone(), title.to_owned());
-                opened.push(tab);
             }
             history.record_visit(&page, title, NOW);
         }
@@ -112,7 +109,6 @@ impl World {
         Self {
             session,
             window,
-            tabs: opened,
             history,
             bookmarks,
             shortcuts: SearchShortcuts::defaults(),
@@ -133,14 +129,5 @@ impl World {
                 extensions: &[],
             })
             .query(text, 50)
-    }
-
-    /// The titles of the window's tabs, in opening order.
-    pub fn titles(&self) -> Vec<String> {
-        self.tabs
-            .iter()
-            .filter_map(|&tab| self.session.tab(tab))
-            .map(|tab| tab.title.clone())
-            .collect()
     }
 }

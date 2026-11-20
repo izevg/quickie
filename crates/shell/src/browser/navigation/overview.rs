@@ -1,10 +1,11 @@
 //! The tab overview: the window's tabs in opening order, with the pictures the engine keeps.
-//! Pictures arrive asynchronously; the overview never waits for one.
+//! Pictures arrive asynchronously; the overview and the switcher never wait for one.
 
 use quickie_domain_browsing::{Focus, JarChoice, PinnedSlot, TabId, WindowId};
 use quickie_domain_commands::{Key, KeyStroke, Modifiers};
 use quickie_ui_shared::Trigger;
-use quickie_ui_widgets::{Move, OverviewTab};
+use quickie_ui_shared::tab_card::TabCard;
+use quickie_ui_widgets::Move;
 
 use super::super::{Browser, label};
 
@@ -29,11 +30,11 @@ impl Browser {
         self.hide_find();
         self.navigation.hints.hide();
         let (ids, tabs, selected) = self.overview_tabs(window);
+        self.refresh_thumbnails(window, &ids);
         *self.navigation.overview_tabs.borrow_mut() = (Some(window), ids);
         self.navigation
             .overview
-            .show(&host, &ns_window, &tabs, selected, trigger);
-        self.refresh_thumbnails(window);
+            .show(&host, &ns_window, tabs, selected, trigger);
     }
 
     fn close_overview(&self, trigger: Trigger) {
@@ -71,7 +72,9 @@ impl Browser {
             (None, Key::Letter(letter))
                 if stroke.modifiers == Modifiers::COMMAND && letter.as_char() == 'w' =>
             {
-                self.close_from_overview();
+                if let Some(index) = overview.selected() {
+                    self.close_from_overview(index);
+                }
             }
             _ => return false,
         }
@@ -90,16 +93,22 @@ impl Browser {
         }
     }
 
-    /// `⌘W` in the overview: the selected tab goes to the trash, and the grid closes the gap.
-    /// A window left empty gets a start page, as `⌘W` on the page does.
-    fn close_from_overview(&self) {
-        let overview = &self.navigation.overview;
-        let Some(index) = overview.selected() else {
-            return;
-        };
+    /// `⌘W` in the overview, or a click on a card's close button: the tab of card `index` goes
+    /// to the trash, and the grid closes the gap.
+    pub(super) fn close_from_overview(&self, index: usize) {
         let (Some(tab), Some(window)) = (self.overview_tab(index), self.overview_window()) else {
             return;
         };
+        self.close_in(window, tab);
+        let (ids, tabs, _) = self.overview_tabs(window);
+        let selected = index.min(ids.len().saturating_sub(1));
+        *self.navigation.overview_tabs.borrow_mut() = (Some(window), ids);
+        self.navigation.overview.set_tabs(tabs, selected);
+    }
+
+    /// Sends `tab` of `window` to the trash from the overview or the switcher. A window left
+    /// empty gets a start page, as `⌘W` on the page does.
+    pub(in crate::browser) fn close_in(&self, window: WindowId, tab: TabId) {
         if let Some(closed) = self.run(|browsing| browsing.close(tab)) {
             self.forget_zooms(closed.released_jar);
         }
@@ -107,10 +116,6 @@ impl Browser {
             let home = self.home.clone();
             self.run(|browsing| browsing.open(window, home, JarChoice::Main, Focus::Foreground));
         }
-        let (ids, tabs, _) = self.overview_tabs(window);
-        let selected = index.min(ids.len().saturating_sub(1));
-        *self.navigation.overview_tabs.borrow_mut() = (Some(window), ids);
-        overview.set_tabs(&tabs, selected);
     }
 
     fn overview_tab(&self, index: usize) -> Option<TabId> {
@@ -122,45 +127,56 @@ impl Browser {
     }
 
     /// The window's tabs in opening order, as cards, and the position of the active one.
-    fn overview_tabs(&self, window: WindowId) -> (Vec<TabId>, Vec<OverviewTab>, usize) {
-        let mut browsing = self.browsing.borrow_mut();
-        let session = browsing.session();
-        let active = session.active(window);
-        let mut cards: Vec<(TabId, OverviewTab)> = session.tabs(window).map_or_else(
-            |_| Vec::new(),
-            |tabs| {
-                tabs.map(|tab| {
-                    let card = OverviewTab {
-                        title: label(session, tab.id),
-                        host: tab.url.host_str().unwrap_or(tab.url.as_str()).to_owned(),
-                        slot: session.slot_of(tab.id).map(PinnedSlot::get),
-                        thumbnail: None,
-                    };
-                    (tab.id, card)
-                })
-                .collect()
-            },
-        );
-        let engine = browsing.engine_mut();
-        for (id, card) in &mut cards {
-            card.thumbnail = engine.thumbnail(*id);
-        }
-        let selected = cards
+    fn overview_tabs(&self, window: WindowId) -> (Vec<TabId>, Vec<TabCard>, usize) {
+        let (ids, active) = {
+            let browsing = self.browsing.borrow();
+            let session = browsing.session();
+            let ids: Vec<TabId> = session
+                .tabs(window)
+                .map_or_else(|_| Vec::new(), |tabs| tabs.map(|tab| tab.id).collect());
+            (ids, session.active(window))
+        };
+        let cards = self.tab_cards(&ids);
+        let selected = ids
             .iter()
-            .position(|(id, _)| Some(*id) == active)
+            .position(|&id| Some(id) == active)
             .unwrap_or_default();
-        let (ids, cards) = cards.into_iter().unzip();
         (ids, cards, selected)
     }
 
-    /// Asks the engine for new pictures of the active page, which is on screen right now, and
-    /// of loaded pages never drawn yet; each card updates as its picture arrives.
-    fn refresh_thumbnails(&self, window: WindowId) {
+    /// `ids` as cards: title, host, pinned slot, and the picture the engine keeps.
+    pub(in crate::browser) fn tab_cards(&self, ids: &[TabId]) -> Vec<TabCard> {
+        let mut browsing = self.browsing.borrow_mut();
+        let session = browsing.session();
+        let mut cards: Vec<TabCard> = ids
+            .iter()
+            .map(|&id| {
+                let host = session.tab(id).map_or_else(String::new, |tab| {
+                    tab.url.host_str().unwrap_or(tab.url.as_str()).to_owned()
+                });
+                TabCard {
+                    title: label(session, id),
+                    host,
+                    slot: session.slot_of(id).map(PinnedSlot::get),
+                    ..TabCard::default()
+                }
+            })
+            .collect();
+        let engine = browsing.engine_mut();
+        for (&id, card) in ids.iter().zip(&mut cards) {
+            card.thumbnail = engine.thumbnail(id);
+        }
+        cards
+    }
+
+    /// Asks the engine for new pictures of the active page of `window`, which is on screen
+    /// right now, and of the pages among `ids` never drawn yet; each card updates as its
+    /// picture arrives.
+    pub(in crate::browser) fn refresh_thumbnails(&self, window: WindowId, ids: &[TabId]) {
         let active = self.active(window);
-        let ids = self.navigation.overview_tabs.borrow().1.clone();
         let mut browsing = self.browsing.borrow_mut();
         let engine = browsing.engine_mut();
-        for tab in ids {
+        for &tab in ids {
             if Some(tab) != active && engine.thumbnail(tab).is_some() {
                 continue;
             }
@@ -169,30 +185,41 @@ impl Browser {
     }
 
     /// A new picture of a tab's page is ready ([`EngineEvent::Pictured`]): its card shows it
-    /// when the overview is open.
+    /// in the overview or the switcher, whichever is open.
     ///
     /// [`EngineEvent::Pictured`]: quickie_application::EngineEvent::Pictured
     pub(in crate::browser) fn thumbnail_ready(&self, tab: TabId) {
-        let Some(index) = card_of(
+        let in_overview = card_of(
             self.navigation.overview.is_open(),
             &self.navigation.overview_tabs.borrow().1,
             tab,
-        ) else {
+        );
+        let in_switcher = self
+            .cycle
+            .borrow()
+            .as_ref()
+            .and_then(|hold| card_of(self.switcher.is_open(), hold.cycle().order(), tab));
+        if in_overview.is_none() && in_switcher.is_none() {
             return;
-        };
+        }
         let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
             return;
         };
         let image = browsing.engine_mut().thumbnail(tab);
         drop(browsing);
-        self.navigation
-            .overview
-            .set_thumbnail(index, image.as_deref());
+        if let Some(index) = in_overview {
+            self.navigation
+                .overview
+                .set_thumbnail(index, image.as_deref());
+        }
+        if let Some(index) = in_switcher {
+            self.switcher.set_thumbnail(index, image.as_deref());
+        }
     }
 }
 
-/// The card a new picture of `tab` goes to: its position among the overview's `cards`, while
-/// the overview is open. A closed overview reads every picture afresh when it opens.
+/// The card a new picture of `tab` goes to: its position among the `cards` of the overview or
+/// the switcher, while it is open. A closed one reads every picture afresh when it opens.
 fn card_of(open: bool, cards: &[TabId], tab: TabId) -> Option<usize> {
     if !open {
         return None;
