@@ -1,9 +1,13 @@
 //! The shields popover: the active page's site policy, its blocked count, and the enabled filter
 //! lists, from the shields use cases; its switches and buttons go back to them.
 
+use std::time::SystemTime;
+
 use quickie_application::{Clock, Navigation};
 use quickie_domain_shields::{Site, SitePolicy};
+use quickie_engine_webkit::BlockerStatus;
 use quickie_ui_shared::Trigger;
+use quickie_ui_shared::format::ago;
 use quickie_ui_widgets::{ShieldsRequest, ShieldsSummary, SiteToggle};
 
 use super::super::Browser;
@@ -38,15 +42,81 @@ impl Browser {
             .enabled()
             .map(|list| (list.id, list.fetched.map(|fetch| fetch.at)))
             .collect();
+        let blocked = shields.blocked_count(tab);
+        let policy = shields.policy(&url);
+        drop(shields);
         Some(ShieldsSummary {
             site: Site::try_from(&url).ok().map(|site| site.to_string()),
-            policy: shields.policy(&url),
-            // The WebKit engine blocks with content rule lists, which count nothing.
-            blocked: None,
+            policy,
+            // Counted by WebKit's content rule list callback; the counts start at zero with
+            // each page.
+            blocked: Some(blocked),
             lists,
             now: SystemClock.now(),
             reload_offered: self.popovers.reload_offered.get() == Some(tab),
+            rules: self.rules_line(),
         })
+    }
+
+    /// What the content blocker made of the lists, measured: rules active, compiling, or why
+    /// it failed; empty when it was never given lists.
+    pub(in crate::browser) fn rules_line(&self) -> String {
+        let mut shields = self.shields.borrow_mut();
+        let blocker = shields.blocker_mut();
+        let cosmetics = if blocker.cosmetics_ready() {
+            ""
+        } else {
+            " · cosmetic filters loading…"
+        };
+        match blocker.status() {
+            BlockerStatus::Idle => String::new(),
+            BlockerStatus::Compiling => "Compiling rules…".to_owned(),
+            BlockerStatus::Installed(installed) if installed.lists == 0 => {
+                "No rules active: no enabled list has arrived yet".to_owned()
+            }
+            BlockerStatus::Installed(installed) => {
+                let since = SystemTime::now()
+                    .duration_since(installed.compiled)
+                    .map_or(0, |since| {
+                        u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+                    });
+                format!(
+                    "Rules active: {} rules in {} {}, compiled {}{cosmetics}",
+                    grouped(installed.rules),
+                    installed.lists,
+                    if installed.lists == 1 {
+                        "list"
+                    } else {
+                        "lists"
+                    },
+                    ago(since),
+                )
+            }
+            BlockerStatus::Failed(reason) => format!("Failed: {reason}"),
+        }
+    }
+
+    /// The content blocker settled the latest rules: Settings and the popover show it. When
+    /// the user's own change of lists brought them, the open pages are offered a reload, as
+    /// rules apply only to loads made from now on.
+    pub(in crate::browser) fn rules_settled(&self) {
+        let status = self.shields.borrow_mut().blocker_mut().status();
+        if self.rules_wanted.replace(false) {
+            match status {
+                BlockerStatus::Installed(installed) if installed.lists > 0 => {
+                    if let Some(tab) = self.current().and_then(|(window, _)| self.active(window)) {
+                        self.popovers.reload_offered.set(Some(tab));
+                    }
+                    self.toast("Filter rules are active · reload open pages to apply them");
+                }
+                BlockerStatus::Failed(reason) => {
+                    self.toast(&format!("Filter rules failed: {reason}"));
+                }
+                _ => {}
+            }
+        }
+        self.refresh_shields_popover();
+        self.refresh_settings();
     }
 
     /// The popover shows the shields as they are now.
@@ -131,6 +201,12 @@ impl Browser {
         }
     }
 
+    /// Marks that the user changed the lists: the rules they bring offer a reload once
+    /// compiled.
+    pub(in crate::browser) fn lists_changed_by_user(&self) {
+        self.rules_wanted.set(true);
+    }
+
     pub(super) fn shields_key(&self, key: OverlayKey) -> bool {
         match key {
             OverlayKey::Accept { .. } if self.popovers.shields.reload_offered() => {
@@ -143,5 +219,32 @@ impl Browser {
             }
             OverlayKey::Accept { .. } | OverlayKey::Move(_) | OverlayKey::Previous => false,
         }
+    }
+}
+
+/// `81203` → `81,203`.
+fn grouped(count: usize) -> String {
+    let digits = count.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, digit) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::grouped;
+
+    #[test]
+    fn counts_are_grouped_by_thousands() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1000), "1,000");
+        assert_eq!(grouped(81_203), "81,203");
+        assert_eq!(grouped(1_234_567), "1,234,567");
     }
 }

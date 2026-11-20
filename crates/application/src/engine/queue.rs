@@ -90,6 +90,24 @@ impl<P> EventQueue<P> {
         }
     }
 
+    /// The content blocker kept one of a page's loads from happening. Counts fold into the
+    /// tab's waiting report, unless the tab committed a navigation since: those belong to the
+    /// page before.
+    pub fn blocked(&mut self, tab: TabId) {
+        let waiting = self.events.iter_mut().rev().find_map(|event| match event {
+            EngineEvent::Committed { tab: about, .. } if *about == tab => Some(None),
+            EngineEvent::Blocked {
+                tab: about,
+                requests,
+            } if *about == tab => Some(Some(requests)),
+            _ => None,
+        });
+        match waiting.flatten() {
+            Some(requests) => *requests = requests.saturating_add(1),
+            None => self.events.push(EngineEvent::Blocked { tab, requests: 1 }),
+        }
+    }
+
     /// The tab's page is gone: its navigations, loading, and asks are dropped, and nothing it
     /// reports from now on is a visit. What answers a request, a download, or a page it opened
     /// still comes.
@@ -98,7 +116,8 @@ impl<P> EventQueue<P> {
         self.events.retain(|event| match event {
             EngineEvent::Committed { tab: about, .. }
             | EngineEvent::Titled { tab: about, .. }
-            | EngineEvent::Loading { tab: about, .. } => *about != tab,
+            | EngineEvent::Loading { tab: about, .. }
+            | EngineEvent::Blocked { tab: about, .. } => *about != tab,
             EngineEvent::Asked(ask) => ask.tab != tab,
             _ => true,
         });
@@ -356,6 +375,68 @@ mod tests {
                 EngineEvent::ClosedByPage { tab: tab(1) },
             ]
         );
+    }
+
+    fn blocked(serial: u64, requests: u32) -> Event {
+        EngineEvent::Blocked {
+            tab: tab(serial),
+            requests,
+        }
+    }
+
+    #[test]
+    fn blocked_loads_fold_into_one_count_per_tab() {
+        let mut queue = EventQueue::default();
+        queue.blocked(tab(1));
+        queue.blocked(tab(2));
+        queue.push(ask(3));
+
+        queue.blocked(tab(1));
+        queue.blocked(tab(1));
+
+        assert_eq!(drained(&mut queue), [blocked(1, 3), blocked(2, 1), ask(3)]);
+    }
+
+    #[test]
+    fn loads_blocked_after_a_commit_count_for_the_new_page() {
+        let mut queue = EventQueue::default();
+        queue.blocked(tab(1));
+        queue.committed(tab(1), url("https://a.example/"), Some(String::new()));
+        queue.committed(tab(2), url("https://b.example/"), Some(String::new()));
+
+        queue.blocked(tab(1));
+        queue.blocked(tab(1));
+
+        assert_eq!(
+            drained(&mut queue),
+            [
+                blocked(1, 1),
+                committed(1, "https://a.example/", ""),
+                committed(2, "https://b.example/", ""),
+                blocked(1, 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_blocked_count_stops_at_the_largest_number() {
+        let mut queue = EventQueue::default();
+        queue.push(blocked(1, u32::MAX));
+
+        queue.blocked(tab(1));
+
+        assert_eq!(drained(&mut queue), [blocked(1, u32::MAX)]);
+    }
+
+    #[test]
+    fn a_forgotten_tab_reports_nothing_blocked() {
+        let mut queue = EventQueue::default();
+        queue.blocked(tab(1));
+        queue.blocked(tab(2));
+
+        queue.forget(tab(1));
+
+        assert_eq!(drained(&mut queue), [blocked(2, 1)]);
     }
 
     #[test]

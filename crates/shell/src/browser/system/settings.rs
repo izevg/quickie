@@ -163,6 +163,7 @@ impl Browser {
 
     fn shields_state(&self) -> ShieldsState {
         let now = SystemClock.now();
+        let rules = self.rules_line();
         let shields = self.shields.borrow();
         let lists = shields
             .lists()
@@ -189,6 +190,7 @@ impl Browser {
             keep_fresh: shields.lists().refresh() == Refresh::KeepFresh,
             site_keys,
             status: self.lists_status.borrow().clone(),
+            rules,
         }
     }
 
@@ -197,6 +199,7 @@ impl Browser {
             SettingsAction::MakeDefaultBrowser => self.set_default_browser(),
             SettingsAction::ShowDownloads => self.show_folder(&self.downloads_folder),
             SettingsAction::SetList(id, on) => self.set_list(id, on),
+            SettingsAction::EnableLists => self.enable_lists(),
             SettingsAction::RefreshList(id) => {
                 let requested: Vec<_> = self
                     .shields
@@ -334,8 +337,10 @@ impl Browser {
         } else {
             self.shields.borrow_mut().disable_lists(&[id])
         };
-        if let Err(error) = changed {
-            return self.report(&error);
+        match changed {
+            Err(error) => return self.report(&error),
+            Ok(changed) if !changed.is_empty() => self.lists_changed_by_user(),
+            Ok(_) => {}
         }
         let due = self.shields.borrow().due_fetches();
         self.fetch_lists(due);

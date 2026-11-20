@@ -21,7 +21,9 @@
 //! and stays blank until it is reloaded.
 //!
 //! Every page shares one user content controller, so the [`WebKitContentBlocker`] the engine
-//! hands out ([`WebKitEngine::content_blocker`]) blocks on all of them. [`UrlSessionHttp`] is the
+//! hands out ([`WebKitEngine::content_blocker`]) blocks on all of them, popups included, and on
+//! pages made before its rules were compiled. Its cosmetic filters and scriptlets ride in the
+//! same controller; a frame's document waits, briefly, for its host's. [`UrlSessionHttp`] is the
 //! network for the browser's own requests, such as fetching filter lists.
 //!
 //! Navigations that become downloads go to one download center, which saves them into the
@@ -73,7 +75,8 @@ use inbox::{Event, Inbox, Owner};
 pub use network::UrlSessionHttp;
 use page::WebPage;
 use scheme::InternalPages;
-pub use shields::{BlockerStatus, WebKitContentBlocker};
+use shields::cosmetic::Cosmetics;
+pub use shields::{BlockerStatus, Installed, WebKitContentBlocker};
 
 /// The size, in points, of the tab overview's pictures until the shell sets its own
 /// ([`WebKitEngine::set_thumbnail_size`]): the overview's widest card, 16:10.
@@ -92,6 +95,9 @@ pub struct WebKitEngine {
     internal: Retained<InternalPages>,
     /// Shared by every page: the content blocker installs its rule lists here.
     content: Retained<WKUserContentController>,
+    /// The cosmetic filters and scriptlets of every page, in `content`; the content blocker
+    /// gives them their lists.
+    cosmetics: Rc<Cosmetics>,
     downloads: Rc<DownloadCenter>,
     inbox: Rc<Inbox>,
     /// The last picture of each page, taken when it was hidden or asked for.
@@ -130,6 +136,8 @@ impl WebKitEngine {
             mtm,
         );
         *inbox.downloads.borrow_mut() = Rc::downgrade(&downloads);
+        let cosmetics = Cosmetics::new(content.clone(), mtm);
+        *inbox.cosmetics.borrow_mut() = Rc::downgrade(&cosmetics);
         Self {
             mtm,
             pages: HashMap::new(),
@@ -138,6 +146,7 @@ impl WebKitEngine {
             jars: HashMap::new(),
             internal: InternalPages::new(internal, mtm),
             content,
+            cosmetics,
             downloads,
             inbox,
             thumbnails: Rc::default(),
@@ -236,6 +245,7 @@ impl WebKitEngine {
         Ok(WebKitContentBlocker::new(
             store,
             self.content.clone(),
+            Rc::clone(&self.cosmetics),
             self.mtm,
         ))
     }

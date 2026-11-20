@@ -100,6 +100,9 @@ pub struct Browser {
     settings: OnceCell<SettingsScreen>,
     /// How the last filter list fetch went, for the Settings window.
     lists_status: RefCell<String>,
+    /// The user changed the lists: once their rules are compiled, open pages are offered a
+    /// reload.
+    rules_wanted: Cell<bool>,
     downloads_folder: PathBuf,
     writes: Vec<PendingWrites>,
     windows: RefCell<BTreeMap<WindowId, Retained<NSWindow>>>,
@@ -186,6 +189,7 @@ impl Browser {
             keymap_problems: RefCell::new(services.keymap_problems),
             settings: OnceCell::new(),
             lists_status: RefCell::new(String::new()),
+            rules_wanted: Cell::new(false),
             downloads_folder: services.downloads_folder.clone(),
             writes: services.writes,
             windows: RefCell::new(BTreeMap::new()),
@@ -221,6 +225,16 @@ impl Browser {
         // lists fresh: nothing on a fresh profile.
         let due = browser.shields.borrow().due_fetches();
         browser.fetch_lists(due);
+        let settled = Rc::downgrade(&browser);
+        browser
+            .shields
+            .borrow_mut()
+            .blocker_mut()
+            .on_settled(move || {
+                if let Some(browser) = settled.upgrade() {
+                    browser.rules_settled();
+                }
+            });
         let weak = Rc::downgrade(&browser);
         browser
             .browsing

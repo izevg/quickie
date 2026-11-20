@@ -61,6 +61,7 @@ objc2-web-kit = { workspace = true, features = [
   "WKPreferences",
   "WKScriptMessage",
   "WKScriptMessageHandler",
+  "WKScriptMessageHandlerWithReply",
   "WKSecurityOrigin",
   "WKSnapshotConfiguration",
   "WKUIDelegate",

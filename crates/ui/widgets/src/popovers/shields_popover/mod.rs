@@ -2,7 +2,9 @@
 //! with what Quickie does on the active page's site. Shields on or off, HTTPS-only and
 //! JavaScript (kept for the site; they take effect in a later version, and the rows say so),
 //! how many requests the page had blocked when the engine counts them (`—` when it does not),
-//! and the enabled filter lists with when each was fetched, and a button to fetch them again.
+//! the enabled filter lists with when each was fetched, a button to fetch them again, and what
+//! the content blocker made of them ("Rules active: …", "Compiling rules…", "Failed: …").
+//! With no list on, the header and the lists say so, and one click enables them.
 //!
 //! Turning shields off or on changes what the next load blocks, so the popover then offers
 //! "Reload to Apply" (`⏎`). Numbers shown are measured; nothing is claimed that is not.
@@ -48,6 +50,8 @@ pub struct ShieldsSummary {
     pub now: Timestamp,
     /// Shields changed since the page loaded: a reload applies them.
     pub reload_offered: bool,
+    /// What the content blocker made of the lists, as measured; empty for nothing to say.
+    pub rules: String,
 }
 
 /// A switch on the site's policy.
@@ -137,6 +141,7 @@ pub struct ShieldsPopover {
     enable: Retained<NSButton>,
     no_lists: Retained<NSTextField>,
     list_rows: RefCell<Vec<FilterListRow>>,
+    rules: Retained<NSTextField>,
     reload: Retained<NSButton>,
     hints: RefCell<Retained<NSTextField>>,
     target: Retained<ShieldsTarget>,
@@ -179,9 +184,10 @@ impl ShieldsPopover {
             separators: [separator(mtm), separator(mtm)],
             lists_title: text(TextRole::Caption, &color::secondary_label(), mtm),
             refresh: button("Refresh", sel!(refresh:), target_object, mtm),
-            enable: button("Turn On Lists", sel!(enable:), target_object, mtm),
+            enable: button("Enable", sel!(enable:), target_object, mtm),
             no_lists: text(TextRole::RowDetail, &color::secondary_label(), mtm),
             list_rows: RefCell::new(Vec::new()),
+            rules: text(TextRole::Caption, &color::secondary_label(), mtm),
             reload: button("Reload to Apply", sel!(reload:), target_object, mtm),
             hints: RefCell::new(hint_bar(&[("⎋", "close")], mtm)),
             target,
@@ -196,7 +202,7 @@ impl ShieldsPopover {
             .setStringValue(&NSString::from_str("Filter lists"));
         popover
             .no_lists
-            .setStringValue(&NSString::from_str("No filter list is on"));
+            .setStringValue(&NSString::from_str("No filter lists enabled"));
         popover.reload.setBezelStyle(NSBezelStyle::Push);
         popover.reload.setKeyEquivalent(&NSString::new());
         popover.reload.sizeToFit();
@@ -210,6 +216,7 @@ impl ShieldsPopover {
             &popover.refresh,
             &popover.enable,
             &popover.no_lists,
+            &popover.rules,
             &popover.reload,
         ] {
             content.addSubview(view);
@@ -327,7 +334,7 @@ impl ShieldsPopover {
         let width = overlay::POPOVER_WIDTH.min(host.bounds().size.width - space::XL * 2.0);
         let inner = width - padding * 2.0;
 
-        let (symbol, tint, status) = status(summary.policy);
+        let (symbol, tint, status) = status(summary.policy, !summary.lists.is_empty());
         self.glyph
             .setImage(image(symbol, status, TextRole::Title).as_deref());
         self.glyph.setContentTintColor(Some(&tint));
@@ -372,6 +379,13 @@ impl ShieldsPopover {
         } else {
             0.0
         };
+        set(&self.rules, &summary.rules);
+        self.rules.setHidden(summary.rules.is_empty());
+        let rules_height = if summary.rules.is_empty() {
+            0.0
+        } else {
+            self.rules.frame().size.height + space::SM
+        };
         let hint_height = self.hints.borrow().frame().size.height;
         let blocked_height = self.blocked.frame().size.height;
         let height = padding
@@ -387,6 +401,7 @@ impl ShieldsPopover {
             + space::MD
             + ROW_HEIGHT
             + lists_height
+            + rules_height
             + space::MD
             + reload
             + hint_height
@@ -462,6 +477,16 @@ impl ShieldsPopover {
             self.surface.content_view().addSubview(row.view());
         }
         *self.list_rows.borrow_mut() = rows;
+        if !summary.rules.is_empty() {
+            if self.list_rows.borrow().is_empty() {
+                top -= ROW_HEIGHT;
+            }
+            let rules = self.rules.frame().size.height;
+            self.rules.setFrame(NSRect::new(
+                NSPoint::new(padding, top - space::SM - rules),
+                NSSize::new(inner, rules),
+            ));
+        }
         self.reload.setHidden(!summary.reload_offered);
         if summary.reload_offered {
             let reload_size = self.reload.frame().size;
@@ -477,11 +502,18 @@ impl ShieldsPopover {
     }
 }
 
-/// The header's symbol, its tint, and what it says, for a site's policy (`None` off the web).
+/// The header's symbol, its tint, and what it says, for a site's policy (`None` off the web)
+/// and whether any filter list is on: shields up with no list block nothing, and say so.
 fn status(
     policy: Option<SitePolicy>,
+    lists_on: bool,
 ) -> (&'static str, Retained<objc2_app_kit::NSColor>, &'static str) {
     match policy {
+        Some(policy) if policy.shields && !lists_on => (
+            "shield",
+            color::secondary_label(),
+            "Shields are up, but no filter list is on",
+        ),
         Some(policy) if policy.shields => {
             ("checkmark.shield.fill", color::success(), "Shields are up")
         }
@@ -578,10 +610,14 @@ mod tests {
             ..SitePolicy::DEFAULT
         };
 
-        assert_eq!(status(Some(SitePolicy::DEFAULT)).2, "Shields are up");
-        assert_eq!(status(Some(down)).2, "Shields are down on this site");
-        assert_eq!(status(None).2, "Shields apply to web pages only");
-        assert_eq!(status(Some(down)).0, "shield.slash");
+        assert_eq!(status(Some(SitePolicy::DEFAULT), true).2, "Shields are up");
+        assert_eq!(
+            status(Some(SitePolicy::DEFAULT), false).2,
+            "Shields are up, but no filter list is on"
+        );
+        assert_eq!(status(Some(down), true).2, "Shields are down on this site");
+        assert_eq!(status(None, true).2, "Shields apply to web pages only");
+        assert_eq!(status(Some(down), false).0, "shield.slash");
     }
 
     #[test]

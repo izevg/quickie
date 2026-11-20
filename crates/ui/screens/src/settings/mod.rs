@@ -101,6 +101,8 @@ pub enum SettingsAction {
     ShowDownloads,
     /// Turn a filter list on or off.
     SetList(FilterListId, bool),
+    /// Turn every filter list on, which fetches them.
+    EnableLists,
     /// Fetch one list now.
     RefreshList(FilterListId),
     /// Fetch the enabled lists now.
