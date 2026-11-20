@@ -1,16 +1,16 @@
 #!/bin/sh
-# Turns the synced Chromium checkout (engine/scripts/sync) into Quickie's source tree:
+# Turns the synced Chromium checkout (engine/chromium/scripts/sync) into Quickie's source tree:
 #
 #   1. ungoogled-chromium binary pruning (keeping the Google toolchains depot_tools fetched),
 #   2. the ungoogled-chromium patch series, then a curated subset of the macOS platform series,
 #   3. ungoogled-chromium domain substitution,
-#   4. our series, engine/patches/series,
-#   5. our whole-file overrides, engine/overrides/ copied over the tree,
-#   6. //quickie: src/quickie -> engine/quickie and src/quickie_crates -> crates (Rust sources).
+#   4. our series, engine/chromium/patches/series,
+#   5. our whole-file overrides, engine/chromium/overrides/ copied over the tree,
+#   6. //quickie: src/quickie -> engine/chromium/quickie and src/quickie_crates -> crates (Rust sources).
 #
 # Steps 1-4 change the tree once; a stamp records what was applied. Re-running with the same pin
 # and patches only refreshes steps 5 and 6 (so editing an override or //quickie needs no reset);
-# anything else needs 'engine/scripts/sync --reset' first, and this script says so.
+# anything else needs 'engine/chromium/scripts/sync --reset' first, and this script says so.
 #
 # Environment:
 #   QUICKIE_BUILD_DIR       as in sync (default: <repo>/.build)
@@ -20,9 +20,9 @@
 #   PATCH_BIN               the patch binary ungoogled's patches.py uses (GNU patch recommended)
 set -eu
 
-root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
-# shellcheck source=/dev/null # engine/chromium.pin: plain assignments, nothing to check
-. "$root/engine/chromium.pin"
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
+# shellcheck source=/dev/null # engine/chromium/chromium.pin: plain assignments, nothing to check
+. "$root/engine/chromium/chromium.pin"
 build=${QUICKIE_BUILD_DIR:-$root/.build}
 min_free_gb=${QUICKIE_MIN_FREE_GB:-25}
 src=$build/chromium/src
@@ -59,8 +59,8 @@ link() {
   fi
 }
 
-[ -d "$src/.git" ] || die "no checkout at $src; run engine/scripts/sync first"
-[ -d "$ungoogled/patches" ] || die "no ungoogled-chromium at $ungoogled; run engine/scripts/sync"
+[ -d "$src/.git" ] || die "no checkout at $src; run engine/chromium/scripts/sync first"
+[ -d "$ungoogled/patches" ] || die "no ungoogled-chromium at $ungoogled; run engine/chromium/scripts/sync"
 preflight "$src"
 export DEPOT_TOOLS_UPDATE=0
 PATH="$build/depot_tools:$PATH"
@@ -71,18 +71,18 @@ fingerprint=$(
   {
     printf '%s %s %s %s\n' "$CHROMIUM_COMMIT" "$UNGOOGLED_COMMIT" "$UNGOOGLED_MACOS_COMMIT" \
       "$macos_patches"
-    find "$root/engine/patches" -type f | LC_ALL=C sort | xargs cat
+    find "$root/engine/chromium/patches" -type f | LC_ALL=C sort | xargs cat
   } | shasum -a 256 | cut -d ' ' -f 1
 )
 
 if [ -f "$stamp" ]; then
   [ "$(cat "$stamp")" = "$fingerprint" ] ||
-    die "the tree was patched from other inputs; run 'engine/scripts/sync --reset' and apply again"
+    die "the tree was patched from other inputs; run 'engine/chromium/scripts/sync --reset' and apply again"
   printf 'apply: patches already applied; refreshing overrides and links\n'
 else
   # A failure halfway leaves a partly patched tree that cannot be patched again.
   [ ! -f "$partial" ] ||
-    die "an earlier apply stopped halfway; run 'engine/scripts/sync --reset' and apply again"
+    die "an earlier apply stopped halfway; run 'engine/chromium/scripts/sync --reset' and apply again"
   : >"$partial"
 
   # 1. Pruning. --keep-contingent-paths keeps the toolchains (clang, Rust, siso, ninja) that
@@ -121,21 +121,21 @@ else
     -c "$build/domsubcache.tar.gz" "$src"
 
   # 4. Ours, after ungoogled's: our hunks are written against the substituted tree.
-  python3 "$ungoogled/utils/patches.py" apply "$src" "$root/engine/patches"
+  python3 "$ungoogled/utils/patches.py" apply "$src" "$root/engine/chromium/patches"
 
   printf '%s\n' "$fingerprint" >"$stamp"
   rm -f "$partial"
 fi
 
 # 5. Overrides: whole files replacing Chromium's, at the same relative path.
-(cd "$root/engine/overrides" && find . -type f) | while read -r file; do
+(cd "$root/engine/chromium/overrides" && find . -type f) | while read -r file; do
   mkdir -p "$src/$(dirname "$file")"
-  cp "$root/engine/overrides/$file" "$src/$file"
+  cp "$root/engine/chromium/overrides/$file" "$src/$file"
 done
 
 # 6. //quickie and the Rust crates it builds. Symlinks, so edits show up without re-applying.
 # TODO(verify): Siso remote execution does not follow links out of the checkout; local builds do.
-link "$src/quickie" "$root/engine/quickie"
+link "$src/quickie" "$root/engine/chromium/quickie"
 link "$src/quickie_crates" "$root/crates"
 
 printf 'apply: %s is Quickie %s on ungoogled-chromium %s\n' "$src" "$CHROMIUM_VERSION" \

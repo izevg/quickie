@@ -1,4 +1,4 @@
-# Quickie's GN args. engine/scripts/build writes ungoogled-chromium's flags.gn first and this file
+# Quickie's GN args. engine/chromium/scripts/build writes ungoogled-chromium's flags.gn first and this file
 # after it, so an assignment here wins over the same one there.
 
 # Release build, no debug symbols: a 64 GB machine links it in reasonable time, and `out/` stays
@@ -11,7 +11,7 @@ blink_symbol_level = 0
 target_cpu = "arm64"
 
 # PGO profiles come from Google Cloud Storage; the checkout does not fetch them
-# (engine/gclient.template), so profile-guided optimization is off.
+# (engine/chromium/gclient.template), so profile-guided optimization is off.
 chrome_pgo_phase = 0
 
 # Rust in the tree, with cxx bindings, for //quickie and the crates it links.
@@ -41,5 +41,5 @@ enable_mdns = false
 enable_service_discovery = false
 disable_fieldtrial_testing_config = true
 
-# //quickie is linked into the browser by engine/patches/startup/link-quickie.patch; GN args
+# //quickie is linked into the browser by engine/chromium/patches/startup/link-quickie.patch; GN args
 # cannot add dependencies.
