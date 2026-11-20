@@ -31,7 +31,7 @@ pub const STORIES: &[Story] = &[
     Story {
         group: "page",
         widget: "page-frame",
-        state: "inset-loading",
+        state: "inset-glow",
         themes: LIGHT_DARK,
         window: WINDOW,
         scene: inset_loading,
@@ -39,7 +39,7 @@ pub const STORIES: &[Story] = &[
     Story {
         group: "page",
         widget: "page-frame",
-        state: "edge-loading",
+        state: "edge-glow",
         themes: LIGHT_DARK,
         window: WINDOW,
         scene: edge_loading,
