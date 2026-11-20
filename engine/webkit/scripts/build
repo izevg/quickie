@@ -1,0 +1,121 @@
+#!/bin/sh
+# Builds the synced WebKit checkout (engine/webkit/scripts/sync) for macOS: the Release frameworks
+# and their XPC services, nothing else. The full xcodebuild transcript goes to a log file; the
+# console gets a heartbeat every few minutes (time, free disk, objects compiled, swap) and the
+# errors at the end.
+#
+#   engine/webkit/scripts/build
+#
+# Exit status: build-webkit's, or 124 when QUICKIE_BUILD_MINUTES ran out (the build is stopped and
+# the tree is left as it is, so a later run continues it).
+#
+# Environment:
+#   QUICKIE_BUILD_DIR       where the checkout is (default: <repo>/.build)
+#   QUICKIE_MIN_FREE_GB     refuse to start below this much free disk (default: 30)
+#   QUICKIE_BUILD_MINUTES   stop the build after this many minutes (default: no limit)
+#   QUICKIE_HEARTBEAT_SECONDS  seconds between heartbeats (default: 300)
+#   QUICKIE_WEBKIT_LOCAL    set to 1 to allow a run outside CI
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=${QUICKIE_BUILD_DIR:-$root/.build}
+min_free_gb=${QUICKIE_MIN_FREE_GB:-30}
+budget_minutes=${QUICKIE_BUILD_MINUTES:-0}
+heartbeat=${QUICKIE_HEARTBEAT_SECONDS:-300}
+src=$build/webkit
+products=$src/WebKitBuild
+log=$build/webkit-build.log
+
+die() {
+  printf 'build: %s\n' "$1" >&2
+  exit 1
+}
+
+[ "$(uname -s)" = Darwin ] || die "this script builds the macOS port; WebKitGTK is planned (engine/README.md)"
+[ -x "$src/Tools/Scripts/build-webkit" ] || die "no checkout at $src; run engine/webkit/scripts/sync"
+if [ -z "${CI:-}" ] && [ "${QUICKIE_WEBKIT_LOCAL:-}" != 1 ]; then
+  die "the engine builds on CI only; set QUICKIE_WEBKIT_LOCAL=1 to build it here anyway"
+fi
+
+free_gb() {
+  df -Pk "$src" | awk 'NR == 2 { print int($4 / 1048576) }'
+}
+[ "$(free_gb)" -ge "$min_free_gb" ] ||
+  die "only $(free_gb) GB free on the disk of $src; need ${min_free_gb} GB (QUICKIE_MIN_FREE_GB)"
+
+# What build-webkit is asked for. None of these changes what a web page sees.
+#   --release                        the Release configuration: optimized, assertions off
+#   --only=Everything up to WebKit   the scheme of the frameworks (bmalloc, WTF, JavaScriptCore,
+#                                    WebGPU, WebCore, WebInspectorUI, WebKitLegacy, WebKit) and
+#                                    their XPC services; skips the Tools scheme (MiniBrowser,
+#                                    WebKitTestRunner, DumpRenderTree, TestWebKitAPI), which the
+#                                    default scheme adds
+#   --lto-mode=none                  no link-time optimization (WebKit's Release default is
+#                                    ThinLTO): a faster link that fits the runner's 7 GB of RAM,
+#                                    at some cost in speed, none in behaviour
+#   GCC_GENERATE_DEBUGGING_SYMBOLS=NO, DEBUG_INFORMATION_FORMAT=dwarf
+#                                    no debug info and no dSYM step: smaller objects, less disk
+#                                    and time; crash reports then symbolicate by function only
+#   COMPILATION_CACHE_CAS_PATH       Xcode's compilation cache (WebKit turns it on) kept in
+#                                    .build, where it is measured and can be handed to a later job
+set -- --release '--only=Everything up to WebKit' --lto-mode=none \
+  GCC_GENERATE_DEBUGGING_SYMBOLS=NO DEBUG_INFORMATION_FORMAT=dwarf \
+  "COMPILATION_CACHE_CAS_PATH=$build/webkit-cas"
+
+printf 'build: %s\n' "$(xcodebuild -version | tr '\n' ' ')"
+printf 'build: SDK %s, %s CPUs, %s GB RAM, %s GB free\n' "$(xcrun --show-sdk-version)" \
+  "$(sysctl -n hw.ncpu)" "$(($(sysctl -n hw.memsize) / 1073741824))" "$(free_gb)"
+printf 'build: Tools/Scripts/build-webkit'
+printf ' %s' "$@"
+printf '\nbuild: full transcript in %s\n' "$log"
+
+start=$(date +%s)
+status_file=$build/webkit-build.status
+rm -f "$status_file"
+# A process group of its own, so that running out of time stops xcodebuild and every compiler.
+set -m
+(
+  cd "$src"
+  set +e
+  Tools/Scripts/build-webkit "$@" >"$log" 2>&1
+  echo "$?" >"$status_file"
+) &
+job=$!
+set +m
+
+report() {
+  elapsed=$((($(date +%s) - start) / 60))
+  objects=$(find "$products" -name '*.o' 2>/dev/null | wc -l | tr -d ' ')
+  swap=$(sysctl -n vm.swapusage | awk '{ print $6 }')
+  printf 'build: %3d min, %s GB free, %s objects, swap %s used\n' \
+    "$elapsed" "$(free_gb)" "$objects" "$swap"
+}
+
+last=$start
+while [ ! -f "$status_file" ]; do
+  sleep 20
+  now=$(date +%s)
+  if [ $((now - last)) -ge "$heartbeat" ]; then
+    report
+    last=$now
+  fi
+  if [ "$budget_minutes" -gt 0 ] && [ $((now - start)) -ge $((budget_minutes * 60)) ]; then
+    printf 'build: out of time after %s minutes; stopping\n' "$budget_minutes"
+    kill -TERM -- "-$job" 2>/dev/null || true
+    wait "$job" 2>/dev/null || true
+    report
+    du -sh "$products" "$build/webkit-cas" 2>/dev/null || true
+    exit 124
+  fi
+done
+wait "$job" || true
+status=$(cat "$status_file")
+report
+du -sh "$products" "$build/webkit-cas" 2>/dev/null || true
+
+grep -E 'error:|\*\* BUILD|is now built' "$log" | head -n 60 || true
+if [ "$status" -ne 0 ]; then
+  printf 'build: build-webkit failed (%s); the last lines of the transcript:\n' "$status"
+  tail -n 60 "$log"
+fi
+exit "$status"

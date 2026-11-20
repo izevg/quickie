@@ -54,7 +54,7 @@ run = "cargo xtask layers"
 
 [tasks.shell]
 description = "Shell scripts (git hooks, agent hooks, CI scripts, engine scripts)"
-run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh engine/chromium/scripts/sync engine/chromium/scripts/apply engine/chromium/scripts/build"
+run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh engine/chromium/scripts/sync engine/chromium/scripts/apply engine/chromium/scripts/build engine/webkit/scripts/*"
 
 [tasks.actions]
 description = "GitHub Actions workflows"
