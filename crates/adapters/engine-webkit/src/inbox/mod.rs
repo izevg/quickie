@@ -18,13 +18,15 @@ use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
 use objc2_foundation::NSRunLoop;
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
-use quickie_application::{Answer, Ask, AskKind, EngineEvent, EventQueue, ReplyToken, Ticket};
+use quickie_application::{
+    Answer, Ask, AskKind, EngineEvent, EventQueue, Fullscreen, ReplyToken, Ticket,
+};
 use quickie_domain_browsing::{Focus, Jar, TabId};
 use url::Url;
 
 use crate::downloads::DownloadCenter;
 use crate::page::asks::Reply;
-use crate::page::{FocusReports, Hooks, PageEvent, WebPage};
+use crate::page::{Hooks, OnReport, PageEvent, Report, Reports, WebPage};
 use crate::shields::cosmetic::Cosmetics;
 
 /// The tab a page reports for; `None` while a page the engine opened waits to be adopted.
@@ -68,8 +70,9 @@ pub(crate) struct Link {
 #[derive(Default)]
 pub(crate) struct Inbox {
     pub(crate) events: RefCell<EventQueue<OpenedPage>>,
-    /// Whether each page's focused element takes text, as its focus script last said.
-    pub(crate) focus: FocusReports,
+    /// What each page's scripts report: whether its focused element takes text, and that it
+    /// went full screen.
+    pub(crate) reports: Reports,
     /// Where a page's downloads go; set once the center exists.
     pub(crate) downloads: RefCell<Weak<DownloadCenter>>,
     /// The cosmetic shields a frame's document waits for; set once they exist.
@@ -77,6 +80,9 @@ pub(crate) struct Inbox {
     /// The jar of each page, for the downloads it starts.
     pub(crate) jars: RefCell<HashMap<TabId, Jar>>,
     pub(crate) links: RefCell<Vec<Link>>,
+    /// What pages' video scripts reported, by the key of each page's view; each becomes an
+    /// event for the page's tab when the shell drains.
+    pub(crate) videos: RefCell<Vec<(usize, Report)>>,
     /// Asks of pages that wait to be adopted; they join the queue with their tab.
     waiting: RefCell<Vec<Waiting>>,
     replies: RefCell<HashMap<ReplyToken, (Owner, Reply)>>,
@@ -137,9 +143,22 @@ impl Inbox {
                 focus,
             }),
             PageEvent::Closed => inbox.push(EngineEvent::ClosedByPage { tab }),
-            PageEvent::Fullscreen(entered) => {
-                inbox.push(EngineEvent::Fullscreen { tab, entered });
-            }
+            PageEvent::Fullscreen(entered) => inbox.push(EngineEvent::Fullscreen {
+                tab,
+                state: if entered {
+                    Fullscreen::OwnWindow
+                } else {
+                    Fullscreen::Left
+                },
+            }),
+            PageEvent::FullscreenInWindow(entered) => inbox.push(EngineEvent::Fullscreen {
+                tab,
+                state: if entered {
+                    Fullscreen::InWindow
+                } else {
+                    Fullscreen::Left
+                },
+            }),
             PageEvent::Crashed => inbox.push(EngineEvent::Crashed { tab }),
             PageEvent::Blocked => inbox.events.borrow_mut().blocked(tab),
             PageEvent::Download(download) => {
@@ -223,7 +242,7 @@ impl Inbox {
         let page = WebPage::with_configuration(
             configuration,
             Self::hooks(&inbox, &owner, mtm),
-            Rc::clone(&inbox.focus),
+            inbox.reports.clone(),
             mtm,
         );
         let view = page.web_view().retain();
@@ -297,7 +316,20 @@ impl Inbox {
 
     /// True when nothing waits for the shell.
     fn is_quiet(&self) -> bool {
-        self.events.borrow().is_empty() && self.links.borrow().is_empty()
+        self.events.borrow().is_empty()
+            && self.links.borrow().is_empty()
+            && self.videos.borrow().is_empty()
+    }
+
+    /// Where the video scripts' reports go: kept here, the shell woken for them.
+    pub(crate) fn video_reports(inbox: &Rc<Self>) -> OnReport {
+        let inbox = Rc::downgrade(inbox);
+        Box::new(move |view, report| {
+            if let Some(inbox) = inbox.upgrade() {
+                inbox.videos.borrow_mut().push((view, report));
+                Self::schedule(&inbox);
+            }
+        })
     }
 
     /// Wakes the shell on a later turn of the main run loop, once per batch of reports. A shell

@@ -8,7 +8,8 @@
 //! says so, with why, in [`Harness::unsupported`]; nothing is skipped silently. A group the
 //! harness does not declare runs, and a page feature it needs that the harness does not drive
 //! fails it. A feature that is a port (the whole [`Engine`]: its events, [`PageSurface`],
-//! [`PageContent`], [`PageZoom`], [`PageAsks`], [`Downloads`]) is called on the engine itself,
+//! [`PageContent`], [`PageZoom`], [`PageAsks`], [`Downloads`], [`PageVideo`]) is called on the
+//! engine itself,
 //! and an engine that answers it with an error fails the group the same way.
 //!
 //! [`MemoryEngine`] is the reference: an engine whose pages live in memory and do what the suite's
@@ -29,7 +30,7 @@ use url::Url;
 
 use crate::{BlockerRules, Engine, EngineEvent, EnginePort, PageRect};
 #[cfg(doc)]
-use crate::{Downloads, PageAsks, PageContent, PageSurface, PageZoom};
+use crate::{Downloads, PageAsks, PageContent, PageSurface, PageVideo, PageZoom};
 
 pub use memory::{MemoryBlocker, MemoryEngine, MemoryHttp, MemoryPage, MemoryView};
 pub use report::{Outcome, Report, Verdict};
@@ -63,6 +64,9 @@ pub enum Group {
     Dialogs,
     /// Device permission requests wait for an answer with a reply token.
     Permissions,
+    /// A page the user clicked goes full screen in its own view, and leaves it by itself, when
+    /// it navigates, or when the browser takes it out; never without a click.
+    Fullscreen,
     /// Find counts the matches and steps through them.
     Find,
     /// Link hints: the targets on screen, and following one.
@@ -80,11 +84,14 @@ pub enum Group {
     /// A page has a view while it exists, says how far it loaded, has a picture once captured,
     /// and says when a text field of its own has focus.
     Surface,
+    /// A page says what its video does: it plays, pauses when asked, plays again, and is gone
+    /// when the page leaves.
+    Video,
 }
 
 impl Group {
     /// Every group, in the order the suite runs them.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 16] = [
         Self::Core,
         Self::Surface,
         Self::Events,
@@ -92,6 +99,7 @@ impl Group {
         Self::Jars,
         Self::Dialogs,
         Self::Permissions,
+        Self::Fullscreen,
         Self::Find,
         Self::Hints,
         Self::Text,
@@ -99,6 +107,7 @@ impl Group {
         Self::Blocker,
         Self::Crash,
         Self::Zoom,
+        Self::Video,
     ];
 }
 

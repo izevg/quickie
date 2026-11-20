@@ -15,6 +15,10 @@ use crate::key::{KeyStroke, Platform};
 /// Zoom has Safari's keys: `⌘=` and `⌘+` (`⇧⌘=` on the key code) in, `⌘-` out, `⌘0` back to
 /// 100 %. Printing takes `⌥⌘P`, since `⌘P` goes to a tab.
 ///
+/// Link hints take `⌥F` (`⇧⌥F` into the background), not a bare `F`: no shortcut types (see
+/// [`Chord::check_shortcut`](crate::key::Chord::check_shortcut)), so they work in a text field
+/// too, where a bare letter would only type.
+///
 /// `⌥⌘C` stays with "Copy as Markdown Link" as the README promises, so "Inspect Element" has no
 /// default key. The tests check that every row parses and that the keymap they make is valid.
 pub(super) const BINDINGS: [(&str, &str, Option<&str>); 54] = [
@@ -60,15 +64,11 @@ pub(super) const BINDINGS: [(&str, &str, Option<&str>); 54] = [
     ("mod+f", "quickie.page.find", None),
     ("mod+g", "quickie.page.findNext", None),
     ("mod+shift+g", "quickie.page.findPrevious", None),
+    ("alt+f", "quickie.hints.toggle", Some("pageFocused")),
     (
-        "f",
-        "quickie.hints.toggle",
-        Some("pageFocused && !inputFocused"),
-    ),
-    (
-        "shift+f",
+        "shift+alt+f",
         "quickie.hints.openInBackground",
-        Some("pageFocused && !inputFocused"),
+        Some("pageFocused"),
     ),
     ("mod+shift+\\", "quickie.tab.overview", None),
     ("mod+shift+c", "quickie.page.copyUrl", None),

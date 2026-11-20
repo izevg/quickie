@@ -39,13 +39,15 @@ impl Harness for Chromium {
             | Group::Jars
             | Group::Dialogs
             | Group::Permissions
+            | Group::Fullscreen
             | Group::Find
             | Group::Hints
             | Group::Text
             | Group::Downloads
             | Group::Blocker
             | Group::Crash
-            | Group::Zoom => Some(PARKED),
+            | Group::Zoom
+            | Group::Video => Some(PARKED),
         }
     }
 

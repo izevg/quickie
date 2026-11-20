@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use quickie_domain_browsing::{FindMatches, Focus, Jar, TabId};
+use quickie_domain_browsing::{FindMatches, Focus, Jar, TabId, Video};
 use url::Url;
 
 use crate::Permission;
@@ -36,8 +36,12 @@ pub enum EngineEvent<P> {
     /// The process that rendered the page is gone, and the page with it; the tab stays and a
     /// reload brings it back.
     Crashed { tab: TabId },
-    /// The page entered (`true`) or left full screen.
-    Fullscreen { tab: TabId, entered: bool },
+    /// The page entered or left full screen (the Fullscreen API: a video's full-screen button,
+    /// `requestFullscreen`).
+    Fullscreen { tab: TabId, state: Fullscreen },
+    /// What the page's video does changed: the one that played last in its main frame, or
+    /// `None` once it has none (the page left, or the video went away).
+    Video { tab: TabId, video: Option<Video> },
     /// The page asks the user a question and waits: answer it through the engine with the
     /// ask's token. Closing the tab declines it.
     Asked(Ask),
@@ -70,6 +74,19 @@ pub enum EngineEvent<P> {
     Blocked { tab: TabId, requests: u32 },
     /// A download moved on.
     Download(DownloadEvent),
+}
+
+/// Where a page that went full screen is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fullscreen {
+    /// An element of the page fills the page's own view, in its tab's window: the browser takes
+    /// that window full screen, as Chrome does, and back when the page leaves.
+    InWindow,
+    /// The engine shows the element full screen in a window of its own; the tab's window stays
+    /// as it is.
+    OwnWindow,
+    /// The page left full screen.
+    Left,
 }
 
 /// Names a request for a page's content (its text, its link targets, following one): the event

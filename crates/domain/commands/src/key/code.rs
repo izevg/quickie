@@ -141,6 +141,30 @@ impl Key {
         }
     }
 
+    /// Whether pressing the key alone, or with `⇧`, types a character into a text field: the
+    /// letters, digits, punctuation, and the space bar. Function keys, arrows, Tab, Return,
+    /// Escape, the delete keys, Home, End, and Page Up and Down type nothing.
+    #[must_use]
+    pub const fn types_text(self) -> bool {
+        !matches!(
+            self,
+            Self::Function(_)
+                | Self::Tab
+                | Self::Enter
+                | Self::Escape
+                | Self::Backspace
+                | Self::Delete
+                | Self::Up
+                | Self::Down
+                | Self::Left
+                | Self::Right
+                | Self::Home
+                | Self::End
+                | Self::PageUp
+                | Self::PageDown
+        )
+    }
+
     /// What a keycap shows on `platform`: `P`, `F5`, `[` on both; `⇥` on macOS where Linux writes
     /// `Tab`.
     #[must_use]

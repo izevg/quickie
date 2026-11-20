@@ -27,11 +27,11 @@ to run outside CI unless `QUICKIE_WEBKIT_LOCAL=1` is set.
 The `webkit` workflow runs on `workflow_dispatch` and on pushes to `main` and `release/**` that
 touch `engine/webkit/`, the workflow, or its disk cleanup script. One job, `webkit-macos`:
 
-1. **Runner.** `xcode-27`: macOS 27 with Xcode 27 on Apple silicon (3 CPUs, 7 GB RAM), free for
-   public repositories. WebKit main needs Xcode 26.2 or later (`checkRequiredSystemConfig` in
-   `Tools/Scripts/webkitdirs.pm`) and takes its deployment target from the SDK, so the newest
-   image gives frameworks for the newest macOS. `workflow_dispatch` takes another runner label
-   and Xcode (`macos-26` with `Xcode_26.6.app`, for example).
+1. **Runner.** `macos-26` with `Xcode_26.6.app`, free for public repositories. The fork follows
+   the `webkitglib/2.54` series, whose Cocoa code does not build against the macOS 27 SDK
+   (`NSRefreshControlHosting` is gone from AppKit 27); frameworks built with SDK 26 run on
+   macOS 26 and 27. `workflow_dispatch` takes another runner label and Xcode (`xcode-27` with
+   `Xcode_27.2.app`, for example); the default moves to Xcode 27 with a series that builds there.
 2. **Free disk.** [free-disk-macos.sh](../.github/scripts/free-disk-macos.sh) deletes every Xcode
    but the selected one, the simulator runtimes, the Android SDK, .NET, GHCup, CodeQL and the
    browsers, printing the free space after each step.
@@ -48,7 +48,11 @@ touch `engine/webkit/`, the workflow, or its disk cleanup script. One job, `webk
 5. **Compilation cache.** Xcode's compilation cache (`.build/webkit-cas`, ~5 GB) is restored
    from the newest earlier run on the same runner and Xcode, and saved after the build, even
    one that failed or ran out of time, so a rebuild is mostly cache hits. `WebKitBuild` (~9 GB)
-   is not cached: both would not fit the repository's 10 GB of Actions caches.
+   is not cached: both would not fit the repository's 10 GB of Actions caches. GitHub scopes
+   caches by ref: a run restores only what runs on its own branch or on `main` saved (a pull
+   request's run also its base branch's). Build patch branches by dispatching on
+   `release/0.1.0` (below), so they share the cache its pushes save; a run dispatched on a
+   feature branch starts cold.
 6. **Build** ([build](webkit/scripts/build)): `Tools/Scripts/build-webkit` with the flags below,
    the full transcript in `.build/webkit-build.log` (uploaded as `webkit-macos-build-log`), a
    heartbeat on the console every five minutes, and a time budget (`QUICKIE_BUILD_MINUTES`, 300

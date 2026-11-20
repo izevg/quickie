@@ -10,7 +10,7 @@ use objc2::runtime::AnyObject;
 use objc2::{AllocAnyThread, Message};
 use objc2_app_kit::{NSView, NSWorkspace};
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSArray, NSNumber, NSString, NSValue};
+use objc2_foundation::{NSArray, NSNumber, NSPoint, NSString, NSValue};
 use objc2_quartz_core::{
     CAAnimation, CAAnimationGroup, CABasicAnimation, CAMediaTiming, CAMediaTimingFunction,
     CASpringAnimation, CATransaction, CATransform3D, NSValueCATransform3DAdditions,
@@ -354,6 +354,97 @@ pub fn settle(
     CATransaction::commit();
 }
 
+/// Animation key of a surface the pointer drags, and of its settling once released.
+const DRAG: &str = "quickie.drag";
+
+/// Moves `view` `offset` points away from where its frame puts it, in its superview's
+/// coordinates, 1:1 with the pointer and without easing: a held animation of its transform,
+/// so the frame `AppKit` owns stays put until the drag ends.
+pub fn drag(view: &NSView, offset: NSPoint) {
+    view.setWantsLayer(true);
+    let Some(layer) = view.layer() else { return };
+    let at = transform_value(translation(view, offset));
+    let held = basic("transform", &at, &at);
+    hold(&held);
+    held.setSpeed(0.0);
+    layer.addAnimation_forKey(&held, Some(&NSString::from_str(DRAG)));
+}
+
+/// Where a dragged or settling `view` is drawn right now, as an offset from its frame: a new
+/// drag starts from here instead of jumping. Zero when nothing moves it.
+#[must_use]
+pub fn dragged_offset(view: &NSView) -> NSPoint {
+    let Some(layer) = view.layer() else {
+        return NSPoint::ZERO;
+    };
+    // SAFETY: a lookup by key; the animation is only checked for presence, never changed.
+    if unsafe { layer.animationForKey(&NSString::from_str(DRAG)) }.is_none() {
+        return NSPoint::ZERO;
+    }
+    // SAFETY: a getter; the presentation layer is a copy for reading.
+    let Some(presented) = (unsafe { layer.presentationLayer() }) else {
+        return NSPoint::ZERO;
+    };
+    let transform = presented.transform();
+    NSPoint::new(transform.m41, flip(view, transform.m42))
+}
+
+/// Ends a drag: `view`'s frame already sits where it settles, and it moves there from `offset`
+/// away, where the pointer left it, carrying the pointer's `velocity` (points per second) into
+/// a `gesture-settle` spring. Reduce Motion fades it in at its place with `fade-fast` instead.
+pub fn settle_drag(view: &NSView, offset: NSPoint, velocity: NSPoint) {
+    let Some(layer) = view.layer() else { return };
+    let key = NSString::from_str(DRAG);
+    if reduce_motion() {
+        layer.removeAnimationForKey(&key);
+        let fade = basic("opacity", &NSNumber::new_f32(0.0), &NSNumber::new_f32(1.0));
+        fade.setDuration(FADE_FAST.duration);
+        fade.setTimingFunction(Some(&curve(FADE_FAST.curve)));
+        layer.addAnimation_forKey(&fade, Some(&NSString::from_str("quickie.show")));
+        return;
+    }
+    let spring = CASpringAnimation::initWithPerceptualDuration_bounce(
+        CASpringAnimation::alloc(),
+        GESTURE_SETTLE,
+        0.0,
+    );
+    spring.setKeyPath(Some(&NSString::from_str("transform")));
+    let (from, to) = (
+        transform_value(translation(view, offset)),
+        transform_value(CATransform3D::new_scale(1.0, 1.0, 1.0)),
+    );
+    // SAFETY: both values hold a `CATransform3D`, the animated property's type.
+    unsafe { spring.setFromValue(Some(&from)) };
+    // SAFETY: as above.
+    unsafe { spring.setToValue(Some(&to)) };
+    spring.setInitialVelocity(settle_velocity(0.0, 1.0, closing_speed(offset, velocity)));
+    spring.setDuration(spring.settlingDuration());
+    layer.addAnimation_forKey(&spring, Some(&key));
+}
+
+/// How fast a surface `offset` away from its place moves toward it at `velocity`, in whole
+/// distances per second; negative when it moves away.
+#[must_use]
+pub fn closing_speed(offset: NSPoint, velocity: NSPoint) -> f64 {
+    let distance_squared = offset.x * offset.x + offset.y * offset.y;
+    if distance_squared < 1e-6 {
+        return 0.0;
+    }
+    -(offset.x * velocity.x + offset.y * velocity.y) / distance_squared
+}
+
+/// A translation by `offset` in the superview's coordinates, as the view's layer reads it.
+fn translation(view: &NSView, offset: NSPoint) -> CATransform3D {
+    CATransform3D::new_translation(offset.x, flip(view, offset.y), 0.0)
+}
+
+/// A layer's y runs up; a flipped superview's runs down.
+fn flip(view: &NSView, y: CGFloat) -> CGFloat {
+    // SAFETY: a getter; the superview is retained for the duration of the check.
+    let flipped = unsafe { view.superview() }.is_some_and(|parent| parent.isFlipped());
+    if flipped { -y } else { y }
+}
+
 /// Drops any gesture animation from `view`: it shows its model values again.
 pub fn stop_gesture(view: &NSView) {
     if let Some(layer) = view.layer() {
@@ -406,9 +497,11 @@ fn centered_scale(view: &NSView, scale: CGFloat) -> CATransform3D {
 
 #[cfg(test)]
 mod tests {
+    use objc2_foundation::NSPoint;
+
     use super::{
-        Entrance, GESTURE_SCALE_FROM, OVERLAY_ENTER, SHEET_ENTER, Trigger, gesture_appearance,
-        settle_velocity,
+        Entrance, GESTURE_SCALE_FROM, OVERLAY_ENTER, SHEET_ENTER, Trigger, closing_speed,
+        gesture_appearance, settle_velocity,
     };
 
     #[test]
@@ -451,6 +544,18 @@ mod tests {
         assert!(settle_velocity(0.5, 1.0, -3.0).abs() < f64::EPSILON);
         assert!(settle_velocity(1.0, 1.0, 5.0).abs() < f64::EPSILON);
         assert!((settle_velocity(0.99, 1.0, 50.0) - 20.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_surface_released_toward_its_place_closes_in_at_the_pointer_s_speed() {
+        // 100 points to the right of its place, flung left at 400 points a second.
+        let speed = closing_speed(NSPoint::new(100.0, 0.0), NSPoint::new(-400.0, 0.0));
+        assert!((speed - 4.0).abs() < f64::EPSILON);
+        // Moving away, or across, does not close in.
+        assert!(closing_speed(NSPoint::new(100.0, 0.0), NSPoint::new(400.0, 0.0)) < 0.0);
+        assert!(closing_speed(NSPoint::new(100.0, 0.0), NSPoint::new(0.0, 400.0)).abs() < 1e-9);
+        // Already in place.
+        assert!(closing_speed(NSPoint::ZERO, NSPoint::new(400.0, 0.0)).abs() < f64::EPSILON);
     }
 
     #[test]

@@ -1,4 +1,6 @@
-//! The tabs group: the `⌃⇥` switcher and the tab overview.
+//! The tabs group: the `⌃⇥` switcher and the tab overview; the mini player in [`player`].
+
+pub mod player;
 
 use std::cell::RefCell;
 use std::rc::Rc;

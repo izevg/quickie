@@ -1,5 +1,6 @@
 use quickie_domain_commands::{
-    BindingError, Catalog, Chord, ChordError, CommandId, KeymapError, Platform,
+    BindingError, Catalog, Chord, ChordError, CommandId, KeyStroke, KeymapError, Platform,
+    TypingStroke,
 };
 
 use super::{command, entry, load, runs};
@@ -29,7 +30,7 @@ fn when(text: KeybindingText, clause: &str) -> KeybindingText {
     }
 }
 
-const PAGE: &str = "pageFocused && !inputFocused";
+const PAGE: &str = "pageFocused";
 
 fn rebind_on(
     file: &FakeKeymapRepo,
@@ -150,13 +151,13 @@ fn rebinding_removes_every_default_of_the_command() {
 fn rebinding_keeps_the_clause_the_command_had() {
     let file = repo(Vec::new());
 
-    let loaded = rebind_on(&file, "quickie.hints.toggle", "g").unwrap();
+    let loaded = rebind_on(&file, "quickie.hints.toggle", "alt+g").unwrap();
 
     assert_eq!(
         saved(&file).unwrap(),
         [
-            when(entry("f", "-quickie.hints.toggle"), PAGE),
-            when(entry("g", "quickie.hints.toggle"), PAGE),
+            when(entry("alt+f", "-quickie.hints.toggle"), PAGE),
+            when(entry("alt+g", "quickie.hints.toggle"), PAGE),
         ]
     );
     assert_eq!(loaded.rejected, []);
@@ -193,13 +194,13 @@ fn rebinding_takes_the_clause_of_the_first_binding_in_effect() {
 
 #[test]
 fn a_command_whose_defaults_were_removed_takes_their_clause() {
-    let file = repo(vec![when(entry("f", "-quickie.hints.toggle"), PAGE)]);
+    let file = repo(vec![when(entry("alt+f", "-quickie.hints.toggle"), PAGE)]);
 
-    rebind_on(&file, "quickie.hints.toggle", "g").unwrap();
+    rebind_on(&file, "quickie.hints.toggle", "alt+g").unwrap();
 
     assert_eq!(
         saved(&file).unwrap().last(),
-        Some(&when(entry("g", "quickie.hints.toggle"), PAGE))
+        Some(&when(entry("alt+g", "quickie.hints.toggle"), PAGE))
     );
 }
 
@@ -259,6 +260,49 @@ fn a_refused_chord_is_not_written() {
         )))
     ));
     assert_eq!(saved(&file), None);
+}
+
+#[test]
+fn a_recorded_typing_key_is_refused_before_anything_is_written() {
+    let keymap = load(Vec::new()).keymap;
+
+    let checked = check_binding(
+        &keymap,
+        &Catalog::builtin(),
+        &id("quickie.hints.toggle"),
+        chord("shift+f"),
+    );
+
+    assert_eq!(
+        checked,
+        Err(Rejection::Malformed(BindingError::Typing(TypingStroke(
+            KeyStroke::try_from("shift+f").unwrap()
+        ))))
+    );
+}
+
+#[test]
+fn a_typing_key_is_not_written() {
+    let file = repo(Vec::new());
+
+    let result = rebind_on(&file, "quickie.hints.toggle", "f");
+
+    assert!(matches!(
+        result,
+        Err(RebindError::Refused(Rejection::Malformed(
+            BindingError::Typing(_)
+        )))
+    ));
+    assert_eq!(saved(&file), None);
+}
+
+#[test]
+fn a_chord_may_end_with_a_typing_key() {
+    let file = repo(Vec::new());
+
+    let loaded = rebind_on(&file, "quickie.hints.toggle", "cmd+k f").unwrap();
+
+    assert_eq!(loaded.rejected, []);
 }
 
 #[test]

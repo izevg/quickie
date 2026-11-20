@@ -242,6 +242,8 @@ impl Browser {
     /// Runs the command `id`. `stroke` is the key that asked, `None` for the palette.
     pub(super) fn dispatch(&self, id: &CommandId, stroke: Option<KeyStroke>) {
         self.pending.take();
+        // Nothing of the browser's shows over a page in full screen: the page leaves first.
+        self.leave_page_fullscreen();
         let Some(action) = Action::of(id) else {
             return self.not_yet(id);
         };

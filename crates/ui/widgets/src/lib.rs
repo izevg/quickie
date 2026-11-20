@@ -42,6 +42,7 @@ pub use popovers::shields_popover::{ShieldsPopover, ShieldsRequest, ShieldsSumma
 pub use sheets::dialog_sheet::{DialogChoice, DialogKind, DialogRequest, DialogSheet};
 pub use sheets::extension_sheet::{ExtensionRequest, ExtensionSheet, Moment, describe};
 pub use sheets::permission_sheet::PermissionSheet;
+pub use tabs::mini_player::{Corner, MiniPlayer, PlayerRequest};
 pub use tabs::tab_overview::TabOverview;
 pub use tabs::tab_overview::grid::Move;
 pub use tabs::tab_overview::pinch::Step as PinchStep;

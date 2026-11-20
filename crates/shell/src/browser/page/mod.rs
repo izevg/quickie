@@ -31,6 +31,8 @@ pub struct PageWidgets {
     chip: Rc<OriginChip>,
     /// Per window, the active tab and its committed URL when last looked at.
     seen: RefCell<BTreeMap<WindowId, (TabId, Url)>>,
+    /// Per window, the page that fills it, full screen.
+    in_window: RefCell<BTreeMap<WindowId, fullscreen::PageFullscreen>>,
 }
 
 impl PageWidgets {
@@ -42,6 +44,7 @@ impl PageWidgets {
             find_tab: Cell::new(None),
             chip: OriginChip::new(mtm),
             seen: RefCell::new(BTreeMap::new()),
+            in_window: RefCell::new(BTreeMap::new()),
         }
     }
 }
@@ -70,6 +73,7 @@ impl Browser {
     /// A window closed: what it last showed goes.
     pub(super) fn forget_window_page(&self, window: WindowId) {
         self.page.seen.borrow_mut().remove(&window);
+        self.forget_page_fullscreen(window);
     }
 
     /// A tab's page loaded more, or stopped: the load glow of every window it is active in.
@@ -83,7 +87,8 @@ impl Browser {
     }
 
     /// For every window whose active tab or origin changed: the origin chip, and on a tab
-    /// switch the new tab's loading; the find bar closes when its tab leaves.
+    /// switch the new tab's loading and the mini player; the find bar closes when its tab
+    /// leaves.
     pub(super) fn page_changes(&self) {
         let active: Vec<(WindowId, TabId, Url)> = {
             let Ok(browsing) = self.browsing.try_borrow() else {
@@ -99,6 +104,26 @@ impl Browser {
                 })
                 .collect()
         };
+        // A page in full screen whose tab is no longer in front (another tab, or it closed)
+        // leaves, and its window with it.
+        let behind: Vec<WindowId> = self
+            .page
+            .in_window
+            .borrow()
+            .iter()
+            .filter(|(window, page)| {
+                !active
+                    .iter()
+                    .any(|(shown, tab, _)| shown == *window && *tab == page.tab)
+            })
+            .map(|(&window, _)| window)
+            .collect();
+        for window in behind {
+            self.forget_page_fullscreen(window);
+        }
+        // Only then the mini player: a tab left in full screen floats its video once the
+        // engine was told to take it out, so the float script runs after the page left.
+        self.player_tab_closed();
         for (window, tab, url) in active {
             let before = self.page.seen.borrow().get(&window).cloned();
             let change = change(before.as_ref(), tab, &url);
@@ -106,6 +131,9 @@ impl Browser {
                 .seen
                 .borrow_mut()
                 .insert(window, (tab, url.clone()));
+            if let (Change::Tab, Some((left, _))) = (change, &before) {
+                self.left_tab(window, *left, tab);
+            }
             if change == Change::Tab {
                 if let Some(frame) = self.frames.borrow().get(&window) {
                     frame.reset_loading();
@@ -123,6 +151,9 @@ impl Browser {
     }
 
     fn show_origin(&self, window: WindowId, url: &Url) {
+        if self.page_fullscreen(window) {
+            return;
+        }
         let host = self.window(window).and_then(|window| window.contentView());
         match (Origin::of(url), host) {
             (Some(origin), Some(host)) => self.page.chip.show(&host, &origin, url.path(), None),
@@ -139,8 +170,10 @@ impl Browser {
         self.set_progress(window, progress);
     }
 
-    /// The window's load glow at `progress`; fading out for `None`.
+    /// The window's load glow at `progress`; fading out for `None`, and while a page fills the
+    /// window full screen.
     fn set_progress(&self, window: WindowId, progress: Option<f64>) {
+        let progress = progress.filter(|_| !self.page_fullscreen(window));
         if let Some(frame) = self.frames.borrow().get(&window) {
             frame.set_loading(progress);
         }

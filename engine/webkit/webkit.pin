@@ -10,13 +10,15 @@
 # Base: the WebKitGTK/WPE stable series, the one branch both ports (macOS and GTK) build from
 # (docs/architecture.md, "Decision: our own WebKit"). Release tag webkitgtk-2.54.3
 # (tagged 2026-11-18) peels to eb74cd57; the fork's branch quickie/2.54 starts there and will
-# carry our patches as commits. Apple's Mac-only security fixes are cherry-picked from each
-# Apple security note; the series moves to webkitglib/2.56 when it is released.
+# carry our patches as commits. The first two are Cocoa-only build fixes for code the GTK/WPE
+# ports never compile: 02fa3f47 (WebPageProxy::transcodeChosenFiles) and c6ffa6ac
+# (PlatformPasteboard::isFilePasteboardType, used by a cherry-picked drag check). Apple's Mac-only security fixes are
+# cherry-picked from each Apple security note; the series moves to webkitglib/2.56 when released.
 #
 # To bump: put the new commit and date here, push, and let .github/workflows/webkit.yml build it
 # (engine/README.md, "Bumping the pin").
 
 WEBKIT_REPO=https://github.com/izevg/WebKit.git
 WEBKIT_BRANCH=quickie/2.54
-WEBKIT_COMMIT=eb74cd57254e5b9738fbaa5ad13df320a68a7119
+WEBKIT_COMMIT=c6ffa6acfc40316ba683afb0272233e6921eb09b
 WEBKIT_CHECKED=2026-11-20

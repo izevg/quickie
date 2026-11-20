@@ -129,13 +129,15 @@ impl Harness for WebKit {
             | Group::Opened
             | Group::Jars
             | Group::Dialogs
+            | Group::Fullscreen
             | Group::Find
             | Group::Hints
             | Group::Text
             | Group::Downloads
             | Group::Blocker
             | Group::Crash
-            | Group::Zoom => None,
+            | Group::Zoom
+            | Group::Video => None,
         }
     }
 

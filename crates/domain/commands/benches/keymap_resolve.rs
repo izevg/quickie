@@ -80,10 +80,18 @@ fn unbound(bencher: Bencher) {
     press(bencher, "mod+y", None);
 }
 
-/// `F` on a page: a default behind `pageFocused && !inputFocused`.
+/// `⌥F` on a page: a default behind `pageFocused`.
 #[divan::bench]
 fn behind_a_clause(bencher: Bencher) {
-    press(bencher, "f", None);
+    press(bencher, "alt+f", None);
+}
+
+/// `F` typed into a page: no shortcut may start with a key that types, so the shell lets it go
+/// on after this check alone, without building a context or asking the keymap.
+#[divan::bench]
+fn typing(bencher: Bencher) {
+    let stroke = stroke("shift+f");
+    bencher.bench(|| black_box(black_box(stroke).types_text()));
 }
 
 /// `⌘S` after `⌘K`: the second stroke of a chord.
