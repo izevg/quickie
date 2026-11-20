@@ -38,10 +38,6 @@ impl MruStack {
         true
     }
 
-    pub(crate) fn contains(&self, id: TabId) -> bool {
-        self.0.contains(&id)
-    }
-
     pub(crate) fn front(&self) -> Option<TabId> {
         self.0.first().copied()
     }
@@ -106,7 +102,5 @@ mod tests {
 
         assert_eq!(mru.front(), Some(id(2)));
         assert_eq!(mru.as_slice(), stack(&[2, 1, 3]).as_slice());
-        assert!(mru.contains(id(3)));
-        assert!(!mru.contains(id(4)));
     }
 }

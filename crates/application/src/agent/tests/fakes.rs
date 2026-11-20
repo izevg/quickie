@@ -44,11 +44,11 @@ impl AgentRepo for FakeAgentRepo {
         }
     }
 
-    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
+    fn save_endpoint(&mut self, endpoint: Option<EndpointSnapshot>) -> Result<(), StoreError> {
         if self.save_fails {
             return Err(StoreError("save".to_owned()));
         }
-        self.saved = endpoint.cloned();
+        self.saved = endpoint;
         self.saves += 1;
         Ok(())
     }

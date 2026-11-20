@@ -70,7 +70,7 @@ fn a_new_database_has_a_fresh_profile_s_shields() {
 fn site_policies_come_back_in_their_order() {
     let mut store = store();
 
-    store.save_sites(&sites().snapshot()).unwrap();
+    store.save_sites(sites().snapshot()).unwrap();
 
     assert_eq!(store.load_shields().unwrap().sites, sites().snapshot());
 }
@@ -78,9 +78,9 @@ fn site_policies_come_back_in_their_order() {
 #[test]
 fn saving_sites_replaces_the_previous_ones() {
     let mut store = store();
-    store.save_sites(&sites().snapshot()).unwrap();
+    store.save_sites(sites().snapshot()).unwrap();
 
-    store.save_sites(&SitePolicies::new().snapshot()).unwrap();
+    store.save_sites(SitePolicies::new().snapshot()).unwrap();
 
     assert_eq!(store.load_shields().unwrap().sites.sites, []);
 }
@@ -89,7 +89,7 @@ fn saving_sites_replaces_the_previous_ones() {
 fn list_states_and_their_refresh_come_back() {
     let mut store = store();
 
-    store.save_lists(&lists().snapshot()).unwrap();
+    store.save_lists(lists().snapshot()).unwrap();
 
     let loaded = store.load_shields().unwrap().lists;
     assert_eq!(FilterListSet::restore(loaded), Ok(lists()));
@@ -98,9 +98,9 @@ fn list_states_and_their_refresh_come_back() {
 #[test]
 fn refresh_on_request_comes_back_after_keep_fresh() {
     let mut store = store();
-    store.save_lists(&lists().snapshot()).unwrap();
+    store.save_lists(lists().snapshot()).unwrap();
 
-    store.save_lists(&FilterListSet::new().snapshot()).unwrap();
+    store.save_lists(FilterListSet::new().snapshot()).unwrap();
 
     let loaded = store.load_shields().unwrap().lists;
     assert_eq!(loaded, FilterListSet::new().snapshot());
@@ -109,7 +109,7 @@ fn refresh_on_request_comes_back_after_keep_fresh() {
 #[test]
 fn a_list_stated_twice_is_not_saved_and_the_previous_states_stay() {
     let mut store = store();
-    store.save_lists(&lists().snapshot()).unwrap();
+    store.save_lists(lists().snapshot()).unwrap();
     let list = FilterList {
         id: FilterListId::EasyList,
         enabled: true,
@@ -120,7 +120,7 @@ fn a_list_stated_twice_is_not_saved_and_the_previous_states_stay() {
         refresh: Refresh::OnRequest,
     };
 
-    let saved = store.save_lists(&twice);
+    let saved = store.save_lists(twice);
 
     assert!(saved.is_err());
     let loaded = store.load_shields().unwrap().lists;
@@ -167,7 +167,7 @@ fn a_fetch_needs_both_its_time_and_its_hash() {
 fn a_fetched_list_loads_its_fetch() {
     let mut store = store();
 
-    store.save_lists(&lists().snapshot()).unwrap();
+    store.save_lists(lists().snapshot()).unwrap();
 
     let loaded = store.load_shields().unwrap().lists;
     let privacy = loaded

@@ -1,45 +1,79 @@
 //! The Settings window behind `⌘,`: made on first use, one instance, brought forward when it
 //! is open. Its panes show what the use cases hold, and its buttons and switches go back to
 //! them: the default browser, the downloads folder, the filter lists, the agent's endpoint
-//! (the agent settings form), and `keybindings.json`.
+//! (the agent settings form), and the keymap editor over `keybindings.json`.
 
 use std::path::Path;
 
-use objc2_app_kit::{NSWindow, NSWorkspace};
-use quickie_application::{Clock, LoadedKeymap, load_keymap};
-use quickie_domain_commands::{Catalog, CommandId, Keymap};
+use objc2_app_kit::{NSEventModifierFlags, NSWindow, NSWorkspace};
+use quickie_application::{
+    AppError, Clock, LoadedKeymap, RejectedEntry, Rejection, check_binding, keymap_lines,
+    load_keymap, rebind, reset_binding,
+};
+use quickie_domain_commands::{Catalog, Chord, CommandId, Keymap, KeymapError};
 use quickie_domain_shields::{FilterListId, Refresh};
 use quickie_store::KeybindingsFile;
 use quickie_ui_screens::{
-    GeneralState, KeysState, ListState, Pane, SettingsAction, SettingsScreen, ShieldsState,
+    GeneralState, KeyPress, KeysState, ListState, Pane, Recorded, SettingsAction, SettingsScreen,
+    ShieldsState,
 };
 
 use super::super::Browser;
+use super::super::keys::modifiers;
 use super::{DefaultBrowserRequest, file_url, is_default_browser, main_bundle};
+use crate::input::keystroke::{Read, read};
 use crate::{PLATFORM, SystemClock};
 
-/// The keymap of `file` over the defaults, and a line per entry it left out; the defaults and
-/// the reason when the file cannot be read.
-pub fn keymap_from(file: &KeybindingsFile, catalog: &Catalog) -> (Keymap, Vec<String>) {
+/// What the keymap left out of `keybindings.json`: the entries it refused, or why the file
+/// was not read at all.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeymapProblems {
+    pub rejected: Vec<RejectedEntry>,
+    pub unread: Option<String>,
+}
+
+impl KeymapProblems {
+    /// How many things went wrong.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.rejected.len() + usize::from(self.unread.is_some())
+    }
+
+    /// A line per problem, for the Keyboard pane.
+    fn lines(&self) -> Vec<String> {
+        self.unread
+            .iter()
+            .map(|error| format!("not read, the defaults apply: {error}"))
+            .chain(self.rejected.iter().map(|bad| {
+                format!(
+                    "entry {} (\"{}\" → {}): {}",
+                    bad.position + 1,
+                    bad.entry.key,
+                    bad.entry.command,
+                    bad.reason
+                )
+            }))
+            .collect()
+    }
+}
+
+/// The keymap of `file` over the defaults, and the entries it left out; the defaults and the
+/// reason when the file cannot be read.
+pub fn keymap_from(file: &KeybindingsFile, catalog: &Catalog) -> (Keymap, KeymapProblems) {
     match load_keymap(file, catalog, PLATFORM) {
-        Ok(LoadedKeymap { keymap, rejected }) => {
-            let problems = rejected
-                .iter()
-                .map(|bad| {
-                    format!(
-                        "entry {} (\"{}\" → {}): {}",
-                        bad.position + 1,
-                        bad.entry.key,
-                        bad.entry.command,
-                        bad.reason
-                    )
-                })
-                .collect();
-            (keymap, problems)
-        }
+        Ok(LoadedKeymap { keymap, rejected }) => (
+            keymap,
+            KeymapProblems {
+                rejected,
+                unread: None,
+            },
+        ),
         Err(error) => (
             Keymap::defaults(PLATFORM),
-            vec![format!("not read, the defaults apply: {error}")],
+            KeymapProblems {
+                rejected: Vec::new(),
+                unread: Some(error.to_string()),
+            },
         ),
     }
 }
@@ -52,14 +86,13 @@ impl Browser {
             self.load_agent_settings();
         }
         self.refresh_settings();
-        screen.fit_agent();
         screen.show(pane);
     }
 
     /// The window, made on first use.
     fn settings_screen(&self) -> &SettingsScreen {
         self.settings.get_or_init(|| {
-            let screen = SettingsScreen::new(self.agent_ui.settings.view(), self.mtm);
+            let screen = SettingsScreen::new(&self.agent_ui.settings, self.mtm);
             let this = self.this.clone();
             screen.on_action(move |action| {
                 if let Some(browser) = this.upgrade() {
@@ -93,9 +126,11 @@ impl Browser {
         };
         screen.set_general(&self.general_state());
         screen.set_shields(&self.shields_state());
+        let problems = self.keymap_problems.borrow();
         screen.set_keys(&KeysState {
             file: self.keybindings.path().display().to_string(),
-            problems: self.keymap_problems.borrow().clone(),
+            lines: keymap_lines(&self.keymap.borrow(), &self.catalog, &problems.rejected),
+            problems: problems.lines(),
         });
     }
 
@@ -162,6 +197,19 @@ impl Browser {
             SettingsAction::MakeDefaultBrowser => self.set_default_browser(),
             SettingsAction::ShowDownloads => self.show_folder(&self.downloads_folder),
             SettingsAction::SetList(id, on) => self.set_list(id, on),
+            SettingsAction::RefreshList(id) => {
+                let requested: Vec<_> = self
+                    .shields
+                    .borrow()
+                    .requested_fetches()
+                    .into_iter()
+                    .filter(|fetch| fetch.list == id)
+                    .collect();
+                if requested.is_empty() {
+                    "Turn the list on first.".clone_into(&mut self.lists_status.borrow_mut());
+                }
+                self.fetch_lists(requested);
+            }
             SettingsAction::RefreshLists => {
                 let requested = self.shields.borrow().requested_fetches();
                 if requested.is_empty() {
@@ -186,6 +234,95 @@ impl Browser {
             }
             SettingsAction::OpenKeybindings => self.open_keybindings(),
             SettingsAction::ReloadKeybindings => self.reload_keybindings(),
+            // The recording goes on: nothing else changed, so nothing is refreshed.
+            SettingsAction::Record(command, press) => return self.recorded(&command, &press),
+            SettingsAction::Rebind(command, chord) => self.rebind(command, chord),
+            SettingsAction::ResetBinding(command) => self.reset_binding(command),
+        }
+        self.refresh_settings();
+    }
+
+    /// A key pressed while `command` records: read as the keymap reads every press, and
+    /// checked against the keymap, so a conflict shows before anything is saved.
+    fn recorded(&self, command: &CommandId, press: &KeyPress) {
+        let Some(screen) = self.settings.get() else {
+            return;
+        };
+        let function = press.flags.contains(NSEventModifierFlags::Function);
+        let recorded = match read(press.code, &press.typed, modifiers(press.flags), function) {
+            Read::Stroke(stroke) => {
+                let chord = Chord::from(stroke);
+                let keymap = self.keymap.borrow();
+                let keys = chord.glyphs(keymap.platform());
+                let problem = check_binding(&keymap, &self.catalog, command, chord)
+                    .err()
+                    .map(|refused| self.refusal(&keys, &refused));
+                Recorded {
+                    chord: Some(chord),
+                    keys,
+                    problem,
+                }
+            }
+            Read::Unnamed | Read::System => Recorded {
+                chord: None,
+                keys: String::new(),
+                problem: Some("Quickie can't bind that key".to_owned()),
+            },
+        };
+        screen.show_recorded(command, recorded);
+    }
+
+    /// Why the keymap refuses `keys`, in the pane's words.
+    fn refusal(&self, keys: &str, refused: &Rejection) -> String {
+        match refused {
+            Rejection::Invalid(KeymapError::Conflict(conflict)) => {
+                let other = self.catalog.get(&conflict.first).map_or_else(
+                    || conflict.first.to_string(),
+                    |other| other.title.to_owned(),
+                );
+                format!("{keys} already runs {other}")
+            }
+            other => other.to_string(),
+        }
+    }
+
+    /// Binds `command` to `chord` in `keybindings.json`, on a worker thread (it is disk).
+    fn rebind(&self, command: CommandId, chord: Chord) {
+        let file = self.keybindings.clone();
+        let catalog = self.catalog.clone();
+        let work = move || {
+            rebind(&file, &catalog, PLATFORM, &command, chord).map_err(|error| error.to_string())
+        };
+        if !self.off_main("quickie-keybindings", work, Self::keymap_edited) {
+            self.toast("Couldn't save keybindings.json");
+        }
+    }
+
+    /// Gives `command` its defaults back in `keybindings.json`, on a worker thread.
+    fn reset_binding(&self, command: CommandId) {
+        let file = self.keybindings.clone();
+        let catalog = self.catalog.clone();
+        let work = move || {
+            reset_binding(&file, &catalog, PLATFORM, &command)
+                .map_err(|error: AppError| error.to_string())
+        };
+        if !self.off_main("quickie-keybindings", work, Self::keymap_edited) {
+            self.toast("Couldn't save keybindings.json");
+        }
+    }
+
+    /// The keymap editor saved `keybindings.json`: its keymap applies at once.
+    fn keymap_edited(&self, edited: Result<LoadedKeymap, String>) {
+        match edited {
+            Ok(LoadedKeymap { keymap, rejected }) => {
+                *self.keymap.borrow_mut() = keymap;
+                *self.keymap_problems.borrow_mut() = KeymapProblems {
+                    rejected,
+                    unread: None,
+                };
+                self.pending.take();
+            }
+            Err(problem) => self.toast(&format!("Couldn't save keybindings.json: {problem}")),
         }
         self.refresh_settings();
     }
@@ -236,9 +373,9 @@ impl Browser {
         }
     }
 
-    fn keybindings_loaded(&self, (keymap, problems): (Keymap, Vec<String>)) {
+    fn keybindings_loaded(&self, (keymap, problems): (Keymap, KeymapProblems)) {
         *self.keymap.borrow_mut() = keymap;
-        let left_out = problems.len();
+        let left_out = problems.count();
         *self.keymap_problems.borrow_mut() = problems;
         self.pending.take();
         self.toast(&match left_out {

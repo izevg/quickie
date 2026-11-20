@@ -10,24 +10,48 @@ publish.workspace = true
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = [
   "objc2-core-foundation",
+  "NSAnimationContext",
+  "NSBezierPath",
+  "NSBox",
   "NSButton",
   "NSCell",
+  "NSClipView",
+  "NSColor",
   "NSControl",
+  "NSEvent",
+  "NSFont",
+  "NSGraphics",
   "NSImage",
+  "NSImageView",
   "NSResponder",
-  "NSTabViewController",
-  "NSTabViewItem",
+  "NSScrollView",
+  "NSSearchField",
+  "NSTableColumn",
+  "NSTableRowView",
+  "NSTableView",
   "NSText",
   "NSTextField",
   "NSTextFieldCell",
+  "NSTextView",
+  "NSUserInterfaceItemIdentification",
   "NSView",
-  "NSViewController",
+  "NSVisualEffectView",
   "NSWindow",
 ] }
 objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }
-objc2-foundation = { workspace = true, features = ["NSGeometry", "NSObject", "NSString"] }
+objc2-foundation = { workspace = true, features = [
+  "NSGeometry",
+  "NSIndexSet",
+  "NSNotification",
+  "NSObject",
+  "NSRange",
+  "NSString",
+] }
+quickie-application.workspace = true
+quickie-domain-commands.workspace = true
 quickie-domain-shields.workspace = true
 quickie-ui-shared.workspace = true
+quickie-ui-widgets.workspace = true
 
 [dev-dependencies]
 quickie-ui-shared = { workspace = true, features = ["stories"] }

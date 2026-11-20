@@ -5,6 +5,8 @@
 //! agent's tabs never reach them. A stored id is therefore a serial of [`Profile::Main`], and
 //! needs no profile column; rows written before ids named their profile read back unchanged.
 
+use std::sync::Arc;
+
 use quickie_application::StoreError;
 use quickie_domain_browsing::{
     ClosedTab, Jar, JarId, NextIds, PinnedSlot, Profile, SessionSnapshot, Tab, TabId, Timestamp,
@@ -80,7 +82,7 @@ pub(crate) fn load(db: &Connection) -> Result<Option<SessionSnapshot>, StoreErro
         .and_then(|mut stmt| stmt.query_map([], tab_row)?.collect::<Result<Vec<_>, _>>())
         .map_err(failed)?
         .into_iter()
-        .map(tab)
+        .map(|row| tab(row).map(Arc::new))
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut windows = Vec::new();
@@ -90,7 +92,7 @@ pub(crate) fn load(db: &Connection) -> Result<Option<SessionSnapshot>, StoreErro
         .map_err(failed)?;
     for id in ids {
         let order: Vec<i64> = db
-            .prepare("SELECT tab FROM window_tabs WHERE window = ?1 ORDER BY rank")
+            .prepare_cached("SELECT tab FROM window_tabs WHERE window = ?1 ORDER BY rank")
             .and_then(|mut stmt| stmt.query_map([id], |row| row.get(0))?.collect())
             .map_err(failed)?;
         let order = order.into_iter().map(tab_id).collect::<Result<_, _>>()?;
@@ -122,10 +124,10 @@ pub(crate) fn load(db: &Connection) -> Result<Option<SessionSnapshot>, StoreErro
         .map_err(failed)?
         .into_iter()
         .map(|(row, closed_at)| {
-            Ok(ClosedTab {
+            Ok(Arc::new(ClosedTab {
                 tab: tab(row)?,
                 closed_at: Timestamp::from_millis(from_sql(closed_at)?),
-            })
+            }))
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
 
@@ -138,7 +140,8 @@ pub(crate) fn load(db: &Connection) -> Result<Option<SessionSnapshot>, StoreErro
     }))
 }
 
-/// Replaces the saved session in one transaction.
+/// Replaces the saved session in one transaction. It runs after every burst of commands, so
+/// its statements stay prepared on the connection between saves.
 pub(crate) fn save(db: &mut Connection, snapshot: &SessionSnapshot) -> Result<(), StoreError> {
     let tx = db.transaction().map_err(failed)?;
     tx.execute_batch(
@@ -148,7 +151,7 @@ pub(crate) fn save(db: &mut Connection, snapshot: &SessionSnapshot) -> Result<()
     .map_err(failed)?;
     {
         let mut meta = tx
-            .prepare("INSERT INTO meta (key, value) VALUES (?1, ?2)")
+            .prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2)")
             .map_err(failed)?;
         for (key, value) in [
             ("next_tab", snapshot.next.tab),
@@ -158,7 +161,9 @@ pub(crate) fn save(db: &mut Connection, snapshot: &SessionSnapshot) -> Result<()
             meta.execute(params![key, to_sql(value)?]).map_err(failed)?;
         }
         let mut tabs = tx
-            .prepare("INSERT INTO tabs (id, position, url, title, jar) VALUES (?1, ?2, ?3, ?4, ?5)")
+            .prepare_cached(
+                "INSERT INTO tabs (id, position, url, title, jar) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
             .map_err(failed)?;
         for (position, tab) in snapshot.tabs.iter().enumerate() {
             tabs.execute(params![
@@ -171,10 +176,10 @@ pub(crate) fn save(db: &mut Connection, snapshot: &SessionSnapshot) -> Result<()
             .map_err(failed)?;
         }
         let mut windows = tx
-            .prepare("INSERT INTO windows (id, position) VALUES (?1, ?2)")
+            .prepare_cached("INSERT INTO windows (id, position) VALUES (?1, ?2)")
             .map_err(failed)?;
         let mut order = tx
-            .prepare("INSERT INTO window_tabs (window, rank, tab) VALUES (?1, ?2, ?3)")
+            .prepare_cached("INSERT INTO window_tabs (window, rank, tab) VALUES (?1, ?2, ?3)")
             .map_err(failed)?;
         for (position, (window, tabs)) in snapshot.windows.iter().enumerate() {
             let window = to_sql(window.get())?;
@@ -188,7 +193,7 @@ pub(crate) fn save(db: &mut Connection, snapshot: &SessionSnapshot) -> Result<()
             }
         }
         let mut slots = tx
-            .prepare("INSERT INTO slots (slot, tab) VALUES (?1, ?2)")
+            .prepare_cached("INSERT INTO slots (slot, tab) VALUES (?1, ?2)")
             .map_err(failed)?;
         for (index, held) in snapshot.slots.iter().enumerate() {
             if let Some(tab) = held {
@@ -198,7 +203,7 @@ pub(crate) fn save(db: &mut Connection, snapshot: &SessionSnapshot) -> Result<()
             }
         }
         let mut trash = tx
-            .prepare(
+            .prepare_cached(
                 "INSERT INTO trash (position, id, url, title, jar, closed_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )

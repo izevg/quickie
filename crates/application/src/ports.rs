@@ -36,12 +36,13 @@ pub trait SessionRepo {
     /// The store could not be read.
     fn load(&self) -> Result<Option<SessionSnapshot>, StoreError>;
 
-    /// Replaces the saved session, atomically.
+    /// Replaces the saved session, atomically. The snapshot is handed over, so a store that
+    /// writes later keeps it without a copy.
     ///
     /// # Errors
     ///
     /// The store could not be written.
-    fn save(&mut self, snapshot: &SessionSnapshot) -> Result<(), StoreError>;
+    fn save(&mut self, snapshot: SessionSnapshot) -> Result<(), StoreError>;
 }
 
 /// The library as last saved. Each part is `None` until it is first saved, so a profile that
@@ -109,7 +110,7 @@ pub struct KeybindingText {
     pub when: Option<String>,
 }
 
-/// Where the user's key bindings persist. Saving arrives with the keymap editor.
+/// Where the user's key bindings persist.
 pub trait KeymapRepo {
     /// The user's entries, in the order they were written.
     ///
@@ -117,6 +118,17 @@ pub trait KeymapRepo {
     ///
     /// The store could not be read.
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError>;
+}
+
+/// The user's own key bindings file (`keybindings.json`), which the keymap editor writes as
+/// well as reads.
+pub trait KeymapFile: KeymapRepo {
+    /// Replaces the user's entries with `entries`, in order, all at once.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written; the entries it held are unchanged.
+    fn save_keybindings(&self, entries: &[KeybindingText]) -> Result<(), StoreError>;
 }
 
 /// Where each site's page zoom persists (`shell.sqlite` in the product). Only the main jar's:
@@ -134,7 +146,7 @@ pub trait ZoomRepo {
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError>;
+    fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError>;
 }
 
 /// A navigation inside a tab.
@@ -233,14 +245,14 @@ pub trait ShieldsRepo {
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_sites(&mut self, sites: &SitePoliciesSnapshot) -> Result<(), StoreError>;
+    fn save_sites(&mut self, sites: SitePoliciesSnapshot) -> Result<(), StoreError>;
 
     /// Replaces the saved filter list states, atomically.
     ///
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_lists(&mut self, lists: &FilterListSetSnapshot) -> Result<(), StoreError>;
+    fn save_lists(&mut self, lists: FilterListSetSnapshot) -> Result<(), StoreError>;
 
     /// Replaces the saved content of one list, atomically.
     ///
@@ -437,7 +449,7 @@ pub trait AgentRepo {
     /// # Errors
     ///
     /// The store could not be written.
-    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError>;
+    fn save_endpoint(&mut self, endpoint: Option<EndpointSnapshot>) -> Result<(), StoreError>;
 }
 
 /// One chat completion to stream.

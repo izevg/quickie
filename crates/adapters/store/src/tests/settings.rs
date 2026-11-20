@@ -25,7 +25,7 @@ fn an_agent_endpoint_round_trips_with_its_key_reference() {
     let mut store = SqliteStore::in_memory().unwrap();
     let saved = endpoint(Some("https://api.example.com"));
 
-    store.save_endpoint(Some(&saved)).unwrap();
+    store.save_endpoint(Some(saved.clone())).unwrap();
 
     assert_eq!(store.load_endpoint(), Ok(Some(saved)));
 }
@@ -34,10 +34,10 @@ fn an_agent_endpoint_round_trips_with_its_key_reference() {
 fn saving_another_agent_endpoint_replaces_the_first() {
     let mut store = SqliteStore::in_memory().unwrap();
     store
-        .save_endpoint(Some(&endpoint(Some("https://api.example.com"))))
+        .save_endpoint(Some(endpoint(Some("https://api.example.com"))))
         .unwrap();
 
-    store.save_endpoint(Some(&endpoint(None))).unwrap();
+    store.save_endpoint(Some(endpoint(None))).unwrap();
 
     assert_eq!(store.load_endpoint(), Ok(Some(endpoint(None))));
 }
@@ -45,7 +45,7 @@ fn saving_another_agent_endpoint_replaces_the_first() {
 #[test]
 fn saving_no_agent_endpoint_forgets_it() {
     let mut store = SqliteStore::in_memory().unwrap();
-    store.save_endpoint(Some(&endpoint(None))).unwrap();
+    store.save_endpoint(Some(endpoint(None))).unwrap();
 
     store.save_endpoint(None).unwrap();
 
@@ -142,10 +142,10 @@ fn site_zooms_round_trip_in_order_and_replace_what_was_saved() {
         sites: vec![(site("a.test"), 300)],
     };
 
-    store.save_site_zooms(&first).unwrap();
+    store.save_site_zooms(first.clone()).unwrap();
     assert_eq!(store.load_site_zooms(), Ok(first));
 
-    store.save_site_zooms(&second).unwrap();
+    store.save_site_zooms(second.clone()).unwrap();
     assert_eq!(store.load_site_zooms(), Ok(second));
 }
 

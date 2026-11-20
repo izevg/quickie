@@ -47,7 +47,7 @@ use quickie_ui_widgets::{AddressOverlay, CommandPalette, KeyLogPanel, TabSwitche
 use url::Url;
 
 pub use keys::install_shortcuts;
-pub use system::{keymap_from, launch_urls};
+pub use system::{KeymapProblems, keymap_from, launch_urls};
 
 use crate::input::cycle::CycleHold;
 use crate::input::keystroke::Passed;
@@ -71,7 +71,7 @@ pub struct Services {
     pub keymap: Keymap,
     /// The user's `keybindings.json`, and the entries the keymap left out of it.
     pub keybindings: KeybindingsFile,
-    pub keymap_problems: Vec<String>,
+    pub keymap_problems: KeymapProblems,
     /// The stores' writes in flight, polled for failures.
     pub writes: Vec<PendingWrites>,
     /// What went wrong while starting, told once the windows are on screen.
@@ -95,7 +95,7 @@ pub struct Browser {
     keymap: RefCell<Keymap>,
     keybindings: KeybindingsFile,
     /// What the keymap left out of `keybindings.json`, for the Settings window.
-    keymap_problems: RefCell<Vec<String>>,
+    keymap_problems: RefCell<KeymapProblems>,
     /// The Settings window, made on first use.
     settings: OnceCell<SettingsScreen>,
     /// How the last filter list fetch went, for the Settings window.
@@ -250,6 +250,11 @@ impl Browser {
         for notice in notices {
             self.toast(&notice);
         }
+    }
+
+    /// Every command the browser runs, built once at start, for the menu bar.
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
     }
 
     /// Runs the command `id` as a key would: a menu item asked. An id the catalog does not
