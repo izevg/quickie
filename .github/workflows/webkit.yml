@@ -10,12 +10,12 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: Runner label (xcode-27 is macOS 27 with Xcode 27; macos-26 has Xcode 26)
-        default: xcode-27
+        description: Runner label (macos-26 has Xcode 26; xcode-27 is macOS 27 with Xcode 27)
+        default: macos-26
         type: string
       xcode:
         description: Xcode to select, by its path under /Applications
-        default: Xcode_27.2.app
+        default: Xcode_26.6.app
         type: string
       commit:
         description: Fork commit to build instead of the pin (40 hex characters; empty builds the pin)
@@ -42,11 +42,11 @@ defaults:
 jobs:
   webkit-macos:
     name: webkit (macOS arm64)
-    # xcode-27: macOS 27 with Xcode 27 on arm64 (Apple silicon, 3 CPUs, 7 GB RAM), free for public
-    # repositories. WebKit main needs Xcode 26.2 or later (Tools/Scripts/webkitdirs.pm) and builds
-    # for the host's macOS (its deployment target follows the SDK), so the newest image gives the
-    # build that runs on the newest macOS.
-    runs-on: ${{ inputs.runner || 'xcode-27' }}
+    # macos-26: macOS 26 with Xcode 26 on arm64 (Apple silicon), free for public repositories.
+    # The fork follows the webkitglib/2.54 series, whose Cocoa code does not build against the
+    # macOS 27 SDK (Xcode 27); frameworks built with SDK 26 run on macOS 26 and 27. Move to
+    # xcode-27 together with a series that builds there.
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     # The hosted-runner limit is 6 h; the build step stops itself earlier (QUICKIE_BUILD_MINUTES)
     # to leave time for packaging and for the logs.
     timeout-minutes: 355
@@ -56,7 +56,7 @@ jobs:
       attestations: write
     env:
       CI: "true"
-      XCODE_APP: ${{ inputs.xcode || 'Xcode_27.2.app' }}
+      XCODE_APP: ${{ inputs.xcode || 'Xcode_26.6.app' }}
       # Read by sync, which checks it like the pin; empty builds the pin.
       QUICKIE_WEBKIT_COMMIT: ${{ inputs.commit }}
     steps:
@@ -100,7 +100,7 @@ jobs:
           echo "prefix=$prefix" >>"$GITHUB_OUTPUT"
           echo "key=$prefix${commit:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >>"$GITHUB_OUTPUT"
         env:
-          RUNNER_LABEL: ${{ inputs.runner || 'xcode-27' }}
+          RUNNER_LABEL: ${{ inputs.runner || 'macos-26' }}
 
       # actions/cache/restore v6.1.0
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
