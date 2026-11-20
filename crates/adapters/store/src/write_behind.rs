@@ -19,15 +19,15 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use quickie_application::{
-    AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
-    ShieldsSnapshot, StoreError, ZoomRepo,
+    AgentRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
+    SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::SiteZoomsSnapshot;
+use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use url::Url;
 
@@ -82,6 +82,7 @@ impl WriteBehindStore {
             + ShieldsRepo
             + AgentRepo
             + ZoomRepo
+            + ExtensionsRepo
             + Send
             + 'static,
     {
@@ -227,6 +228,19 @@ impl ZoomRepo for WriteBehindStore {
 
     fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
         self.hand_over(Save::Zooms(zooms))
+    }
+}
+
+impl ExtensionsRepo for WriteBehindStore {
+    fn load_extensions(&self) -> Result<InstalledExtensionsSnapshot, StoreError> {
+        self.ask(Barrier::LoadExtensions)?
+    }
+
+    fn save_extensions(
+        &mut self,
+        extensions: InstalledExtensionsSnapshot,
+    ) -> Result<(), StoreError> {
+        self.hand_over(Save::Extensions(extensions))
     }
 }
 

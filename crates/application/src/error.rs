@@ -3,6 +3,7 @@
 use quickie_domain_agents::PromptError;
 use quickie_domain_browsing::{BrowsingError, CorruptSession};
 use quickie_domain_library::{DownloadError, NotSaved};
+use quickie_domain_settings::ExtensionError;
 use quickie_domain_shields::SiteError;
 
 /// The engine refused or failed a command.
@@ -24,6 +25,11 @@ pub struct HttpError(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("content blocker: {0}")]
 pub struct BlockerError(pub String);
+
+/// An extension package could not be fetched, checked, or kept.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("extension package: {0}")]
+pub struct PackageError(pub String);
 
 /// The secret store (the Keychain) failed to read, write, or delete a key.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -95,4 +101,13 @@ pub enum AppError {
     /// The pages given cannot make a prompt.
     #[error(transparent)]
     Prompt(#[from] PromptError),
+    /// The installed extensions refused the change.
+    #[error(transparent)]
+    Extension(#[from] ExtensionError),
+    /// An extension package could not be fetched, checked, or kept.
+    #[error(transparent)]
+    Package(#[from] PackageError),
+    /// The page is not a Chrome Web Store page of an extension.
+    #[error("{0} is not an extension's page in the Chrome Web Store")]
+    NotAStorePage(String),
 }

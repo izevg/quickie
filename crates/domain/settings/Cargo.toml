@@ -1,6 +1,6 @@
 [package]
 name = "quickie-domain-settings"
-description = "Settings context of the Quickie domain: the user's preferences, such as each site's page zoom"
+description = "Settings context of the Quickie domain: the user's preferences, such as each site's page zoom and the installed web extensions"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,8 +10,6 @@ publish.workspace = true
 indexmap.workspace = true
 quickie-domain-kernel.workspace = true
 thiserror.workspace = true
-
-[dev-dependencies]
 url.workspace = true
 
 [lints]

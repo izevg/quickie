@@ -46,6 +46,7 @@ impl Browser {
             self.dispatch_event(event, &mut drained);
         }
         *self.events.borrow_mut() = events;
+        self.drain_extensions();
         self.settle_drained(&drained);
         for writes in &self.writes {
             if let Some(error) = writes.take_error() {
@@ -147,6 +148,7 @@ impl Browser {
         }
         self.present_asks();
         self.page_changes();
+        self.arrange_extensions();
     }
 
     /// A page's process is gone and the page blank. The tab stays; its window says so now if

@@ -20,6 +20,8 @@ pub enum Outcome {
     ChordUnbound,
     /// An open overlay's or sheet's own key (`⎋`, `⏎`, arrows, a hint label).
     Overlay,
+    /// The key of an extension's command, which ran; the keymap binds nothing to it.
+    Extension,
     /// `⌘Q`.
     Quit,
     /// Nothing of ours: the page, the focused field, or the menu bar has it.
@@ -41,7 +43,12 @@ impl Outcome {
     pub fn handled(&self) -> bool {
         matches!(
             self,
-            Self::Command { .. } | Self::Pending | Self::ChordUnbound | Self::Overlay | Self::Quit
+            Self::Command { .. }
+                | Self::Pending
+                | Self::ChordUnbound
+                | Self::Overlay
+                | Self::Extension
+                | Self::Quit
         )
     }
 
@@ -52,6 +59,7 @@ impl Outcome {
             Self::Pending => "pending: waits for the second stroke".to_owned(),
             Self::ChordUnbound => "chord not bound: dropped".to_owned(),
             Self::Overlay => "overlay key".to_owned(),
+            Self::Extension => "an extension's command".to_owned(),
             Self::Quit => "quit".to_owned(),
             Self::Passed => "passed through".to_owned(),
             Self::Returned => "back from the page, which did not take it: passed on".to_owned(),
@@ -201,6 +209,7 @@ mod tests {
             Outcome::Pending,
             Outcome::ChordUnbound,
             Outcome::Overlay,
+            Outcome::Extension,
             Outcome::Quit,
         ];
         let passed = [

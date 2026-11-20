@@ -9,6 +9,7 @@ use quickie_application::{Navigation, PaletteIndex, Sources, Target};
 use url::Url;
 
 use super::Browser;
+use crate::Addons;
 use crate::input::keystroke::OverlayKey;
 
 /// How many answers a query asks for; the list shows eight and scrolls the rest.
@@ -73,12 +74,18 @@ impl Browser {
         let browsing = self.browsing.borrow();
         let library = self.library.borrow();
         let keymap = self.keymap.borrow();
+        let extensions = self
+            .extensions
+            .borrow()
+            .as_ref()
+            .map_or_default(Addons::offers);
         self.palette.open(&Sources {
             session: browsing.session(),
             history: library.history(),
             bookmarks: library.bookmarks(),
             shortcuts: library.shortcuts(),
             keymap: &keymap,
+            extensions: &extensions,
         })
     }
 
@@ -137,6 +144,14 @@ impl Browser {
             Target::Ask(question) => {
                 self.command_palette.hide();
                 self.ask_question(question);
+            }
+            Target::InstallExtension(page) => {
+                self.command_palette.hide();
+                self.install_from_store(&page);
+            }
+            Target::Extension(trigger) => {
+                self.command_palette.hide();
+                self.run_extension(&trigger);
             }
         }
     }

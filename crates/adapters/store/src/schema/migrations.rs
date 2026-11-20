@@ -178,4 +178,36 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     ALTER TABLE history_by_page RENAME TO history;
     CREATE INDEX history_by_last_visit ON history (last_visit);
 ",
+    // 11: the installed web extensions in install order, what each was granted, the sites the
+    // user allowed or blocked each on, and, in at most one row, whether updates come on their
+    // own and when they were last looked for.
+    "
+    CREATE TABLE extensions (
+        position INTEGER PRIMARY KEY,
+        id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('chrome_web_store', 'file', 'folder')),
+        location TEXT NOT NULL,
+        enabled INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE extension_grants (
+        extension TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('permission', 'pattern')),
+        name TEXT NOT NULL,
+        PRIMARY KEY (extension, kind, name)
+    ) STRICT;
+    CREATE TABLE extension_sites (
+        extension TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+        rank INTEGER NOT NULL,
+        site TEXT NOT NULL,
+        access TEXT NOT NULL CHECK (access IN ('allowed', 'blocked')),
+        PRIMARY KEY (extension, rank)
+    ) STRICT;
+    CREATE TABLE extension_updates (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        auto_update INTEGER NOT NULL,
+        last_checked INTEGER
+    ) STRICT;
+",
 ];

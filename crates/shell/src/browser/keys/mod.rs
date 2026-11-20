@@ -152,6 +152,9 @@ impl Browser {
             self.cancel_cycle();
             return Outcome::Overlay;
         }
+        if self.extension_sheet_key(stroke).is_some() {
+            return Outcome::Overlay;
+        }
         if let Some(route) = self.sheet_route(stroke) {
             return self.past_sheet(stroke, route);
         }
@@ -180,6 +183,8 @@ impl Browser {
                         stroke.glyphs(platform)
                     ));
                     Outcome::ChordUnbound
+                } else if self.extension_key(stroke) {
+                    Outcome::Extension
                 } else if is_quit(stroke) {
                     NSApplication::sharedApplication(self.mtm).terminate(None);
                     Outcome::Quit
@@ -301,7 +306,7 @@ impl Browser {
         if self.agent_ui.is_open() {
             return self.agent_key(key);
         }
-        if self.popovers.is_open() {
+        if self.popovers.is_open() || self.extension_ui.popup_open() {
             return self.popover_key(key);
         }
         if self.command_palette.is_open() {

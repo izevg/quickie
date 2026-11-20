@@ -1,10 +1,13 @@
-//! The sheets group: E3 decisions a page asks for, headed by the origin that asks.
+//! The sheets group: E3 decisions a page or an extension asks for, headed by who asks.
 
 use std::rc::Rc;
 
 use quickie_application::Permission;
 use quickie_ui_shared::stories::{LIGHT, Scene, Story, Theme, WINDOW};
-use quickie_ui_widgets::{DialogKind, DialogRequest, DialogSheet, PermissionSheet};
+use quickie_ui_widgets::{
+    DialogKind, DialogRequest, DialogSheet, ExtensionRequest, ExtensionSheet, Moment,
+    PermissionSheet,
+};
 
 use crate::fixtures::{self, LONG_TITLE};
 
@@ -30,7 +33,21 @@ const fn dialog(state: &'static str, themes: &'static [Theme], scene: fn(&mut Sc
     }
 }
 
+const fn extension(state: &'static str, themes: &'static [Theme], scene: fn(&mut Scene)) -> Story {
+    Story {
+        group: "sheets",
+        widget: "extension-sheet",
+        state,
+        themes,
+        window: WINDOW,
+        scene,
+    }
+}
+
 pub const STORIES: &[Story] = &[
+    extension("install", &[Theme::Light, Theme::Dark], extension_install),
+    extension("update", LIGHT, extension_update),
+    extension("request", LIGHT, extension_request),
     permission("camera", &Theme::ALL, permission_camera),
     permission("microphone", LIGHT, permission_microphone),
     permission("camera-and-microphone", LIGHT, permission_both),
@@ -39,6 +56,43 @@ pub const STORIES: &[Story] = &[
     dialog("prompt", LIGHT, dialog_prompt),
     dialog("long-message", LIGHT, dialog_long),
 ];
+
+fn extension_sheet(scene: &mut Scene, moment: Moment, permissions: &[&str], patterns: &[&str]) {
+    let sheet = ExtensionSheet::new(scene.mtm());
+    let request = ExtensionRequest {
+        name: "Bitwarden Password Manager".to_owned(),
+        moment,
+        permissions: permissions.iter().map(|&name| name.to_owned()).collect(),
+        patterns: patterns.iter().map(|&name| name.to_owned()).collect(),
+    };
+    sheet.show(scene.host(), scene.window(), &request, |_| {});
+    scene.check(sheet.is_open(), "the sheet is open");
+    let said = scene.accessibility().contains("Bitwarden Password Manager");
+    scene.check(said, "the sheet names the extension");
+    scene.keep(sheet);
+}
+
+fn extension_install(scene: &mut Scene) {
+    extension_sheet(
+        scene,
+        Moment::Install("2025.10.1".to_owned()),
+        &["storage", "tabs", "nativeMessaging", "scripting"],
+        &["<all_urls>"],
+    );
+}
+
+fn extension_update(scene: &mut Scene) {
+    extension_sheet(
+        scene,
+        Moment::Update("2025.11.0".to_owned()),
+        &["clipboardRead"],
+        &[],
+    );
+}
+
+fn extension_request(scene: &mut Scene) {
+    extension_sheet(scene, Moment::Running, &[], &["https://*.example.com/*"]);
+}
 
 fn ask(scene: &mut Scene, origin: &str, wanted: Permission) {
     let sheet = PermissionSheet::new(scene.mtm());

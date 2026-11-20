@@ -53,12 +53,12 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSSize};
-use quickie_application::{Agent, Browsing, Clock, Library, Shields, Zoom};
+use quickie_application::{Agent, Browsing, Clock, Extensions, Library, Shields, Zoom};
 use quickie_domain_browsing::{Profile, Timestamp};
 use quickie_domain_commands::{Catalog, Platform};
-use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
+use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine, WebKitExtensions};
 use quickie_store::{KeybindingsFile, PendingWrites, WriteBehindStore};
-use quickie_system::{KeychainSecrets, SystemEntropy};
+use quickie_system::{ExtensionFiles, KeychainSecrets, SystemEntropy};
 use quickie_ui_shared::tokens::overlay;
 use url::Url;
 
@@ -86,6 +86,10 @@ pub type Agents = Agent<WriteBehindStore, KeychainSecrets, SystemEntropy>;
 
 /// The page zoom use cases as the app composes them.
 pub type Zooms = Zoom<WriteBehindStore>;
+
+/// The web extension use cases as the app composes them: the main profile's extensions on the
+/// `WebKit` engine's controller, saved in the store.
+pub type Addons = Extensions<WriteBehindStore, WebKitExtensions, SystemClock>;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
@@ -158,6 +162,13 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     // shows at the screen's scale.
     let card = overlay::THUMBNAIL_MAX_WIDTH;
     engine.set_thumbnail_size(NSSize::new(card, (card * overlay::THUMBNAIL_SHAPE).round()));
+    // Web extensions run in the main profile's pages, so the controller exists before the
+    // session restores its first page. Not on a macOS before 15.4.
+    let extension_host = if WebKitEngine::CAPS.web_extensions {
+        engine.web_extensions()
+    } else {
+        None
+    };
     let mut browsing = Browsing::start(Profile::Main, engine, store, SystemClock, &home)
         .map_err(|error| error.to_string())?;
     // The library has a writer, and a connection, of its own.
@@ -199,12 +210,22 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let secrets = KeychainSecrets::login();
     let agent = Agent::start(agent_store, secrets.clone(), SystemEntropy)
         .map_err(|error| error.to_string())?;
+    // And the extensions. They are read from disk now and run once read; nothing is fetched
+    // unless the user asks or turned automatic updates on (docs/privacy.md).
+    let extensions_store =
+        WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let extensions_pending = extensions_store.pending();
+    let extensions = extension_host
+        .map(|host| Extensions::start(extensions_store, host, SystemClock, PLATFORM))
+        .transpose()
+        .map_err(|error| error.to_string())?;
     let writes = vec![
         pending,
         library_pending,
         shields_pending,
         agent_pending,
         zoom_pending,
+        extensions_pending,
     ];
     let services = Services {
         browsing,
@@ -222,6 +243,8 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         notices,
         downloads_folder,
         profile: support_dir()?,
+        extensions,
+        extension_files: ExtensionFiles::new(support_dir()?.join("Extensions")),
     };
     Ok((Browser::new(services, home, mtm), writes))
 }

@@ -22,7 +22,8 @@ use objc2_foundation::{
 };
 use objc2_web_kit::{
     WKContentWorld, WKSnapshotConfiguration, WKUserContentController, WKUserScript,
-    WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKUserScriptInjectionTime, WKWebExtensionController, WKWebView, WKWebViewConfiguration,
+    WKWebsiteDataStore,
 };
 use quickie_application::{AskKind, EngineError, FindStep, Followed, LinkTarget};
 use quickie_domain_browsing::{FindMatches, Focus};
@@ -75,12 +76,19 @@ impl WebPage {
         store: &WKWebsiteDataStore,
         content: &WKUserContentController,
         internal: &InternalPages,
+        extensions: Option<&WKWebExtensionController>,
         hooks: Hooks,
         focus: FocusReports,
         mtm: MainThreadMarker,
     ) -> Self {
         // SAFETY: a fresh configuration has no preconditions.
         let configuration = unsafe { WKWebViewConfiguration::new(mtm) };
+        // Web extensions run in the main jar's pages only; a page it opens copies this. The
+        // setter exists only where the controller does (macOS 15.4).
+        if let Some(controller) = extensions {
+            // SAFETY: a controller made on the main thread; the configuration retains it.
+            unsafe { configuration.setWebExtensionController(Some(controller)) };
+        }
         // SAFETY: `store` is a valid data store; the configuration is copied on use.
         unsafe { configuration.setWebsiteDataStore(store) };
         // SAFETY: a valid controller; the copy keeps the same controller, so rule lists
