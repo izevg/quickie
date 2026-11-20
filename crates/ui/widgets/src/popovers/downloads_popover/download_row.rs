@@ -1,33 +1,41 @@
-//! One download as a row (`docs/design/inventory.md`, entities `download_row`): a glyph for its
-//! state, the file name, a thin bar while the size is known, the detail line, and its buttons.
-//! It lives in the popover's slice until an `entities` crate exists.
+//! One download as a row (`docs/design/inventory.md`, entities `download_row`;
+//! `docs/design/mocks/system/downloads/`): its state's glyph on a tinted circle, the file name,
+//! the detail line, a 4 pt accent bar under them while the size is known, and its buttons. It
+//! lives in the popover's slice until an `entities` crate exists.
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{MainThreadMarker, sel};
 use objc2_app_kit::{
-    NSButton, NSControlSize, NSImage, NSImageSymbolConfiguration, NSImageView, NSLineBreakMode,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSTextField, NSView,
+    NSAccessibility, NSButton, NSColor, NSImage, NSImageSymbolConfiguration, NSImageView,
+    NSLineBreakMode, NSTextField, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use quickie_ui_shared::Plate;
+use quickie_ui_shared::form::Paint;
 use quickie_ui_shared::tokens::{TextRole, color, radius, space};
 
 use super::line::{Action, Line, Phase};
 
 /// A row's height.
-pub(crate) const ROW_HEIGHT: CGFloat = 52.0;
+pub(crate) const ROW_HEIGHT: CGFloat = 56.0;
 /// A round button around a symbol.
 const BUTTON: CGFloat = 24.0;
-/// The state glyph's box.
-const GLYPH: CGFloat = 28.0;
+/// The tinted circle behind the state glyph.
+const CIRCLE: CGFloat = 32.0;
+/// The progress bar's thickness.
+const BAR: CGFloat = 4.0;
 
 pub(crate) struct DownloadRow {
     view: Retained<NSView>,
+    circle: Retained<Plate>,
     glyph: Retained<NSImageView>,
     name: Retained<NSTextField>,
     detail: Retained<NSTextField>,
-    bar: Retained<NSProgressIndicator>,
+    track: Retained<Plate>,
+    fill: Retained<Plate>,
+    fraction: std::cell::Cell<Option<f64>>,
     buttons: [Retained<NSButton>; 2],
 }
 
@@ -39,20 +47,21 @@ impl DownloadRow {
         if let Some(layer) = view.layer() {
             layer.setCornerRadius(radius::ROW);
         }
+        let circle = Plate::new(Some(color::group_fill), None, CIRCLE / 2.0, mtm);
         let glyph = NSImageView::new(mtm);
+        circle.addSubview(&glyph);
         let name = label(TextRole::RowTitle, &color::label(), mtm);
         name.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
         let detail = label(TextRole::RowDetail, &color::secondary_label(), mtm);
-        let bar = NSProgressIndicator::new(mtm);
-        bar.setStyle(NSProgressIndicatorStyle::Bar);
-        bar.setControlSize(NSControlSize::Small);
-        bar.setIndeterminate(false);
-        bar.setMinValue(0.0);
-        bar.setMaxValue(1.0);
+        detail.setFont(Some(&TextRole::Caption.mono_font()));
+        detail.sizeToFit();
+        let track = Plate::new(Some(color::group_fill), None, BAR / 2.0, mtm);
+        let fill = Plate::new(Some(color::accent), None, BAR / 2.0, mtm);
+        track.addSubview(&fill);
         let tag = isize::try_from(index).unwrap_or(isize::MAX);
         let buttons =
             [sel!(primary:), sel!(secondary:)].map(|action| button(action, tag, target, mtm));
-        for part in [&*glyph as &NSView, &name, &detail, &bar] {
+        for part in [&*circle as &NSView, &name, &detail, &track] {
             view.addSubview(part);
         }
         for button in &buttons {
@@ -60,10 +69,13 @@ impl DownloadRow {
         }
         Self {
             view,
+            circle,
             glyph,
             name,
             detail,
-            bar,
+            track,
+            fill,
+            fraction: std::cell::Cell::new(None),
             buttons,
         }
     }
@@ -87,22 +99,25 @@ impl DownloadRow {
         if let Some(layer) = self.view.layer() {
             layer.setBackgroundColor(fill.map(|fill| fill.CGColor()).as_deref());
         }
-        let (glyph, tint) = match line.phase {
-            Phase::Running => ("arrow.down.circle", color::accent()),
-            Phase::Done => ("doc", color::success()),
-            Phase::Failed => ("exclamationmark.triangle", color::destructive()),
-            Phase::Cancelled => ("xmark.circle", color::secondary_label()),
+        let (glyph, tint, circle): (&str, Paint, Paint) = match line.phase {
+            Phase::Running => ("arrow.down", color::accent, accent_fill),
+            Phase::Done => ("doc.fill", color::success, color::success_fill),
+            Phase::Failed => (
+                "exclamationmark.triangle.fill",
+                color::destructive,
+                color::destructive_fill,
+            ),
+            Phase::Cancelled => ("xmark", color::secondary_label, color::group_fill),
         };
+        self.circle.set_paint(Some(circle), None);
         self.glyph
-            .setImage(image(glyph, line.phase.label(), TextRole::Title).as_deref());
-        self.glyph.setContentTintColor(Some(&tint));
+            .setImage(image(glyph, line.phase.label(), TextRole::RowTitle).as_deref());
+        self.glyph.setContentTintColor(Some(&tint()));
         self.name.setStringValue(&NSString::from_str(&line.name));
         self.detail
             .setStringValue(&NSString::from_str(&line.detail));
-        if let Some(fraction) = line.fraction {
-            self.bar.setDoubleValue(fraction);
-        }
-        self.bar.setHidden(line.fraction.is_none());
+        self.fraction.set(line.fraction);
+        self.track.setHidden(line.fraction.is_none());
         let actions = line.phase.actions();
         for (slot, button) in self.buttons.iter().enumerate() {
             match actions.get(slot) {
@@ -110,6 +125,7 @@ impl DownloadRow {
                     let (name, description) = action.symbol();
                     button.setImage(image(name, description, TextRole::RowDetail).as_deref());
                     button.setToolTip(Some(&NSString::from_str(description)));
+                    button.setAccessibilityLabel(Some(&NSString::from_str(description)));
                     button.setHidden(false);
                 }
                 None => button.setHidden(true),
@@ -122,9 +138,13 @@ impl DownloadRow {
         self.view.setFrameSize(NSSize::new(width, ROW_HEIGHT));
         let inset = space::SM;
         let middle = |height: CGFloat| ((ROW_HEIGHT - height) / 2.0).round();
+        self.circle.setFrame(NSRect::new(
+            NSPoint::new(inset, middle(CIRCLE)),
+            NSSize::new(CIRCLE, CIRCLE),
+        ));
         self.glyph.setFrame(NSRect::new(
-            NSPoint::new(inset, middle(GLYPH)),
-            NSSize::new(GLYPH, GLYPH),
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(CIRCLE, CIRCLE),
         ));
         let mut right = width - inset;
         for button in self.buttons.iter().take(buttons).rev() {
@@ -135,31 +155,44 @@ impl DownloadRow {
             ));
             right -= space::XS;
         }
-        let left = inset + GLYPH + space::SM;
-        let text_width = (right - space::XS - left).max(0.0);
+        let left = inset + CIRCLE + space::MD;
+        let text_width = (right - space::SM - left).max(0.0);
         let name_height = self.name.frame().size.height;
         let detail_height = self.detail.frame().size.height;
-        let bar_height = if self.bar.isHidden() { 0.0 } else { 4.0 };
-        let gap = if self.bar.isHidden() { 2.0 } else { 3.0 };
-        let stack = name_height + detail_height + bar_height + gap * 2.0;
+        let bar = if self.track.isHidden() {
+            0.0
+        } else {
+            BAR + space::XS
+        };
+        let stack = name_height + 2.0 + detail_height + bar;
+        // Bottom up: the bar, the detail, the name.
         let mut y = middle(stack);
+        if let Some(fraction) = self.fraction.get().filter(|_| bar > 0.0) {
+            self.track.setFrame(NSRect::new(
+                NSPoint::new(left, y),
+                NSSize::new(text_width, BAR),
+            ));
+            self.fill.setFrame(NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new((text_width * fraction).round().max(BAR), BAR),
+            ));
+            y += bar;
+        }
         self.detail.setFrame(NSRect::new(
             NSPoint::new(left, y),
             NSSize::new(text_width, detail_height),
         ));
-        y += detail_height + gap;
-        if bar_height > 0.0 {
-            self.bar.setFrame(NSRect::new(
-                NSPoint::new(left, y),
-                NSSize::new(text_width, bar_height),
-            ));
-            y += bar_height + gap;
-        }
+        y += detail_height + 2.0;
         self.name.setFrame(NSRect::new(
             NSPoint::new(left, y),
             NSSize::new(text_width, name_height),
         ));
     }
+}
+
+/// Behind a running download's glyph: the accent at the tint alpha.
+fn accent_fill() -> Retained<NSColor> {
+    color::accent().colorWithAlphaComponent(color::TINT_ALPHA)
 }
 
 impl Phase {
@@ -186,11 +219,7 @@ impl Action {
     }
 }
 
-fn label(
-    role: TextRole,
-    tint: &objc2_app_kit::NSColor,
-    mtm: MainThreadMarker,
-) -> Retained<NSTextField> {
+fn label(role: TextRole, tint: &NSColor, mtm: MainThreadMarker) -> Retained<NSTextField> {
     let field = NSTextField::labelWithString(&NSString::from_str(" "), mtm);
     field.setFont(Some(&role.font()));
     field.setTextColor(Some(tint));
