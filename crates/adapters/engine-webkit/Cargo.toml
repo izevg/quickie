@@ -80,12 +80,20 @@ serde_json.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+# The conformance test's native clicks.
+objc2-app-kit = { workspace = true, features = ["NSGraphicsContext"] }
+quickie-application = { workspace = true, features = ["conformance"] }
 tempfile.workspace = true
 
-# Drives real WKWebViews, so it runs on the main thread with its own `main`, not the test
-# harness's worker threads.
+# These drive real WKWebViews, so they run on the main thread with their own `main`, not the
+# test harness's worker threads.
 [[test]]
 name = "blocking"
+harness = false
+
+# The application's engine conformance suite (crates/application/src/engine/conformance).
+[[test]]
+name = "conformance"
 harness = false
 
 [lints]

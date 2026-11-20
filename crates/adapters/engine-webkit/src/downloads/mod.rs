@@ -250,8 +250,13 @@ impl DownloadCenter {
             .iter()
             .find(|live| *live.download == *download)
             .map(|live| live.token);
-        let (Some(token), Some(directory)) = (token, self.directory.borrow().clone()) else {
+        let Some(token) = token else {
             decide.call((std::ptr::null_mut(),));
+            return;
+        };
+        let Some(directory) = self.directory.borrow().clone() else {
+            decide.call((std::ptr::null_mut(),));
+            self.refused(token, "no downloads folder is set");
             return;
         };
         let url = url
