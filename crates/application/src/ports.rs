@@ -12,7 +12,7 @@ use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, Win
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::SiteZoomsSnapshot;
+use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{
     ContentHash, FilterListId, FilterListSetSnapshot, Site, SitePoliciesSnapshot,
 };
@@ -278,6 +278,26 @@ pub trait ShieldsRepo {
     ///
     /// The store could not be written.
     fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError>;
+}
+
+/// Where the installed extensions persist (`shell.sqlite` in the product).
+pub trait ExtensionsRepo {
+    /// The extensions as last saved; none on a profile that never saved them.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be read.
+    fn load_extensions(&self) -> Result<InstalledExtensionsSnapshot, StoreError>;
+
+    /// Replaces the saved extensions, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_extensions(
+        &mut self,
+        extensions: InstalledExtensionsSnapshot,
+    ) -> Result<(), StoreError>;
 }
 
 /// The network, for the browser's own requests, such as fetching a filter list or asking the

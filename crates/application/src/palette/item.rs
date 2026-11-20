@@ -7,6 +7,8 @@ use quickie_domain_library::Tag;
 use quickie_domain_palette::Kind;
 use url::Url;
 
+use crate::ExtensionTrigger;
+
 /// What choosing a palette row does.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Target {
@@ -24,6 +26,10 @@ pub enum Target {
     Skill(SkillId),
     /// Ask the agent this question about the current page.
     Ask(Question),
+    /// Install the extension this Chrome Web Store page shows.
+    InstallExtension(Url),
+    /// Run an extension's action or command.
+    Extension(ExtensionTrigger),
 }
 
 /// One row of the palette, best first in a query's answer.

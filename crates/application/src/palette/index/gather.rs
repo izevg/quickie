@@ -11,7 +11,11 @@ use quickie_domain_palette::{Frecency, Kind};
 use url::Url;
 
 use super::shelf::{Aim, Shelf};
+use crate::ExtensionOffer;
 use crate::palette::{Sources, Target};
+
+/// The second line of an extension's row: where it comes from, as a category would say.
+const EXTENSION_DETAIL: &str = "Extension";
 
 /// No prefix: open tabs, then bookmarks, then history. A page appears once, as the best of what
 /// it is: switching to its tab beats opening its bookmark beats opening it from history. Each
@@ -62,7 +66,7 @@ pub(super) fn go_to(sources: &Sources<'_>, now: Timestamp) -> Shelf {
 }
 
 /// `>`: every command, its category as detail, its keys as glyphs.
-pub(super) fn commands(catalog: &Catalog, keymap: &Keymap) -> Shelf {
+pub(super) fn commands(catalog: &Catalog, keymap: &Keymap, extensions: &[ExtensionOffer]) -> Shelf {
     let mut shelf = Shelf::default();
     for command in catalog.iter() {
         let glyphs = keymap
@@ -74,6 +78,21 @@ pub(super) fn commands(catalog: &Catalog, keymap: &Keymap) -> Shelf {
             Kind::Command,
             command.title,
             command.category.label(),
+            0,
+        );
+    }
+    for extension in extensions {
+        let glyphs = extension
+            .stroke
+            .map_or_default(|stroke| vec![stroke.glyphs(keymap.platform())]);
+        shelf.push(
+            Aim::Fixed(Box::new((
+                Target::Extension(extension.trigger.clone()),
+                glyphs,
+            ))),
+            Kind::Command,
+            &extension.title,
+            EXTENSION_DETAIL,
             0,
         );
     }

@@ -5,7 +5,9 @@
 //! sidebar shows the page behind it.
 //!
 //! - [`keyboard`]: the keymap editor: the table, a refused user entry, and recording keys.
+//! - [`extensions`]: the installed extensions, none, and a macOS without them.
 
+mod extensions;
 mod keyboard;
 
 use std::cell::RefCell;
@@ -48,6 +50,19 @@ const STORIES: &[Story] = &[
     settings("general", "general-default", LIGHT, general_default),
     settings("shields", "shields", LIGHT_DARK, shields),
     settings("shields", "shields-fetching", LIGHT, shields_fetching),
+    settings(
+        "extensions",
+        "extensions",
+        LIGHT_DARK,
+        extensions::installed,
+    ),
+    settings("extensions", "extensions-empty", LIGHT, extensions::empty),
+    settings(
+        "extensions",
+        "extensions-old-macos",
+        LIGHT,
+        extensions::unavailable,
+    ),
     settings("keyboard", "keyboard", LIGHT_DARK, keyboard::table_full),
     settings("keyboard", "keyboard-refused", LIGHT_DARK, keyboard::table),
     settings("keyboard", "keyboard-problems", LIGHT, keyboard::problems),
@@ -84,7 +99,7 @@ pub struct Settings {
 
 /// The window filled as the browser fills it, its content on the story's page, the sidebar
 /// with the keyboard on General.
-fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> {
+pub fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> {
     let agent = AgentSettings::new(scene.mtm());
     agent.load(&SettingsSummary {
         base: "http://127.0.0.1:1234/v1".to_owned(),
@@ -148,12 +163,13 @@ fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> {
 }
 
 /// Goes to `pane` with `↓` in the sidebar, from General, and checks the pane is up.
-fn go(scene: &mut Scene, pane: Pane, title: &str) {
+pub fn go(scene: &mut Scene, pane: Pane, title: &str) {
     let steps = match pane {
         Pane::General => 0,
         Pane::Shields => 1,
-        Pane::Keys => 2,
-        Pane::Agent => 3,
+        Pane::Extensions => 2,
+        Pane::Keys => 3,
+        Pane::Agent => 4,
     };
     for _ in 0..steps {
         scene.press(Key::Down);

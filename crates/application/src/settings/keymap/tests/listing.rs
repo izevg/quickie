@@ -2,7 +2,7 @@ use quickie_domain_commands::{Catalog, CommandId, Platform};
 
 use super::{entry, load};
 use crate::KeybindingText;
-use crate::keymap::{BindingLine, BindingSource, LoadedKeymap, keymap_lines};
+use crate::settings::keymap::{BindingLine, BindingSource, LoadedKeymap, keymap_lines};
 
 fn id(text: &str) -> CommandId {
     CommandId::try_from(text).unwrap()
