@@ -62,7 +62,9 @@ Dynamic Type and optical sizes. No bundled fonts.
 Overlay widths from the mockups: address 640, command palette 720, answer panel 760, popovers 360,
 switcher sized by its thumbnails (6 × 16:10). Palettes sit at 15 % from the top (address at 20 %).
 The answer panel docks at the right and takes at most 40 % of the window (up to 760, at most 640
-tall), so the page it cites stays readable beside it; the agent settings are a 440 popover.
+tall), so the page it cites stays readable beside it. The agent settings are the Agent pane of the
+Settings window: a standard macOS window with a toolbar of panes, 540 wide, no glass (it floats
+above nothing).
 
 ## Elevation
 

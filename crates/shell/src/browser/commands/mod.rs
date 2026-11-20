@@ -74,6 +74,10 @@ pub enum Action {
     StopAgent,
     ShowAgentAnswer,
     ShowAgentSettings,
+    /// The Settings window.
+    ShowSettings,
+    /// The key debug overlay, on or off.
+    DebugKeys,
     /// Any of the developer tools' commands: Web Inspector opens from the page.
     DevTools,
 }
@@ -157,6 +161,8 @@ impl Action {
             "quickie.agent.stop" => Self::StopAgent,
             "quickie.agent.showAnswer" => Self::ShowAgentAnswer,
             "quickie.agent.settings" => Self::ShowAgentSettings,
+            "quickie.app.settings" => Self::ShowSettings,
+            "quickie.debug.keys" => Self::DebugKeys,
             _ => return None,
         };
         Some(action)
@@ -182,17 +188,21 @@ fn holding(stroke: Option<KeyStroke>) -> Modifiers {
 }
 
 impl Browser {
+    /// A command Quickie lists but cannot do yet says so.
+    fn not_yet(&self, id: &CommandId) {
+        self.close_overlays();
+        let title = self
+            .catalog
+            .get(id)
+            .map_or(id.as_str(), |command| command.title);
+        self.toast(&format!("Not yet: {title}"));
+    }
+
     /// Runs the command `id`. `stroke` is the key that asked, `None` for the palette.
     pub(super) fn dispatch(&self, id: &CommandId, stroke: Option<KeyStroke>) {
-        self.pending.set(None);
+        self.pending.take();
         let Some(action) = Action::of(id) else {
-            self.close_overlays();
-            let title = self
-                .catalog
-                .get(id)
-                .map_or(id.as_str(), |command| command.title);
-            self.toast(&format!("Not yet: {title}"));
-            return;
+            return self.not_yet(id);
         };
         match action {
             Action::Overview => return self.toggle_overview(Trigger::Keyboard),
@@ -211,7 +221,9 @@ impl Browser {
             Action::AskAgent => return self.open_palette("?"),
             Action::StopAgent => return self.stop_agent(),
             Action::ShowAgentAnswer => return self.show_answer(),
-            Action::ShowAgentSettings => return self.open_agent_settings(Trigger::Keyboard),
+            Action::ShowAgentSettings => return self.open_agent_settings(),
+            Action::ShowSettings => return self.open_settings(None),
+            Action::DebugKeys => return self.toggle_key_log(),
             Action::Cycle(direction) => {
                 if let Some((window, _)) = self.current() {
                     self.cycle(window, direction, holding(stroke));
@@ -279,7 +291,9 @@ impl Browser {
             | Action::AskAgent
             | Action::StopAgent
             | Action::ShowAgentAnswer
-            | Action::ShowAgentSettings => {}
+            | Action::ShowAgentSettings
+            | Action::ShowSettings
+            | Action::DebugKeys => {}
         }
         self.settle(window);
     }
@@ -434,27 +448,32 @@ impl Browser {
                     }
                 });
             });
-        match spawned {
-            Ok(_) => self.toast("Fetching filter lists"),
-            Err(error) => self.toast(&format!("Couldn't fetch filter lists: {error}")),
-        }
+        let said = match spawned {
+            Ok(_) => "Fetching filter lists".to_owned(),
+            Err(error) => format!("Couldn't fetch filter lists: {error}"),
+        };
+        self.toast(&said);
+        *self.lists_status.borrow_mut() = format!("{said}…");
     }
 
     fn lists_fetched(&self, fetched: Vec<FetchedList>) {
         let refreshed = self.shields.borrow_mut().lists_fetched(fetched);
-        match refreshed {
-            Ok(refreshed) if refreshed.failed.is_empty() => self.toast(&format!(
+        let said = match refreshed {
+            Ok(refreshed) if refreshed.failed.is_empty() => format!(
                 "Filter lists: {} updated, {} unchanged",
                 refreshed.updated.len(),
                 refreshed.unchanged.len()
-            )),
-            Ok(refreshed) => self.toast(&format!(
+            ),
+            Ok(refreshed) => format!(
                 "Filter lists: {} could not be fetched",
                 refreshed.failed.len()
-            )),
-            Err(error) => self.report(&error),
-        }
+            ),
+            Err(error) => format!("That didn't work: {error}"),
+        };
+        self.toast(&said);
+        *self.lists_status.borrow_mut() = said;
         self.refresh_shields_popover();
+        self.refresh_settings();
     }
 
     pub(super) fn active_tab(&self, window: WindowId) -> Option<quickie_domain_browsing::Tab> {

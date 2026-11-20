@@ -60,7 +60,7 @@ const HINTS: &str = "quickie.hints.toggle";
 
 /// The macOS defaults as they were written before `mod` existed, row for row, plus the rows
 /// added since in their `cmd` form: the keymap of `mod` must stay exactly this on macOS.
-const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 53] = [
+const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 54] = [
     ("cmd+shift+p", "quickie.palette.openCommands", None),
     ("cmd+k", "quickie.palette.openCommands", None),
     ("cmd+p", "quickie.palette.goto", None),
@@ -122,6 +122,7 @@ const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 53] = [
     ("cmd+.", "quickie.agent.stop", None),
     ("alt+cmd+i", "quickie.devtools.toggle", None),
     ("alt+cmd+j", "quickie.devtools.console", None),
+    ("cmd+,", "quickie.app.settings", None),
 ];
 
 #[test]

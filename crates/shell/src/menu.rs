@@ -47,6 +47,8 @@ pub fn install(app: &NSApplication, target: &AnyObject, catalog: &Catalog, mtm: 
         &[
             standard("About Quickie", sel!(orderFrontStandardAboutPanel:), ""),
             Entry::Separator,
+            Entry::Command("quickie.app.settings"),
+            Entry::Separator,
             Entry::Command("quickie.app.setDefaultBrowser"),
             Entry::Command("quickie.app.revealProfile"),
             Entry::Separator,
@@ -125,9 +127,9 @@ pub fn install(app: &NSApplication, target: &AnyObject, catalog: &Catalog, mtm: 
     app.setHelpMenu(Some(&help));
 }
 
-/// Window: minimize, zoom, and full screen. The window's own buttons are hidden (content
-/// first), so full screen lives here, on macOS's standard ⌃⌘F; `AppKit` retitles the item
-/// "Exit Full Screen" while it applies.
+/// Window: minimize, zoom, and full screen, on macOS's standard ⌘M and ⌃⌘F besides the
+/// window's own buttons; `AppKit` retitles the item "Exit Full Screen" while it applies. The
+/// keymap binds neither stroke, so its monitor lets both through to these items.
 fn window_menu(target: &AnyObject, catalog: &Catalog, mtm: MainThreadMarker) -> Retained<NSMenu> {
     menu(
         mtm,

@@ -78,8 +78,9 @@ glass above the page, and is gone when you are done:
 
 ### Default keys
 
-All of them are commands in the palette and can be rebound in the keymap editor. ⌘ is Ctrl on
-Linux: `keybindings.json` writes it `mod` (`mod+shift+p`), and `⌃⇥` stays Ctrl on both.
+All of them are commands in the palette and can be rebound in `keybindings.json` (Settings →
+Keys opens it, VS Code's format). ⌘ is Ctrl on Linux: `keybindings.json` writes it `mod`
+(`mod+shift+p`), and `⌃⇥` stays Ctrl on both.
 
 | Keys | Command |
 |---|---|
@@ -107,8 +108,9 @@ Linux: `keybindings.json` writes it `mod` (`mod+shift+p`), and `⌃⇥` stays Ct
 | `⌘J` | Downloads |
 | `⌘⌥S` | Shields for the site |
 | `⌘N` / `⌘⇧W` | New window / close the window (its tabs go to the trash) |
-| `⌃⌘F` | Enter or exit full screen (Window menu; the window has no buttons) |
+| `⌃⌘F` | Enter or exit full screen (Window menu, Globe+F, or the window's green button) |
 | `⌘.` | Stop the agent's answer (`?` in the palette asks it about the page) |
+| `⌘,` | Settings: default browser, downloads, filter lists, the agent, `keybindings.json` |
 
 ## Privacy
 

@@ -4,7 +4,8 @@
 //!
 //! - [`events`]: what the engine reports, drained in one `match` and routed to the use cases
 //!   and the widgets; a page whose process crashed.
-//! - [`keys`]: key events → the keymap → a command; the overlays' fixed keys; the `⌃⇥` hold.
+//! - [`keys`]: key events → the keymap → a command; the overlays' fixed keys; the `⌃⇥` hold;
+//!   what resets when focus moves; the key debug overlay.
 //! - [`commands`]: the dispatcher, from a command id to the use case that does it; page zoom,
 //!   printing, and saving a page as a PDF.
 //! - [`palette`]: the command palette's query and what choosing a row does.
@@ -13,7 +14,8 @@
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
 //! - [`popovers`]: the downloads and the shields popovers.
 //! - [`windows`]: new and closed windows, and the pages pages open or close.
-//! - [`system`]: links other apps open, the default browser, the profile in Finder.
+//! - [`system`]: links other apps open, the default browser, the profile in Finder, and the
+//!   Settings window.
 //! - [`agent`]: asking the agent about the page, its answer panel, badge, and settings.
 
 mod agent;
@@ -27,7 +29,7 @@ mod popovers;
 mod system;
 mod windows;
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
@@ -37,16 +39,20 @@ use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSApplication, NSWindow};
 use quickie_application::{AppError, PaletteItem};
 use quickie_domain_browsing::{Session, TabId, WindowId};
-use quickie_domain_commands::{Catalog, CommandId, KeyStroke, Keymap, Modifiers};
-use quickie_store::PendingWrites;
+use quickie_domain_commands::{Catalog, CommandId, Keymap, Modifiers};
+use quickie_store::{KeybindingsFile, PendingWrites};
 use quickie_system::KeychainSecrets;
-use quickie_ui_widgets::{AddressOverlay, CommandPalette, TabSwitcher, ToastStack};
+use quickie_ui_screens::SettingsScreen;
+use quickie_ui_widgets::{AddressOverlay, CommandPalette, KeyLogPanel, TabSwitcher, ToastStack};
 use url::Url;
 
 pub use keys::install_shortcuts;
-pub use system::launch_urls;
+pub use system::{keymap_from, launch_urls};
 
 use crate::input::cycle::CycleHold;
+use crate::input::keystroke::Passed;
+use crate::input::keystroke::chord::PendingChord;
+use crate::input::keystroke::log::KeyLog;
 use crate::window::{browser_window, set_title};
 use crate::{Agents, App, Guard, Lib, Palette, Zooms};
 use navigation::NavigationOverlays;
@@ -63,6 +69,9 @@ pub struct Services {
     pub palette: Palette,
     pub catalog: Catalog,
     pub keymap: Keymap,
+    /// The user's `keybindings.json`, and the entries the keymap left out of it.
+    pub keybindings: KeybindingsFile,
+    pub keymap_problems: Vec<String>,
     /// The stores' writes in flight, polled for failures.
     pub writes: Vec<PendingWrites>,
     /// What went wrong while starting, told once the windows are on screen.
@@ -82,7 +91,16 @@ pub struct Browser {
     zoom: RefCell<Zooms>,
     palette: Palette,
     catalog: Catalog,
-    keymap: Keymap,
+    /// Replaced when the user reloads `keybindings.json`.
+    keymap: RefCell<Keymap>,
+    keybindings: KeybindingsFile,
+    /// What the keymap left out of `keybindings.json`, for the Settings window.
+    keymap_problems: RefCell<Vec<String>>,
+    /// The Settings window, made on first use.
+    settings: OnceCell<SettingsScreen>,
+    /// How the last filter list fetch went, for the Settings window.
+    lists_status: RefCell<String>,
+    downloads_folder: PathBuf,
     writes: Vec<PendingWrites>,
     windows: RefCell<BTreeMap<WindowId, Retained<NSWindow>>>,
     address: AddressOverlay,
@@ -102,7 +120,13 @@ pub struct Browser {
     /// The modifiers that hold the cycle open; releasing one commits it.
     cycle_modifiers: Cell<Modifiers>,
     /// The first stroke of a two-stroke chord, waiting for the second.
-    pending: Cell<Option<KeyStroke>>,
+    pending: Cell<PendingChord>,
+    /// The last presses the keys passed on: one the page does not take comes back through the
+    /// monitor and must go on untouched.
+    passed: Cell<Passed>,
+    /// The last key presses, while the key debug overlay shows.
+    key_log: RefCell<Option<KeyLog>>,
+    key_log_panel: KeyLogPanel,
     /// The start page: new tabs open on it, and the address overlay shows it as empty.
     home: Url,
     /// Startup problems, told by [`Self::show`].
@@ -157,7 +181,12 @@ impl Browser {
             zoom: RefCell::new(services.zoom),
             palette: services.palette,
             catalog: services.catalog,
-            keymap: services.keymap,
+            keymap: RefCell::new(services.keymap),
+            keybindings: services.keybindings,
+            keymap_problems: RefCell::new(services.keymap_problems),
+            settings: OnceCell::new(),
+            lists_status: RefCell::new(String::new()),
+            downloads_folder: services.downloads_folder.clone(),
             writes: services.writes,
             windows: RefCell::new(BTreeMap::new()),
             address: AddressOverlay::new(mtm),
@@ -172,7 +201,10 @@ impl Browser {
             results: RefCell::new(Vec::new()),
             cycle: RefCell::new(None),
             cycle_modifiers: Cell::new(Modifiers::CONTROL),
-            pending: Cell::new(None),
+            pending: Cell::new(PendingChord::default()),
+            passed: Cell::new(Passed::default()),
+            key_log: RefCell::new(None),
+            key_log_panel: KeyLogPanel::new(mtm),
             home,
             notices: RefCell::new(notices),
             profile: services.profile,
@@ -253,8 +285,7 @@ impl Browser {
         let overlay = self.address.is_open()
             || self.command_palette.is_open()
             || self.navigation.overview_open()
-            || self.sheet_open(window)
-            || self.agent_ui.settings_open();
+            || self.sheet_open(window);
         if let (Some(ns_window), Some(view)) = (self.window(window), view)
             && !overlay
         {

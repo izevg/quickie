@@ -4,9 +4,14 @@
 //!
 //! macOS asks the user itself before it changes the default browser; Quickie only makes the
 //! request, and only from the app bundle (`cargo xtask bundle`), never from a bare binary.
+//!
+//! - [`settings`]: the Settings window behind `⌘,`.
 
+mod settings;
 #[cfg(test)]
 mod tests;
+
+pub use settings::keymap_from;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -152,6 +157,7 @@ impl Browser {
     fn claim_schemes(&self, request: DefaultBrowserRequest, next: usize) {
         let Some(&scheme) = request.schemes.get(next) else {
             self.toast("Quickie is now the default browser");
+            self.refresh_settings();
             return;
         };
         let app = file_url(&request.app);

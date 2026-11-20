@@ -95,17 +95,17 @@ the slices inside a group still never use each other.
 | `tabs` | `tab_switcher`, `tab_overview` |
 | `page` | `find_bar`, `load_progress_line`, `origin_chip` |
 | `hints` | `link_hints_layer` (labels drawn natively above the page, never in its DOM) |
-| `feedback` | `toast_stack`, `fullscreen_notice` |
+| `feedback` | `toast_stack`, `fullscreen_notice`, `key_log` (E1, the last key presses and what became of them; palette only) |
 | `sheets` | `permission_sheet`, `dialog_sheet` (a page's `alert`, `confirm`, `prompt`), `agent_approval_sheet` |
 | `popovers` | `shields_popover`, `downloads_popover` |
-| `agent` | `agent_frame` (2 px border + badge), `agent_answer_panel` (streaming, citations, empty state), `agent_settings` (endpoint, model, key) |
+| `agent` | `agent_frame` (2 px border + badge), `agent_answer_panel` (streaming, citations, empty state), `agent_settings` (endpoint, model, key; a form the Settings window's Agent pane shows) |
 
 ## screens and app
 
 | Layer | Module | What |
 |---|---|---|
 | screens | `browser` | The window: E0 page plus the overlay host |
-| screens | `settings` | Standard settings window; panes `general`, `privacy`, `keyboard` (keymap editor), `agents`, `advanced` |
+| screens | `settings` | Standard settings window on `⌘,`, one instance, `⌘W` closes. Built: panes `general` (default browser, downloads folder), `shields` (filter lists, keep fresh), `agent` (the `agent_settings` form), `keys` (`keybindings.json`, entries left out). Planned: the keymap editor in `keys`, `advanced` |
 | app | `overlay_router` | One E2/E3 at a time, focus return, `⎋` handling |
 | app | `theme` | Light/dark/tinted, Increase Contrast, Reduce Motion |
 
