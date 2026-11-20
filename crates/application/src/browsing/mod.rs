@@ -16,7 +16,7 @@ use quickie_domain_browsing::{
 };
 use url::Url;
 
-use crate::{AppError, Clock, EngineError, EnginePort, Navigation, SessionRepo};
+use crate::{AppError, Clock, Engine, EngineError, EnginePort, Navigation, PortsOf, SessionRepo};
 
 /// The browsing use cases over one profile's session.
 #[derive(Debug)]
@@ -107,23 +107,6 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
     #[must_use]
     pub fn has_page(&self, tab: TabId) -> bool {
         self.pages.contains(&tab)
-    }
-
-    /// The engine adapter, for the shell to ask its pages' views what they show.
-    #[must_use]
-    pub fn engine(&self) -> &E {
-        &self.engine
-    }
-
-    /// The engine adapter, for the shell to drive its pages' views.
-    pub fn engine_mut(&mut self) -> &mut E {
-        &mut self.engine
-    }
-
-    /// The session to read and the engine to drive at once, for a use case that puts the
-    /// session's pages in some state through an engine port (their zoom, for one).
-    pub fn session_and_engine(&mut self) -> (&Session, &mut E) {
-        (&self.session, &mut self.engine)
     }
 
     /// Opens an empty window; the caller opens its first tab.
@@ -383,5 +366,27 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
             outcome = outcome.and(self.engine.destroy_jar(jar));
         }
         Ok(outcome?)
+    }
+}
+
+/// The engine as the shell reaches it: through its ports only, never the adapter's own
+/// methods, so the shell compiles against any engine. The types the ports name stay the
+/// engine's, for the composition root to name.
+impl<E: Engine, R, C> Browsing<E, R, C> {
+    /// The engine, for the shell to ask its pages' views what they show.
+    #[must_use]
+    pub fn engine(&self) -> &impl PortsOf<E> {
+        &self.engine
+    }
+
+    /// The engine, for the shell to drive its pages' views.
+    pub fn engine_mut(&mut self) -> &mut impl PortsOf<E> {
+        &mut self.engine
+    }
+
+    /// The session to read and the engine to drive at once, for a use case that puts the
+    /// session's pages in some state through an engine port (their zoom, for one).
+    pub fn session_and_engine(&mut self) -> (&Session, &mut impl PortsOf<E>) {
+        (&self.session, &mut self.engine)
     }
 }

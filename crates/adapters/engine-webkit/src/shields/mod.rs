@@ -9,7 +9,7 @@
 //! Compiled lists stay in the store under a name made from the rules, so the next launch with
 //! the same rules finds them instead of compiling again. Every install supersedes the ones still
 //! in flight; their results are dropped when they arrive. What became of the latest rules is
-//! [`WebKitContentBlocker::status`]: measured, never assumed.
+//! [`ContentBlockerPort::status`]: measured, never assumed.
 //!
 //! Rules reach a page's loads from the moment they are installed: a page already open blocks
 //! with them on its next load, and keeps what it loaded before until it is reloaded.
@@ -29,34 +29,13 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_foundation::{NSArray, NSError, NSString};
 use objc2_web_kit::{WKContentRuleList, WKContentRuleListStore, WKUserContentController};
-use quickie_application::{BlockerError, BlockerRules, ContentBlockerPort};
+use quickie_application::{
+    ActiveRules, BlockerError, BlockerRules, ContentBlockerPort, RulesStatus,
+};
+use quickie_domain_browsing::Timestamp;
 
 use cosmetic::Cosmetics;
 use rules::{MAX_RULES, PREFIX, Part, cached, encode, fingerprint, identifier};
-
-/// Rules every page blocks with, as compiled.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Installed {
-    /// How many content blocker rules, over all rule lists.
-    pub rules: usize,
-    /// How many compiled rule lists hold them (each holds at most 150 000).
-    pub lists: usize,
-    /// When `WebKit` compiled them: now, or on an earlier launch when the store had them.
-    pub compiled: SystemTime,
-}
-
-/// What the blocker is doing about the latest rules it was given.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BlockerStatus {
-    /// It was never given any.
-    Idle,
-    /// Converting or compiling them; pages load with the previous rules meanwhile.
-    Compiling,
-    /// Pages load with them. No lists means nothing to block.
-    Installed(Installed),
-    /// They could not be converted or compiled; pages keep the previous rules.
-    Failed(String),
-}
 
 /// Blocks requests, hides elements, and runs scriptlets on every page of a
 /// [`crate::WebKitEngine`], by the rules it was last given. Lives on the main thread.
@@ -89,32 +68,16 @@ impl WebKitContentBlocker {
                 controllers,
                 generation: Cell::new(0),
                 wanted: RefCell::new(None),
-                status: RefCell::new(BlockerStatus::Idle),
+                status: RefCell::new(RulesStatus::Idle),
                 on_settled: RefCell::new(None),
             }),
             cosmetics,
         }
     }
-
-    /// What became of the latest rules for requests.
-    #[must_use]
-    pub fn status(&self) -> BlockerStatus {
-        self.state.status.borrow().clone()
-    }
-
-    /// Whether the cosmetic filters and scriptlets of the latest lists are ready: pages load
-    /// without them until they are.
-    #[must_use]
-    pub fn cosmetics_ready(&self) -> bool {
-        self.cosmetics.ready()
-    }
-
-    /// Sets what runs on the main thread each time the latest rules are installed or fail.
-    pub fn on_settled(&mut self, settled: impl Fn() + 'static) {
-        *self.state.on_settled.borrow_mut() = Some(Rc::new(settled));
-    }
 }
 
+/// Compiling is converting the lists and compiling the result; a compiled rule list holds at
+/// most 150 000 rules. The cosmetic filters include the scriptlets.
 impl ContentBlockerPort for WebKitContentBlocker {
     fn install(&mut self, rules: &BlockerRules) -> Result<(), BlockerError> {
         Cosmetics::install(&self.cosmetics, rules);
@@ -124,6 +87,19 @@ impl ContentBlockerPort for WebKitContentBlocker {
         }
         State::begin(&self.state, rules.clone(), fingerprint);
         Ok(())
+    }
+
+    fn status(&self) -> RulesStatus {
+        self.state.status.borrow().clone()
+    }
+
+    fn cosmetics_ready(&self) -> bool {
+        self.cosmetics.ready()
+    }
+
+    /// Runs on the main queue.
+    fn on_settled(&mut self, settled: Box<dyn Fn()>) {
+        *self.state.on_settled.borrow_mut() = Some(Rc::from(settled));
     }
 }
 
@@ -145,7 +121,7 @@ struct State {
     /// The fingerprint of the rules installed or on their way, `None` after a failure so that
     /// the same rules are tried again.
     wanted: RefCell<Option<String>>,
-    status: RefCell<BlockerStatus>,
+    status: RefCell<RulesStatus>,
     on_settled: RefCell<Option<Rc<dyn Fn()>>>,
 }
 
@@ -174,7 +150,7 @@ impl State {
             Self::apply(this, generation, &fingerprint, &[], &[]);
             return;
         }
-        *this.status.borrow_mut() = BlockerStatus::Compiling;
+        *this.status.borrow_mut() = RulesStatus::Compiling;
         let weak = Rc::downgrade(this);
         let pending = RefCell::new(Some(rules));
         let block = RcBlock::new(move |ids: *mut NSArray<NSString>| {
@@ -228,7 +204,7 @@ impl State {
     /// Converts the lists on a worker thread, then compiles the result on the main thread. A
     /// converter that panics fails the install instead of leaving it compiling forever.
     fn convert(this: &Rc<Self>, generation: u64, fingerprint: String, rules: BlockerRules) {
-        *this.status.borrow_mut() = BlockerStatus::Compiling;
+        *this.status.borrow_mut() = RulesStatus::Compiling;
         let state = MainThreadBound::new(Rc::downgrade(this), this.mtm);
         let spawned = thread::Builder::new()
             .name("quickie-content-rules".to_owned())
@@ -375,10 +351,13 @@ impl State {
         let compiled = parts.first().map_or_else(SystemTime::now, |part| {
             UNIX_EPOCH + Duration::from_secs(part.compiled)
         });
-        *this.status.borrow_mut() = BlockerStatus::Installed(Installed {
+        let since_epoch = compiled.duration_since(UNIX_EPOCH).unwrap_or_default();
+        *this.status.borrow_mut() = RulesStatus::Active(ActiveRules {
             rules: parts.iter().map(|part| part.rules).sum(),
             lists: lists.len(),
-            compiled,
+            compiled: Timestamp::from_millis(
+                u64::try_from(since_epoch.as_millis()).unwrap_or(u64::MAX),
+            ),
         });
         Self::prune(this, generation, fingerprint);
         this.settle();
@@ -421,7 +400,7 @@ impl State {
             return;
         }
         *self.wanted.borrow_mut() = None;
-        *self.status.borrow_mut() = BlockerStatus::Failed(reason.to_owned());
+        *self.status.borrow_mut() = RulesStatus::Failed(reason.to_owned());
         self.settle();
     }
 

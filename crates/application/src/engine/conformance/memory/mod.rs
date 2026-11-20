@@ -328,14 +328,22 @@ fn controls(page: &MemoryPage) -> &'static [Control] {
     page.shown.as_ref().map_or(&[], |(_, shown)| shown.controls)
 }
 
-/// True when a rule of an enabled list names `script`: a line of a list, not a comment, that
-/// the script's URL contains.
+/// True when a rule of an enabled list names `script`: the script's URL contains it.
 fn blocks(rules: &BlockerRules, script: &Url) -> bool {
     rules.lists.iter().any(|list| {
-        String::from_utf8_lossy(&list.body)
-            .lines()
-            .any(|rule| !rule.starts_with('!') && script.as_str().contains(rule))
+        rules_in(&list.body)
+            .iter()
+            .any(|rule| script.as_str().contains(rule.as_str()))
     })
+}
+
+/// The rules of a list as the memory engine reads them: its lines that are not comments.
+fn rules_in(body: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(body)
+        .lines()
+        .filter(|line| !line.starts_with('!'))
+        .map(str::to_owned)
+        .collect()
 }
 
 impl EnginePort for MemoryEngine {

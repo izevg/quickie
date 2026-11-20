@@ -12,7 +12,8 @@ use super::fakes::{FakeBlocker, FakeHttp, FakeShieldsRepo};
 use super::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};
 use crate::fakes::FakeClock;
 use crate::{
-    AppError, BlockerError, BlockerRules, HttpError, ListRules, ShieldsSnapshot, StoreError,
+    AppError, BlockerError, BlockerRules, ContentBlockerPort, HttpError, ListRules,
+    ShieldsSnapshot, StoreError,
 };
 
 type Subject = Shields<FakeShieldsRepo, FakeClock, FakeBlocker>;
@@ -829,7 +830,7 @@ mod blocked {
 fn the_blocker_adapter_is_reachable() {
     let mut shields = started();
 
-    shields.blocker_mut().fails = true;
+    shields.blocker_mut().install(&rules(&[], &[])).unwrap();
 
-    assert!(shields.blocker.fails);
+    assert_eq!(shields.blocker.installed, [rules(&[], &[])]);
 }

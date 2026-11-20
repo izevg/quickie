@@ -17,7 +17,8 @@ use crate::conformance::{
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Capabilities, Dialog, DownloadEvent, DownloadToken,
     Downloads, Engine, EngineError, EngineEvent, EnginePort, FindStep, Followed, LinkTarget,
-    Navigation, PageAsks, PageContent, PageRect, PageSurface, PageZoom, ReplyToken, Ticket,
+    Navigation, NoExtensions, PageAsks, PageContent, PageRect, PageSurface, PageZoom, ReplyToken,
+    Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -249,11 +250,16 @@ impl PageSurface for Broken {
 impl Engine for Broken {
     type Http = MemoryHttp;
     type Blocker = MemoryBlocker;
+    type Extensions = NoExtensions<MemoryView>;
 
     const CAPS: Capabilities = <MemoryEngine as Engine>::CAPS;
 
     fn http(&self) -> MemoryHttp {
         self.engine.http()
+    }
+
+    fn web_extensions(&mut self) -> Option<NoExtensions<MemoryView>> {
+        self.engine.web_extensions()
     }
 
     fn content_blocker(&mut self, directory: &Path) -> Result<MemoryBlocker, EngineError> {

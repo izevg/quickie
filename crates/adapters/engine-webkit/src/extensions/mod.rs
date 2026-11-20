@@ -35,6 +35,7 @@ use block2::{RcBlock, StackBlock};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2_app_kit::NSView;
 use objc2_foundation::{NSDate, NSDictionary, NSError, NSRunLoop, NSSet, NSString, NSURL};
 use objc2_web_kit::{
     WKWebExtension, WKWebExtensionAction, WKWebExtensionContext, WKWebExtensionController,
@@ -267,32 +268,6 @@ impl WebKitExtensions {
         Self { state }
     }
 
-    /// Sets what runs, later on the main run loop, when events wait: it should drain them.
-    pub fn set_waker(&mut self, wake: impl Fn() + 'static) {
-        *self.state.wake.borrow_mut() = Some(Rc::new(wake));
-        State::schedule(&self.state);
-    }
-
-    /// The popup [`ExtensionEvent::Popup`] announced: its extension and its page's view, sized
-    /// as the extension asked; `None` once it is gone.
-    #[must_use]
-    pub fn popup(&self) -> Option<(ExtensionId, Retained<WKWebView>)> {
-        let popup = self.state.popup.borrow();
-        let (id, action) = popup.as_ref()?;
-        // SAFETY: a getter; the action makes the view when it presents a popup.
-        let view = unsafe { action.popupWebView() }?;
-        Some((id.clone(), view))
-    }
-
-    /// Closes the popup on screen, if any, as clicking outside it would.
-    pub fn close_popup(&self) {
-        let popup = self.state.popup.borrow_mut().take();
-        if let Some((_, action)) = popup {
-            // SAFETY: closing an action's popup has no preconditions.
-            unsafe { action.closePopup() };
-        }
-    }
-
     /// Whether the extension `id` runs now.
     #[must_use]
     pub fn running(&self, id: &ExtensionId) -> bool {
@@ -406,7 +381,32 @@ fn apply(context: &WKWebExtensionContext, access: &Access, mtm: MainThreadMarker
     }
 }
 
+/// A popup is the extension's page in its own `WKWebView`.
 impl ExtensionHost for WebKitExtensions {
+    type Popup = Retained<NSView>;
+
+    /// The waker runs later on the main run loop.
+    fn set_waker(&mut self, wake: Box<dyn Fn()>) {
+        *self.state.wake.borrow_mut() = Some(Rc::from(wake));
+        State::schedule(&self.state);
+    }
+
+    fn popup(&self) -> Option<Retained<NSView>> {
+        let popup = self.state.popup.borrow();
+        let (_, action) = popup.as_ref()?;
+        // SAFETY: a getter; the action makes the view when it presents a popup.
+        let view = unsafe { action.popupWebView() }?;
+        Some(Retained::into_super(view))
+    }
+
+    fn close_popup(&self) {
+        let popup = self.state.popup.borrow_mut().take();
+        if let Some((_, action)) = popup {
+            // SAFETY: closing an action's popup has no preconditions.
+            unsafe { action.closePopup() };
+        }
+    }
+
     fn read(&mut self, id: &ExtensionId, location: &str) -> Result<(), EngineError> {
         let path = Path::new(location);
         let url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(location), path.is_dir());

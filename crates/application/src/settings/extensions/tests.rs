@@ -895,7 +895,7 @@ mod triggers {
                 Call::Command(id(BITWARDEN), "autofill_login".to_owned()),
             ]
         );
-        world.uses.host_mut().refuse = true;
+        world.uses.host.refuse = true;
         assert!(
             world
                 .uses

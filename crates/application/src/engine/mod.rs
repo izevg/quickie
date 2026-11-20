@@ -26,7 +26,7 @@ pub use event::{
 };
 pub use extensions::{
     Access, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
-    ExtensionPackages, PackageSource, Unpacked, WindowTabs,
+    ExtensionPackages, NoExtensions, PackageSource, Unpacked, WindowTabs,
 };
 pub use queue::EventQueue;
 
@@ -123,12 +123,19 @@ pub trait Engine: EnginePort + PageSurface + PageContent + PageZoom + PageAsks +
     type Http: HttpPort + Clone + Send + 'static;
     /// The content blocker of the engine's pages.
     type Blocker: ContentBlockerPort;
+    /// What runs the main profile's web extensions; [`NoExtensions`] on an engine without them.
+    type Extensions: ExtensionHost;
 
     /// What the UI may offer on this engine.
     const CAPS: Capabilities;
 
     /// A handle on the engine's network, for a worker thread.
     fn http(&self) -> Self::Http;
+
+    /// The host of the web extensions that run in the engine's main-jar pages, made before the
+    /// first such page so that every one runs them. `None` when the engine or the system cannot
+    /// run them ([`Capabilities::web_extensions`] says whether the engine ever can).
+    fn web_extensions(&mut self) -> Option<Self::Extensions>;
 
     /// The content blocker of every page, existing and future. It keeps what it compiles in
     /// `directory`, which it creates.
@@ -145,6 +152,35 @@ pub trait Engine: EnginePort + PageSurface + PageContent + PageZoom + PageAsks +
 
     /// Moves what pages did since the last call to the end of `into`, oldest first.
     fn drain(&mut self, into: &mut Vec<EngineEvent<Self::Page>>);
+}
+
+/// Engine `E` seen through its ports alone: what a use case that owns an engine hands out, so
+/// that no adapter's own methods are reachable from the shell. The types the ports name stay
+/// `E`'s, for the composition root to name.
+pub trait PortsOf<E: Engine>:
+    Engine<
+        Page = E::Page,
+        View = E::View,
+        Picture = E::Picture,
+        Http = E::Http,
+        Blocker = E::Blocker,
+        Extensions = E::Extensions,
+    >
+{
+}
+
+impl<T, E> PortsOf<E> for T
+where
+    E: Engine,
+    T: Engine<
+            Page = E::Page,
+            View = E::View,
+            Picture = E::Picture,
+            Http = E::Http,
+            Blocker = E::Blocker,
+            Extensions = E::Extensions,
+        >,
+{
 }
 
 /// What is on a tab's page, as the user sees it: the matches of a find, the links and controls

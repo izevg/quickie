@@ -26,12 +26,12 @@ use std::time::{Duration, Instant};
 use objc2::MainThreadMarker;
 use objc2_foundation::{NSDate, NSRunLoop};
 use quickie_application::{
-    BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, HttpError, HttpPort,
-    ListRules, Navigation,
+    ActiveRules, BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, HttpError,
+    HttpPort, ListRules, Navigation, RulesStatus,
 };
 use quickie_domain_browsing::{Jar, Profile, TabId};
 use quickie_domain_shields::{ContentHash, FilterListId, Site};
-use quickie_engine_webkit::{BlockerStatus, UrlSessionHttp, WebKitContentBlocker, WebKitEngine};
+use quickie_engine_webkit::{UrlSessionHttp, WebKitContentBlocker, WebKitEngine};
 use url::Url;
 
 type Outcome = Result<(), String>;
@@ -379,11 +379,11 @@ fn rules(list: &str, unshielded: &[&str]) -> BlockerRules {
 fn install(
     blocker: &mut WebKitContentBlocker,
     rules: &BlockerRules,
-) -> Result<quickie_engine_webkit::Installed, String> {
+) -> Result<ActiveRules, String> {
     blocker.install(rules).map_err(|error| error.to_string())?;
-    spin_until(|| blocker.status() != BlockerStatus::Compiling)?;
+    spin_until(|| blocker.status() != RulesStatus::Compiling)?;
     match blocker.status() {
-        BlockerStatus::Installed(installed) if installed.lists == 1 && installed.rules > 0 => {
+        RulesStatus::Active(installed) if installed.lists == 1 && installed.rules > 0 => {
             Ok(installed)
         }
         other => Err(format!("the blocker ended {other:?}")),

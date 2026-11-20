@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::{
     BlockerError, BlockerRules, ContentBlockerPort, Ended, Flow, HttpError, HttpEvent, HttpPort,
-    HttpRequest, ShieldsRepo, ShieldsSnapshot, StopSignal, StoreError,
+    HttpRequest, RulesStatus, ShieldsRepo, ShieldsSnapshot, StopSignal, StoreError,
 };
 
 /// Keeps what was saved last, like a store would; counts saves, and fails loads, or saves of
@@ -76,6 +76,16 @@ impl ContentBlockerPort for FakeBlocker {
             Ok(())
         }
     }
+
+    fn status(&self) -> RulesStatus {
+        RulesStatus::Idle
+    }
+
+    fn cosmetics_ready(&self) -> bool {
+        true
+    }
+
+    fn on_settled(&mut self, _settled: Box<dyn Fn()>) {}
 }
 
 /// Answers each URL from a table; a URL not in it fails.

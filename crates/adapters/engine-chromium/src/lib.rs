@@ -26,4 +26,6 @@ mod engine;
 mod ffi;
 
 pub use bridge::KeyEquivalent;
-pub use engine::{ChromiumContentBlocker, ChromiumEngine, ChromiumHttp, PageHandle};
+pub use engine::{
+    ChromiumContentBlocker, ChromiumEngine, ChromiumExtensions, ChromiumHttp, PageHandle,
+};
