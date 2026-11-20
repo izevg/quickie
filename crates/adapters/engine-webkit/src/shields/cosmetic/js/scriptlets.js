@@ -11,6 +11,8 @@
   const win = window;
   const { defineProperty, getOwnPropertyDescriptor, keys } = Object;
   const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const isArray = Array.isArray;
+  const splice = Array.prototype.splice;
   const apply = Reflect.apply;
   const jsonParse = JSON.parse;
   const jsonStringify = JSON.stringify;
@@ -155,11 +157,15 @@
     });
   };
 
-  // Paths as `json-prune` writes them: `a.b.c`, `[]` or `*` for every element or key.
+  // Paths as `json-prune` writes them: `a.b.c`, `[]` or `*` for every element or key, and the
+  // removal tokens: `[-]` drops each array element, `{-}` each property, in which the rest of
+  // the path exists (`entries.[-].ad.isAd` drops the entries that are ads).
+  const WILDCARDS = new Set(['[]', '*', '[-]', '{-}']);
   const prunePath = (object, parts, at) => {
     if (!isObject(object)) return false;
     const part = parts[at];
     const last = at === parts.length - 1;
+    if (part === '[-]' || part === '{-}') return removeMatching(object, parts, at);
     if (part === '[]' || part === '*') {
       let any = false;
       for (const key of keys(object)) {
@@ -184,10 +190,36 @@
     if (at === parts.length) return true;
     if (!isObject(object)) return false;
     const part = parts[at];
-    if (part === '[]' || part === '*') {
+    if (WILDCARDS.has(part)) {
       return keys(object).some((key) => hasPath(object[key], parts, at + 1));
     }
     return hasOwn(object, part) && hasPath(object[part], parts, at + 1);
+  };
+
+  // `[-]` and `{-}` at `parts[at]`: removes from `object` each array element (`[-]`) or
+  // property (`{-}`) that holds the rest of the path. Removing an element closes the gap, so
+  // the page sees a shorter array, never a hole. Without a rest of the path nothing matches.
+  const removeMatching = (object, parts, at) => {
+    if (at === parts.length - 1) return false;
+    const elements = parts[at] === '[-]';
+    if (isArray(object) !== elements) return false;
+    let any = false;
+    if (elements) {
+      for (let index = object.length - 1; index >= 0; index -= 1) {
+        if (hasPath(object[index], parts, at + 1)) {
+          apply(splice, object, [index, 1]);
+          any = true;
+        }
+      }
+      return any;
+    }
+    for (const key of keys(object)) {
+      if (hasPath(object[key], parts, at + 1)) {
+        delete object[key];
+        any = true;
+      }
+    }
+    return any;
   };
 
   const words = (text) => String(text || '').split(/\s+/).filter((word) => word !== '');
