@@ -782,6 +782,19 @@ fn a_video_that_outlives_its_page_fails() {
 }
 
 #[test]
+fn a_video_reported_for_another_tab_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Video { tab, video } => EngineEvent::Video {
+            tab: TabId::new(tab.profile(), tab.get() + 100),
+            video,
+        },
+        other => other,
+    })));
+
+    assert_eq!(failed(&report), VIDEO);
+}
+
+#[test]
 fn a_video_heard_as_audible_fails() {
     let report = run(&mut Faulty(Fault::Events(|event| match event {
         EngineEvent::Video {
