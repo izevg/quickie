@@ -210,4 +210,11 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         last_checked INTEGER
     ) STRICT;
 ",
+    // 12: the user's appearance choices, in at most one row; no row is the defaults.
+    "
+    CREATE TABLE appearance (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        inset_page INTEGER NOT NULL CHECK (inset_page IN (0, 1))
+    ) STRICT;
+",
 ];

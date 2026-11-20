@@ -19,15 +19,15 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use quickie_application::{
-    AgentRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
-    SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
+    AgentRepo, AppearanceRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo,
+    LibrarySnapshot, SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
+use quickie_domain_settings::{AppearanceSnapshot, InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use url::Url;
 
@@ -82,6 +82,7 @@ impl WriteBehindStore {
             + ShieldsRepo
             + AgentRepo
             + ZoomRepo
+            + AppearanceRepo
             + ExtensionsRepo
             + Send
             + 'static,
@@ -228,6 +229,16 @@ impl ZoomRepo for WriteBehindStore {
 
     fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
         self.hand_over(Save::Zooms(zooms))
+    }
+}
+
+impl AppearanceRepo for WriteBehindStore {
+    fn load_appearance(&self) -> Result<AppearanceSnapshot, StoreError> {
+        self.ask(Barrier::LoadAppearance)?
+    }
+
+    fn save_appearance(&mut self, appearance: AppearanceSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Appearance(appearance))
     }
 }
 

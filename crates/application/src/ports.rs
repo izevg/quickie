@@ -12,7 +12,7 @@ use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, Win
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
+use quickie_domain_settings::{AppearanceSnapshot, InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{
     ContentHash, FilterListId, FilterListSetSnapshot, Site, SitePoliciesSnapshot,
 };
@@ -165,6 +165,23 @@ pub trait ZoomRepo {
     ///
     /// The store could not be written.
     fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError>;
+}
+
+/// Where the user's appearance choices persist (`shell.sqlite` in the product).
+pub trait AppearanceRepo {
+    /// The saved appearance; the defaults on a fresh profile.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be read.
+    fn load_appearance(&self) -> Result<AppearanceSnapshot, StoreError>;
+
+    /// Replaces the saved appearance, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written.
+    fn save_appearance(&mut self, appearance: AppearanceSnapshot) -> Result<(), StoreError>;
 }
 
 /// A navigation inside a tab.
