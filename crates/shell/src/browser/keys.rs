@@ -130,6 +130,11 @@ impl Browser {
         } else if self.navigation.overview_open() {
             context = context.with_flag("overviewOpen").with_flag("inputFocused");
             "overview"
+        } else if self.agent_ui.settings_open() {
+            context = context
+                .with_flag("agentSettingsOpen")
+                .with_flag("inputFocused");
+            "agentSettings"
         } else {
             context = context.with_flag("pageFocused");
             if self.find_focused() || self.page_input_focused() {
@@ -146,6 +151,9 @@ impl Browser {
         if self.popovers.is_open() {
             context = context.with_flag("popoverOpen");
         }
+        if self.agent_ui.is_open() {
+            context = context.with_flag("agentOpen");
+        }
         context.with_value("focusedView", view)
     }
 
@@ -161,6 +169,9 @@ impl Browser {
 
     /// An overlay's fixed key. While an input method composes, every key is the field's.
     fn overlay_key(&self, key: OverlayKey) -> bool {
+        if self.agent_ui.is_open() {
+            return self.agent_key(key);
+        }
         if self.popovers.is_open() {
             return self.popover_key(key);
         }

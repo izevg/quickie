@@ -14,7 +14,7 @@ use crate::key::{KeyStroke, Platform};
 ///
 /// `⌥⌘C` stays with "Copy as Markdown Link" as the README promises, so "Inspect Element" has no
 /// default key. The tests check that every row parses and that the keymap they make is valid.
-pub(super) const BINDINGS: [(&str, &str, Option<&str>); 46] = [
+pub(super) const BINDINGS: [(&str, &str, Option<&str>); 47] = [
     ("mod+shift+p", "quickie.palette.openCommands", None),
     ("mod+k", "quickie.palette.openCommands", None),
     ("mod+p", "quickie.palette.goto", None),
@@ -67,6 +67,7 @@ pub(super) const BINDINGS: [(&str, &str, Option<&str>); 46] = [
     ("mod+d", "quickie.page.bookmark", None),
     ("mod+j", "quickie.downloads.show", None),
     ("alt+mod+s", "quickie.shields.open", None),
+    ("mod+.", "quickie.agent.stop", None),
     ("alt+mod+i", "quickie.devtools.toggle", None),
     ("alt+mod+j", "quickie.devtools.console", None),
 ];

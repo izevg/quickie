@@ -1,6 +1,6 @@
 [package]
 name = "quickie-ui-widgets"
-description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher and overview, the toast stack, the find bar, the origin chip, the load progress line, link hints, the downloads and shields popovers, the full-screen notice, and the dialog and permission sheets"
+description = "FSD widgets layer of Quickie's UI: the command palette, the address overlay, the tab switcher and overview, the toast stack, the find bar, the origin chip, the load progress line, link hints, the downloads and shields popovers, the full-screen notice, the dialog and permission sheets, and the agent's answer panel, badge, and settings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,13 +12,17 @@ objc2.workspace = true
 objc2-app-kit = { workspace = true, features = [
   "objc2-core-foundation",
   "objc2-quartz-core",
+  "NSAttributedString",
   "NSBox",
   "NSButton",
   "NSButtonCell",
   "NSCell",
   "NSClickGestureRecognizer",
+  "NSClipView",
   "NSColor",
+  "NSComboBox",
   "NSControl",
+  "NSFont",
   "NSGestureRecognizer",
   "NSGraphics",
   "NSImage",
@@ -26,10 +30,14 @@ objc2-app-kit = { workspace = true, features = [
   "NSParagraphStyle",
   "NSProgressIndicator",
   "NSResponder",
+  "NSScrollView",
+  "NSSecureTextField",
   "NSStringDrawing",
   "NSText",
   "NSTextField",
+  "NSTextFieldCell",
   "NSTextInputClient",
+  "NSTextStorage",
   "NSTextView",
   "NSView",
   "NSWindow",
@@ -37,6 +45,7 @@ objc2-app-kit = { workspace = true, features = [
 objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }
 objc2-foundation = { workspace = true, features = [
   "block2",
+  "NSAttributedString",
   "NSDate",
   "NSGeometry",
   "NSNotification",
@@ -45,6 +54,7 @@ objc2-foundation = { workspace = true, features = [
   "NSRange",
   "NSString",
   "NSTimer",
+  "NSURL",
 ] }
 objc2-quartz-core = { workspace = true, features = [
   "objc2-core-foundation",
@@ -56,6 +66,7 @@ objc2-quartz-core = { workspace = true, features = [
   "CATransform3D",
 ] }
 quickie-application.workspace = true
+quickie-domain-agents.workspace = true
 quickie-domain-browsing.workspace = true
 quickie-domain-library.workspace = true
 quickie-domain-shields.workspace = true

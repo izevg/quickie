@@ -41,12 +41,15 @@ objc2-foundation = { workspace = true, features = [
   "NSURL",
 ] }
 quickie-application.workspace = true
+quickie-domain-agents.workspace = true
 quickie-domain-browsing.workspace = true
 quickie-domain-commands.workspace = true
 quickie-domain-library.workspace = true
 quickie-domain-shields.workspace = true
 quickie-engine-webkit.workspace = true
+quickie-llm.workspace = true
 quickie-store.workspace = true
+quickie-system.workspace = true
 quickie-ui-shared.workspace = true
 quickie-ui-widgets.workspace = true
 url.workspace = true

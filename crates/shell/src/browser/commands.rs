@@ -56,6 +56,10 @@ pub enum Action {
     CloseWindow,
     SetDefaultBrowser,
     RevealProfile,
+    AskAgent,
+    StopAgent,
+    ShowAgentAnswer,
+    ShowAgentSettings,
 }
 
 impl Action {
@@ -123,6 +127,10 @@ impl Action {
             "quickie.window.close" => Self::CloseWindow,
             "quickie.app.setDefaultBrowser" => Self::SetDefaultBrowser,
             "quickie.app.revealProfile" => Self::RevealProfile,
+            "quickie.agent.ask" => Self::AskAgent,
+            "quickie.agent.stop" => Self::StopAgent,
+            "quickie.agent.showAnswer" => Self::ShowAgentAnswer,
+            "quickie.agent.settings" => Self::ShowAgentSettings,
             _ => return None,
         };
         Some(action)
@@ -174,6 +182,10 @@ impl Browser {
             Action::FindPrevious => return self.find_step(true),
             Action::ShowDownloads => return self.toggle_downloads(Trigger::Keyboard),
             Action::ShowShields => return self.toggle_shields_popover(Trigger::Keyboard),
+            Action::AskAgent => return self.open_palette("?"),
+            Action::StopAgent => return self.stop_agent(),
+            Action::ShowAgentAnswer => return self.show_answer(),
+            Action::ShowAgentSettings => return self.open_agent_settings(Trigger::Keyboard),
             Action::Cycle(direction) => {
                 if let Some((window, _)) = self.current() {
                     self.cycle(window, direction, holding(stroke));
@@ -231,7 +243,11 @@ impl Browser {
             | Action::CloseWindow
             | Action::CloseTab
             | Action::SetDefaultBrowser
-            | Action::RevealProfile => {}
+            | Action::RevealProfile
+            | Action::AskAgent
+            | Action::StopAgent
+            | Action::ShowAgentAnswer
+            | Action::ShowAgentSettings => {}
         }
         self.settle(window);
     }
@@ -463,6 +479,10 @@ mod tests {
             ("quickie.window.close", Action::CloseWindow),
             ("quickie.app.setDefaultBrowser", Action::SetDefaultBrowser),
             ("quickie.app.revealProfile", Action::RevealProfile),
+            ("quickie.agent.ask", Action::AskAgent),
+            ("quickie.agent.stop", Action::StopAgent),
+            ("quickie.agent.showAnswer", Action::ShowAgentAnswer),
+            ("quickie.agent.settings", Action::ShowAgentSettings),
         ];
         for (id, action) in cases {
             assert_eq!(of(id), Some(action), "{id}");
@@ -528,8 +548,8 @@ mod tests {
             .filter(|command| Action::of(&command.id).is_some())
             .count();
 
-        // 31 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 31 + 9 + 9);
+        // 35 named commands plus nine slots to go to and nine to pin.
+        assert_eq!(built, 35 + 9 + 9);
     }
 
     #[test]

@@ -46,8 +46,8 @@ impl Mode {
         }
     }
 
-    /// Whether a candidate of `kind` can answer a query in this mode. The agent mode admits
-    /// nothing: its answer comes from the agent, not from a list.
+    /// Whether a candidate of `kind` can answer a query in this mode. The agent mode ranks only
+    /// its skills; the question itself is the text as typed, never a ranked candidate.
     #[must_use]
     pub const fn admits(self, kind: Kind) -> bool {
         match self {
@@ -56,7 +56,7 @@ impl Mode {
             Self::Headings => matches!(kind, Kind::Heading),
             Self::Tags => matches!(kind, Kind::Tag),
             Self::SearchShortcut => matches!(kind, Kind::SearchShortcut),
-            Self::Agent => false,
+            Self::Agent => matches!(kind, Kind::Skill),
         }
     }
 }
@@ -271,6 +271,7 @@ mod tests {
             (Mode::Headings, Kind::Heading),
             (Mode::Tags, Kind::Tag),
             (Mode::SearchShortcut, Kind::SearchShortcut),
+            (Mode::Agent, Kind::Skill),
         ];
 
         for (mode, only) in modes {
@@ -284,7 +285,9 @@ mod tests {
     }
 
     #[test]
-    fn the_agent_mode_admits_no_candidate() {
-        assert!(!Kind::ALL.into_iter().any(|kind| Mode::Agent.admits(kind)));
+    fn no_mode_admits_the_question_as_typed() {
+        for mode in MODES {
+            assert!(!mode.admits(Kind::Question), "{mode:?}");
+        }
     }
 }
