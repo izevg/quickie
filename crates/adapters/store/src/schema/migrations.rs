@@ -146,4 +146,12 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         key_ref TEXT
     ) STRICT;
 ",
+    // 9: each site's page zoom in the main jar, in percent; a site at 100 % has no row.
+    "
+    CREATE TABLE site_zooms (
+        position INTEGER PRIMARY KEY,
+        site TEXT NOT NULL UNIQUE,
+        percent INTEGER NOT NULL
+    ) STRICT;
+",
 ];

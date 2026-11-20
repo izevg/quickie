@@ -76,6 +76,14 @@ user explicitly enabled. This is checked automatically (§4), not promised.
 - A cancelled or failed download's partial file is deleted. Quickie never overwrites a file in
   `~/Downloads`: a taken name gets the next number (`report 2.pdf`).
 
+### Page zoom and saved pages in a throwaway jar
+
+- A throwaway tab starts at 100 %, whatever the main jar chose for the site. What it zooms is
+  kept for the jar while Quickie runs and dropped with it; it is never written to
+  `shell.sqlite`.
+- A page saved as a PDF goes to `~/Downloads` like a download (the user asked for it) and, from
+  a throwaway jar, is listed only while Quickie runs.
+
 ## 4. Proof: the egress test
 
 `tools/egress-test`, in CI on every release:

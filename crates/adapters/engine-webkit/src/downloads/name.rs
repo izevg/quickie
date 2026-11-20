@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+use url::Url;
+
 /// The name of a download whose server suggested none that is usable.
 const FALLBACK: &str = "download";
 
@@ -43,6 +45,17 @@ pub(crate) fn safe_name(suggested: &str) -> String {
         return FALLBACK.to_owned();
     }
     shorten(cleaned)
+}
+
+/// The name a page saved as a PDF gets: its title, else its host, else `page`, made safe, with
+/// `.pdf`.
+pub(crate) fn pdf_name(title: Option<&str>, url: &Url) -> String {
+    let base = title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .or_else(|| url.host_str())
+        .unwrap_or("page");
+    safe_name(&format!("{base}.pdf"))
 }
 
 /// The first of `name`, `name 2`, `name 3` … (the number before the extension, as the Finder
@@ -94,7 +107,22 @@ fn shorten(name: &str) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{MAX_NAME_BYTES, safe_name, unique_path, wants_download};
+    use url::Url;
+
+    use super::{MAX_NAME_BYTES, pdf_name, safe_name, unique_path, wants_download};
+
+    #[test]
+    fn a_pdf_is_named_after_the_page_title_then_its_host() {
+        let page = Url::parse("https://example.com/a").unwrap();
+        let start = Url::parse("quickie://start/").unwrap();
+
+        assert_eq!(pdf_name(Some("Docs: Intro"), &page), "Docs_ Intro.pdf");
+        assert_eq!(pdf_name(Some("  "), &page), "example.com.pdf");
+        assert_eq!(pdf_name(None, &page), "example.com.pdf");
+        assert_eq!(pdf_name(None, &start), "start.pdf");
+        let blank = Url::parse("about:blank").unwrap();
+        assert_eq!(pdf_name(None, &blank), "page.pdf");
+    }
 
     #[test]
     fn a_response_webkit_cannot_show_is_a_download() {

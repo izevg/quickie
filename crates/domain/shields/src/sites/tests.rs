@@ -1,106 +1,13 @@
-use url::Url;
-
-use super::{CorruptSites, Site, SiteError, SitePolicies, SitePoliciesSnapshot, SitePolicy};
+use super::{CorruptSites, Site, SitePolicies, SitePoliciesSnapshot, SitePolicy};
 
 fn site(text: &str) -> Site {
     Site::try_from(text).unwrap()
-}
-
-fn site_of(url: &str) -> Result<Site, SiteError> {
-    Site::try_from(&Url::parse(url).unwrap())
 }
 
 const UNSHIELDED: SitePolicy = SitePolicy {
     shields: false,
     ..SitePolicy::DEFAULT
 };
-
-mod site {
-    use super::*;
-
-    #[test]
-    fn a_web_page_s_site_is_its_host() {
-        let found = site_of("https://news.example.com/a?b#c").unwrap();
-
-        assert_eq!(found.as_str(), "news.example.com");
-        assert_eq!(found.to_string(), "news.example.com");
-    }
-
-    #[test]
-    fn a_plain_http_page_has_a_site_too() {
-        let found = site_of("http://example.com/").unwrap();
-
-        assert_eq!(found, site("example.com"));
-    }
-
-    #[test]
-    fn a_leading_www_is_not_part_of_the_site() {
-        let found = site_of("https://www.example.com/").unwrap();
-
-        assert_eq!(found.as_str(), "example.com");
-    }
-
-    #[test]
-    fn www_stays_when_nothing_with_a_dot_is_left() {
-        let found = site_of("https://www.com/").unwrap();
-
-        assert_eq!(found.as_str(), "www.com");
-    }
-
-    #[test]
-    fn www_inside_a_host_stays() {
-        let found = site_of("https://shop.www.example.com/").unwrap();
-
-        assert_eq!(found.as_str(), "shop.www.example.com");
-    }
-
-    #[test]
-    fn an_ip_address_is_its_own_site() {
-        assert_eq!(
-            site_of("http://127.0.0.1:8080/").unwrap().as_str(),
-            "127.0.0.1"
-        );
-        assert_eq!(site_of("http://[::1]/").unwrap().as_str(), "[::1]");
-    }
-
-    #[test]
-    fn a_page_off_the_web_has_no_site() {
-        for (url, scheme) in [
-            ("quickie://start/", "quickie"),
-            ("about:blank", "about"),
-            ("file:///tmp/a.html", "file"),
-        ] {
-            assert_eq!(site_of(url), Err(SiteError::NotWeb(scheme.to_owned())));
-        }
-    }
-
-    #[test]
-    fn a_stored_site_is_lowercased_and_loses_its_www() {
-        assert_eq!(site("WWW.Example.COM").as_str(), "example.com");
-    }
-
-    #[test]
-    fn a_stored_site_round_trips() {
-        for text in ["example.com", "127.0.0.1", "[::1]", "www.com"] {
-            assert_eq!(site(text).as_str(), text);
-        }
-    }
-
-    #[test]
-    fn text_that_is_no_host_is_no_site() {
-        let error = Site::try_from("exa mple.com").unwrap_err();
-
-        assert_eq!(error, SiteError::NotAHost("exa mple.com".to_owned()));
-        assert_eq!(error.to_string(), "\"exa mple.com\" is not a host");
-    }
-
-    #[test]
-    fn errors_name_what_was_wrong() {
-        let error = SiteError::NotWeb("about".to_owned());
-
-        assert_eq!(error.to_string(), "a about: page is not a website");
-    }
-}
 
 mod policies {
     use super::*;

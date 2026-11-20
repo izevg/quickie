@@ -12,9 +12,12 @@ use crate::key::{KeyStroke, Platform};
 /// `mod` is `⌘` on macOS and Ctrl on Linux. Recent-tab cycling is written `ctrl` on purpose:
 /// it is `⌃⇥` on macOS too, and `⌘⇥` belongs to the system there.
 ///
+/// Zoom has Safari's keys: `⌘=` and `⌘+` (`⇧⌘=` on the key code) in, `⌘-` out, `⌘0` back to
+/// 100 %. Printing takes `⌥⌘P`, since `⌘P` goes to a tab.
+///
 /// `⌥⌘C` stays with "Copy as Markdown Link" as the README promises, so "Inspect Element" has no
 /// default key. The tests check that every row parses and that the keymap they make is valid.
-pub(super) const BINDINGS: [(&str, &str, Option<&str>); 47] = [
+pub(super) const BINDINGS: [(&str, &str, Option<&str>); 53] = [
     ("mod+shift+p", "quickie.palette.openCommands", None),
     ("mod+k", "quickie.palette.openCommands", None),
     ("mod+p", "quickie.palette.goto", None),
@@ -46,6 +49,12 @@ pub(super) const BINDINGS: [(&str, &str, Option<&str>); 47] = [
     ("alt+mod+8", "quickie.tab.pinToSlot8", None),
     ("alt+mod+9", "quickie.tab.pinToSlot9", None),
     ("mod+r", "quickie.tab.reload", None),
+    ("mod+shift+r", "quickie.tab.hardReload", None),
+    ("mod+=", "quickie.page.zoomIn", None),
+    ("mod+shift+=", "quickie.page.zoomIn", None),
+    ("mod+-", "quickie.page.zoomOut", None),
+    ("mod+0", "quickie.page.zoomReset", None),
+    ("alt+mod+p", "quickie.page.print", None),
     ("mod+[", "quickie.navigation.back", None),
     ("mod+]", "quickie.navigation.forward", None),
     ("mod+f", "quickie.page.find", None),

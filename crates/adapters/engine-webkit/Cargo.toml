@@ -15,8 +15,11 @@ objc2-app-kit = { workspace = true, features = [
   "NSEvent",
   "NSGraphics",
   "NSImage",
+  "NSPrintInfo",
+  "NSPrintOperation",
   "NSResponder",
   "NSView",
+  "NSWindow",
 ] }
 objc2-foundation = { workspace = true, features = [
   "block2",
@@ -54,6 +57,7 @@ objc2-web-kit = { workspace = true, features = [
   "WKNavigationAction",
   "WKNavigationDelegate",
   "WKNavigationResponse",
+  "WKPDFConfiguration",
   "WKPreferences",
   "WKScriptMessage",
   "WKScriptMessageHandler",

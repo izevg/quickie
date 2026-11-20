@@ -14,6 +14,7 @@ mod library;
 mod palette;
 mod ports;
 mod prompts;
+mod settings;
 mod shields;
 
 pub use agent::{Agent, AnswerEvent, AskError, Asking, LocalFound, detect_local, list_models};
@@ -28,7 +29,8 @@ pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
     Entropy, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapRepo,
     LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore, SessionRepo,
-    ShieldsRepo, ShieldsSnapshot, StopSignal,
+    ShieldsRepo, ShieldsSnapshot, StopSignal, ZoomRepo,
 };
 pub use prompts::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts};
+pub use settings::Zoom;
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};

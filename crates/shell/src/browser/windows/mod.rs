@@ -36,9 +36,10 @@ impl Browser {
         self.close_overlays();
         self.hide_find();
         self.hide_navigation();
-        if self.run(|browsing| browsing.close_window(window)).is_none() {
+        let Some(closed) = self.run(|browsing| browsing.close_window(window)) else {
             return;
-        }
+        };
+        self.forget_zooms(closed.released_jars);
         self.remove_window(window);
         let next = self.current();
         match next {
@@ -65,7 +66,9 @@ impl Browser {
             self.close_window(window);
             return;
         }
-        self.run(|browsing| browsing.close(tab));
+        if let Some(closed) = self.run(|browsing| browsing.close(tab)) {
+            self.forget_zooms(closed.released_jar);
+        }
         if self.active(window).is_none() {
             let home = self.home.clone();
             self.run(|browsing| browsing.open(window, home, JarChoice::Main, Focus::Foreground));

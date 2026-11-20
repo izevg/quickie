@@ -1,7 +1,6 @@
 //! Per-site policies: the sites where the user changed what shields do.
 
 mod policy;
-mod site;
 mod snapshot;
 #[cfg(test)]
 mod tests;
@@ -9,7 +8,7 @@ mod tests;
 use indexmap::IndexMap;
 
 pub use policy::SitePolicy;
-pub use site::{Site, SiteError};
+pub use quickie_domain_kernel::{Site, SiteError};
 pub use snapshot::{CorruptSites, SitePoliciesSnapshot};
 
 /// The per-site exceptions of one profile. A site not listed has [`SitePolicy::DEFAULT`]; a

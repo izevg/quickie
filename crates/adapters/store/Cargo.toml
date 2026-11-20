@@ -1,6 +1,6 @@
 [package]
 name = "quickie-store"
-description = "SQLite persistence of Quickie: the session, the library, the user's key bindings, the shields, and the agent's endpoint"
+description = "SQLite persistence of Quickie: the session, the library, the user's settings (key bindings, site zooms, the agent's endpoint), and the shields"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,6 +11,7 @@ quickie-application.workspace = true
 quickie-domain-agents.workspace = true
 quickie-domain-browsing.workspace = true
 quickie-domain-library.workspace = true
+quickie-domain-settings.workspace = true
 quickie-domain-shields.workspace = true
 rusqlite.workspace = true
 url.workspace = true

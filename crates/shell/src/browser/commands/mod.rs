@@ -1,6 +1,14 @@
 //! The dispatcher: one place where a command id becomes the use case that does it, whether a
 //! key or the palette asked. A command Quickie lists but cannot do yet says so in a toast
 //! rather than doing nothing.
+//!
+//! - [`zoom`]: page zoom, remembered per site, applied to every page as it commits.
+//! - [`output`]: printing a page, saving it as a PDF, and where Web Inspector is.
+
+mod output;
+#[cfg(test)]
+mod tests;
+mod zoom;
 
 use std::thread;
 
@@ -12,6 +20,7 @@ use objc2_foundation::NSString;
 use quickie_application::{FetchedList, ListFetch, Navigation, fetch_lists};
 use quickie_domain_browsing::{Direction, Focus, JarChoice, PinnedSlot, WindowId};
 use quickie_domain_commands::{CommandId, KeyStroke, Modifiers};
+use quickie_domain_settings::ZoomStep;
 use quickie_domain_shields::FilterListId;
 use quickie_engine_webkit::UrlSessionHttp;
 use quickie_ui_shared::Trigger;
@@ -34,14 +43,19 @@ pub enum Action {
     PinToSlot(PinnedSlot),
     OpenInThrowawayJar,
     Reload,
+    HardReload,
     Back,
     Forward,
     CopyUrl,
     CopyMarkdownLink,
+    CopyTitle,
     Bookmark,
     Find,
     FindNext,
     FindPrevious,
+    Zoom(ZoomStep),
+    Print,
+    SavePdf,
     ToggleShields,
     EnableLists,
     RefreshLists,
@@ -60,6 +74,8 @@ pub enum Action {
     StopAgent,
     ShowAgentAnswer,
     ShowAgentSettings,
+    /// Any of the developer tools' commands: Web Inspector opens from the page.
+    DevTools,
 }
 
 impl Action {
@@ -95,6 +111,9 @@ impl Action {
         if let Some(slot) = slot("quickie.tab.pinToSlot") {
             return Some(Self::PinToSlot(slot));
         }
+        if id.starts_with("quickie.devtools.") {
+            return Some(Self::DevTools);
+        }
         let action = match id {
             "quickie.palette.openCommands" => Self::OpenCommands,
             "quickie.palette.goto" => Self::GoTo,
@@ -107,14 +126,21 @@ impl Action {
             "quickie.tab.previousRecent" => Self::Cycle(Direction::Backward),
             "quickie.tab.openInThrowawayJar" => Self::OpenInThrowawayJar,
             "quickie.tab.reload" => Self::Reload,
+            "quickie.tab.hardReload" => Self::HardReload,
             "quickie.navigation.back" => Self::Back,
             "quickie.navigation.forward" => Self::Forward,
             "quickie.page.copyUrl" => Self::CopyUrl,
             "quickie.page.copyAsMarkdownLink" => Self::CopyMarkdownLink,
+            "quickie.page.copyTitle" => Self::CopyTitle,
             "quickie.page.bookmark" => Self::Bookmark,
             "quickie.page.find" => Self::Find,
             "quickie.page.findNext" => Self::FindNext,
             "quickie.page.findPrevious" => Self::FindPrevious,
+            "quickie.page.zoomIn" => Self::Zoom(ZoomStep::In),
+            "quickie.page.zoomOut" => Self::Zoom(ZoomStep::Out),
+            "quickie.page.zoomReset" => Self::Zoom(ZoomStep::Reset),
+            "quickie.page.print" => Self::Print,
+            "quickie.page.savePdf" => Self::SavePdf,
             "quickie.shields.toggleSite" => Self::ToggleShields,
             "quickie.shields.enableLists" => Self::EnableLists,
             "quickie.shields.refreshLists" => Self::RefreshLists,
@@ -217,11 +243,17 @@ impl Browser {
             Action::PinToSlot(slot) => self.pin(window, slot),
             Action::OpenInThrowawayJar => self.open_in_throwaway_jar(window),
             Action::Reload => self.navigate(window, &Navigation::Reload),
+            Action::HardReload => self.navigate(window, &Navigation::HardReload),
             Action::Back => self.navigate(window, &Navigation::Back),
             Action::Forward => self.navigate(window, &Navigation::Forward),
-            Action::CopyUrl => self.copy(window, |tab| tab.url.to_string()),
-            Action::CopyMarkdownLink => self.copy(window, |tab| tab.markdown_link()),
+            Action::CopyUrl => self.copy(window, |tab| Some(tab.url.to_string())),
+            Action::CopyMarkdownLink => self.copy(window, |tab| Some(tab.markdown_link())),
+            Action::CopyTitle => self.copy(window, |tab| Some(tab.title).filter(|t| !t.is_empty())),
             Action::Bookmark => self.bookmark(window),
+            Action::Zoom(step) => self.zoom(window, step),
+            Action::Print => self.print(window),
+            Action::SavePdf => self.save_pdf(window),
+            Action::DevTools => self.devtools_hint(),
             Action::ToggleShields => self.toggle_shields(window),
             Action::EnableLists => self.enable_lists(),
             Action::RefreshLists => {
@@ -319,16 +351,24 @@ impl Browser {
         }
     }
 
-    /// `⇧⌘C`, `⌥⌘C`: the active page as `text` makes it, on the general pasteboard.
-    fn copy(&self, window: WindowId, text: impl FnOnce(quickie_domain_browsing::Tab) -> String) {
+    /// `⇧⌘C`, `⌥⌘C`, "Copy Page Title": what `text` makes of the active page, on the general
+    /// pasteboard; `None` when it has nothing to copy.
+    fn copy(
+        &self,
+        window: WindowId,
+        text: impl FnOnce(quickie_domain_browsing::Tab) -> Option<String>,
+    ) {
         let Some(tab) = self.active_tab(window) else {
             return;
+        };
+        let Some(text) = text(tab) else {
+            return self.toast("Nothing to copy");
         };
         // SAFETY: an immutable `NSString` constant exported by AppKit.
         let kind = unsafe { NSPasteboardTypeString };
         let copied = general_pasteboard().is_some_and(|pasteboard| {
             pasteboard.clearContents();
-            pasteboard.setString_forType(&NSString::from_str(&text(tab)), kind)
+            pasteboard.setString_forType(&NSString::from_str(&text), kind)
         });
         self.toast(if copied { "Copied" } else { "Couldn't copy" });
     }
@@ -421,144 +461,5 @@ impl Browser {
         let browsing = self.browsing.borrow();
         let tab = browsing.session().active(window)?;
         browsing.session().tab(tab).cloned()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use quickie_domain_browsing::{Direction, PinnedSlot};
-    use quickie_domain_commands::{Catalog, CommandId, KeyStroke, Modifiers};
-
-    use super::{Action, holding};
-
-    fn of(id: &str) -> Option<Action> {
-        Action::of(&CommandId::try_from(id).unwrap())
-    }
-
-    fn slot(n: u8) -> PinnedSlot {
-        PinnedSlot::try_from(n).unwrap()
-    }
-
-    #[test]
-    fn the_commands_this_shell_does_have_actions() {
-        let cases = [
-            ("quickie.palette.openCommands", Action::OpenCommands),
-            ("quickie.palette.goto", Action::GoTo),
-            ("quickie.address.open", Action::OpenAddress),
-            ("quickie.tab.new", Action::NewTab),
-            ("quickie.tab.newThrowaway", Action::NewThrowawayTab),
-            ("quickie.tab.close", Action::CloseTab),
-            ("quickie.tab.reopenClosed", Action::ReopenClosed),
-            ("quickie.tab.nextRecent", Action::Cycle(Direction::Forward)),
-            (
-                "quickie.tab.previousRecent",
-                Action::Cycle(Direction::Backward),
-            ),
-            ("quickie.tab.openInThrowawayJar", Action::OpenInThrowawayJar),
-            ("quickie.tab.reload", Action::Reload),
-            ("quickie.navigation.back", Action::Back),
-            ("quickie.navigation.forward", Action::Forward),
-            ("quickie.page.copyUrl", Action::CopyUrl),
-            ("quickie.page.copyAsMarkdownLink", Action::CopyMarkdownLink),
-            ("quickie.page.bookmark", Action::Bookmark),
-            ("quickie.page.find", Action::Find),
-            ("quickie.page.findNext", Action::FindNext),
-            ("quickie.page.findPrevious", Action::FindPrevious),
-            ("quickie.shields.toggleSite", Action::ToggleShields),
-            ("quickie.shields.enableLists", Action::EnableLists),
-            ("quickie.shields.refreshLists", Action::RefreshLists),
-            ("quickie.tab.overview", Action::Overview),
-            ("quickie.hints.toggle", Action::Hints { background: false }),
-            (
-                "quickie.hints.openInBackground",
-                Action::Hints { background: true },
-            ),
-            ("quickie.downloads.show", Action::ShowDownloads),
-            ("quickie.shields.open", Action::ShowShields),
-            ("quickie.window.new", Action::NewWindow),
-            ("quickie.window.close", Action::CloseWindow),
-            ("quickie.app.setDefaultBrowser", Action::SetDefaultBrowser),
-            ("quickie.app.revealProfile", Action::RevealProfile),
-            ("quickie.agent.ask", Action::AskAgent),
-            ("quickie.agent.stop", Action::StopAgent),
-            ("quickie.agent.showAnswer", Action::ShowAgentAnswer),
-            ("quickie.agent.settings", Action::ShowAgentSettings),
-        ];
-        for (id, action) in cases {
-            assert_eq!(of(id), Some(action), "{id}");
-        }
-    }
-
-    #[test]
-    fn only_leaving_the_page_passes_a_sheet() {
-        for id in [
-            "quickie.tab.close",
-            "quickie.tab.new",
-            "quickie.tab.newThrowaway",
-            "quickie.tab.reopenClosed",
-            "quickie.tab.nextRecent",
-            "quickie.tab.goToSlot3",
-            "quickie.window.new",
-            "quickie.window.close",
-        ] {
-            assert!(of(id).is_some_and(Action::passes_sheet), "{id}");
-        }
-        for id in [
-            "quickie.palette.openCommands",
-            "quickie.address.open",
-            "quickie.page.find",
-            "quickie.tab.reload",
-            "quickie.navigation.back",
-            "quickie.tab.overview",
-            "quickie.hints.toggle",
-            "quickie.tab.pinToSlot3",
-        ] {
-            assert!(of(id).is_some_and(|action| !action.passes_sheet()), "{id}");
-        }
-    }
-
-    #[test]
-    fn every_slot_goes_and_pins() {
-        for n in 1..=9 {
-            assert_eq!(
-                of(&format!("quickie.tab.goToSlot{n}")),
-                Some(Action::GoToSlot(slot(n)))
-            );
-            assert_eq!(
-                of(&format!("quickie.tab.pinToSlot{n}")),
-                Some(Action::PinToSlot(slot(n)))
-            );
-        }
-        assert_eq!(of("quickie.tab.goToSlot0"), None);
-        assert_eq!(of("quickie.tab.goToSlot10"), None);
-    }
-
-    #[test]
-    fn commands_not_built_yet_have_no_action() {
-        for id in ["quickie.reader.toggle", "quickie.devtools.toggle"] {
-            assert_eq!(of(id), None, "{id}");
-        }
-    }
-
-    #[test]
-    fn every_action_names_a_command_of_the_catalog() {
-        let catalog = Catalog::builtin();
-        let built = catalog
-            .iter()
-            .filter(|command| Action::of(&command.id).is_some())
-            .count();
-
-        // 35 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 35 + 9 + 9);
-    }
-
-    #[test]
-    fn a_cycle_is_held_by_its_modifiers_but_shift() {
-        let backward = KeyStroke::try_from("ctrl+shift+tab").unwrap();
-        let bare = KeyStroke::try_from("tab").unwrap();
-
-        assert_eq!(holding(Some(backward)), Modifiers::CONTROL);
-        assert_eq!(holding(Some(bare)), Modifiers::NONE);
-        assert_eq!(holding(None), Modifiers::NONE);
     }
 }
