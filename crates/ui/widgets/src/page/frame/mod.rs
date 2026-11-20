@@ -11,6 +11,10 @@
 //! - Core Animation only: the card's layer casts the shadow along a path, and the page's host
 //!   inside it clips to the rounded corners. Resizing keeps the inset exact in the same frame:
 //!   the card follows the window by its autoresizing mask, never by a second layout pass.
+//! - [`glow`]: while the page loads, a light runs along its edge: the window's inner edge, or
+//!   around the card as its box shadow.
+
+mod glow;
 
 use std::cell::Cell;
 
@@ -35,13 +39,16 @@ pub const INSET: CGFloat = 8.0;
 /// The card's corner radius: the window's own, less the inset, so the corners run parallel.
 pub const RADIUS: CGFloat = 12.0;
 
+/// The corner radius of a window with a titlebar and no toolbar, which the glow follows edge to
+/// edge. `AppKit` has no public call for it.
+const WINDOW_RADIUS: CGFloat = 16.0;
+
 /// The card's shadow: soft and close, it lifts the page off the window without a frame.
 const SHADOW_OPACITY: f32 = 0.16;
 const SHADOW_RADIUS: CGFloat = 6.0;
 const SHADOW_OFFSET: CGFloat = 1.0;
 
-/// What decides the card's frame.
-#[derive(Debug, Default)]
+/// What decides the card's frame, and the glow it places with it.
 struct Ivars {
     /// *Inset page* is on.
     inset: Cell<bool>,
@@ -49,6 +56,7 @@ struct Ivars {
     window_full_screen: Cell<bool>,
     /// The page shows an element full screen.
     page_full_screen: Cell<bool>,
+    glow: Retained<glow::GlowView>,
 }
 
 define_class!(
@@ -136,8 +144,13 @@ define_class!(
 );
 
 impl Card {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars::default());
+    fn new(glow: Retained<glow::GlowView>, mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars {
+            inset: Cell::new(false),
+            window_full_screen: Cell::new(false),
+            page_full_screen: Cell::new(false),
+            glow,
+        });
         // SAFETY: `initWithFrame:` is `NSView`'s designated initializer and the ivars are set.
         let card: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: NSRect::ZERO] };
         card.setWantsLayer(true);
@@ -151,14 +164,17 @@ impl Card {
         ivars.inset.get() && !ivars.window_full_screen.get() && !ivars.page_full_screen.get()
     }
 
-    /// Puts the card where its state says, in its superview, and paints it.
+    /// Puts the card where its state says, in its superview, and paints it; the glow goes with
+    /// it: around the card and under it when inset, else over the page along the window's
+    /// edge.
     fn lay_out(&self) {
         // SAFETY: a getter; the superview is retained for the duration of the layout.
         let Some(parent) = (unsafe { self.superview() }) else {
             return;
         };
         let bounds = parent.bounds();
-        let frame = if self.is_inset() {
+        let inset = self.is_inset();
+        let frame = if inset {
             let top = self.window().map_or(INSET, |window| {
                 let layout = window.contentLayoutRect();
                 (bounds.size.height - layout.origin.y - layout.size.height).max(INSET)
@@ -169,6 +185,32 @@ impl Card {
         };
         self.setFrame(frame);
         self.setNeedsDisplay(true);
+
+        let glow = &self.ivars().glow;
+        let (order, edge) = if inset {
+            (
+                NSWindowOrderingMode::Below,
+                glow::Edge {
+                    radius: RADIUS,
+                    around: true,
+                },
+            )
+        } else {
+            let radius = if self.ivars().window_full_screen.get() {
+                0.0
+            } else {
+                WINDOW_RADIUS
+            };
+            (
+                NSWindowOrderingMode::Above,
+                glow::Edge {
+                    radius,
+                    around: false,
+                },
+            )
+        };
+        parent.addSubview_positioned_relativeTo(glow, order, Some(self));
+        glow.place(frame, edge);
     }
 
     fn paint(&self) {
@@ -227,23 +269,55 @@ fn fill() -> NSAutoresizingMaskOptions {
     NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable
 }
 
-/// The page's place in one window: a card, and inside it the view the engine fills with the
-/// window's page.
+/// The page's place in one window: a card, inside it the view the engine fills with the
+/// window's page, and the glow that shows the page loading.
 pub struct PageFrame {
     card: Retained<Card>,
     host: Retained<NSView>,
+    glow: glow::Glow,
 }
 
 impl PageFrame {
     /// A frame, edge to edge, not in a window yet.
     #[must_use]
     pub fn new(mtm: MainThreadMarker) -> Self {
-        let card = Card::new(mtm);
+        let glow = glow::Glow::new(mtm);
+        let card = Card::new(glow.view_retained(), mtm);
         let host = NSView::new(mtm);
         host.setWantsLayer(true);
         host.setAutoresizingMask(fill());
         card.addSubview(&host);
-        Self { card, host }
+        Self { card, host, glow }
+    }
+
+    /// Shows the page's loading: `Some(fraction)` while it loads, `None` once it is done, which
+    /// fades the glow out.
+    pub fn set_loading(&self, progress: Option<f64>) {
+        self.glow.set(progress);
+    }
+
+    /// Takes the glow away at once, as when another tab, with its own loading, comes forward.
+    pub fn reset_loading(&self) {
+        self.glow.reset();
+    }
+
+    /// True while the glow shows a load in progress.
+    #[must_use]
+    pub fn is_loading(&self) -> bool {
+        self.glow.is_loading()
+    }
+
+    /// How fast the glow's light goes round, in turns per second; zero while it stands still
+    /// (no load, or Reduce Motion).
+    #[must_use]
+    pub fn glow_speed(&self) -> f64 {
+        self.glow.speed()
+    }
+
+    /// The glow's view, for a render.
+    #[must_use]
+    pub fn glow_view(&self) -> &NSView {
+        self.glow.view()
     }
 
     /// Puts the frame at the bottom of `content` (the window's content view), under everything

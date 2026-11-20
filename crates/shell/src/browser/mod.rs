@@ -10,7 +10,7 @@
 //!   printing, and saving a page as a PDF.
 //! - [`palette`]: the command palette's query and what choosing a row does.
 //! - [`address`]: the address overlay's suggestions and where choosing one goes.
-//! - [`page`]: find in page, the origin chip, the load progress line, the sheets of what pages
+//! - [`page`]: find in page, the origin chip, the load glow, the sheets of what pages
 //!   ask, and the full-screen notice.
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
 //! - [`popovers`]: the downloads and the shields popovers.

@@ -1,12 +1,15 @@
-//! The page frame: the page edge to edge, inset as a card (*Inset page*), the card loading,
-//! and full screen dropping the inset.
+//! The page frame: the page edge to edge, inset as a card (*Inset page*), the load glow along
+//! the window's edge and around the card, and full screen dropping the inset. Renders show
+//! the faint ring only: the comet turns on the render server, and the halo is a layer shadow,
+//! which a render does not draw.
 
 use objc2::Message;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSColor, NSImageScaling, NSImageView, NSView};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
+use quickie_ui_shared::motion;
 use quickie_ui_shared::stories::{LIGHT, LIGHT_DARK, Scene, Story, page_picture};
-use quickie_ui_widgets::{LoadProgressLine, PageFrame};
+use quickie_ui_widgets::PageFrame;
 
 pub const STORIES: &[Story] = &[
     Story {
@@ -28,10 +31,26 @@ pub const STORIES: &[Story] = &[
     Story {
         group: "page",
         widget: "page-frame",
-        state: "inset-loading",
-        themes: LIGHT,
+        state: "inset-glow",
+        themes: LIGHT_DARK,
         window: WINDOW,
         scene: inset_loading,
+    },
+    Story {
+        group: "page",
+        widget: "page-frame",
+        state: "edge-glow",
+        themes: LIGHT_DARK,
+        window: WINDOW,
+        scene: edge_loading,
+    },
+    Story {
+        group: "page",
+        widget: "page-frame",
+        state: "loaded",
+        themes: LIGHT,
+        window: WINDOW,
+        scene: loaded,
     },
     Story {
         group: "page",
@@ -103,14 +122,64 @@ fn inset(scene: &mut Scene) {
     scene.keep(frame);
 }
 
-/// The load progress line runs along the card's top edge, inside its corners.
+/// The page loads through `steps`; the glow's speed at each, in turns per second.
+fn load(scene: &mut Scene, frame: &PageFrame, steps: &[f64]) -> Vec<f64> {
+    let speeds: Vec<f64> = steps
+        .iter()
+        .map(|&fraction| {
+            frame.set_loading(Some(fraction));
+            frame.glow_speed()
+        })
+        .collect();
+    scene.check(frame.is_loading(), "a load in progress shows");
+    if motion::reduce_motion() {
+        scene.check(
+            speeds.iter().all(|&speed| speed == 0.0),
+            "with Reduce Motion the edge stands still",
+        );
+    } else {
+        scene.check(
+            speeds.windows(2).all(|pair| pair[0] < pair[1]),
+            format!("the light speeds up as the page loads: {speeds:?}"),
+        );
+    }
+    speeds
+}
+
+/// Inset, the glow runs around the card as its box shadow.
 fn inset_loading(scene: &mut Scene) {
     let frame = open(scene);
     frame.set_inset(true);
-    let line = LoadProgressLine::new(scene.mtm());
-    line.set(frame.host(), Some(0.6));
-    scene.check(line.is_loading(), "a load in progress shows");
-    scene.keep(line);
+    load(scene, &frame, &[0.1, 0.5, 0.9]);
+    scene.check_eq(
+        frame.glow_view().frame(),
+        card(&frame),
+        "the glow runs around the card",
+    );
+    scene.keep(frame);
+}
+
+/// Edge to edge, the glow runs along the window's inner edge, over the page.
+fn edge_loading(scene: &mut Scene) {
+    let frame = open(scene);
+    load(scene, &frame, &[0.3]);
+    scene.check_eq(
+        frame.glow_view().frame(),
+        scene.host().bounds(),
+        "the glow runs along the window's edge",
+    );
+    scene.keep(frame);
+}
+
+/// When loading ends the glow fades out and stops; a new load brings it back.
+fn loaded(scene: &mut Scene) {
+    let frame = open(scene);
+    frame.set_inset(true);
+    load(scene, &frame, &[0.4]);
+    frame.set_loading(None);
+    scene.check(!frame.is_loading(), "a finished load stops showing");
+    frame.reset_loading();
+    scene.check_eq(frame.glow_speed(), 0.0, "a reset glow stands still");
     scene.keep(frame);
 }
 
