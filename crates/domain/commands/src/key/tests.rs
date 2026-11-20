@@ -1,6 +1,6 @@
 use super::{
     Chord, ChordError, Digit, FunctionKey, Key, KeyStroke, KeyStrokeError, Letter, Modifiers,
-    Platform,
+    Platform, TypingStroke,
 };
 
 const MAC: Platform = Platform::MacOs;
@@ -526,4 +526,108 @@ fn a_stroke_error_reads_as_itself_inside_a_chord_error() {
     let error = ChordError::from(KeyStrokeError::UnknownKey("hyper".to_owned()));
 
     assert_eq!(error.to_string(), "`hyper` is not a key");
+}
+
+// ---- keys that type ----------------------------------------------------------------------------
+
+/// The named keys that type nothing; every other named key types a character.
+const SILENT: [&str; 14] = [
+    "tab",
+    "enter",
+    "escape",
+    "backspace",
+    "delete",
+    "up",
+    "down",
+    "left",
+    "right",
+    "home",
+    "end",
+    "pageup",
+    "pagedown",
+    "f1",
+];
+
+#[test]
+fn letters_digits_space_and_punctuation_type() {
+    let typing = ('a'..='z')
+        .chain('0'..='9')
+        .map(|c| c.to_string())
+        .chain(NAMED.iter().map(|&(_, name, _, _)| name.to_owned()))
+        .filter(|name| !SILENT.contains(&name.as_str()));
+
+    for name in typing {
+        assert!(Key::from_name(&name).unwrap().types_text(), "{name}");
+    }
+}
+
+#[test]
+fn function_arrow_and_editing_keys_type_nothing() {
+    let silent = SILENT.iter().copied().chain(["f12"]);
+
+    for name in silent {
+        assert!(!Key::from_name(name).unwrap().types_text(), "{name}");
+    }
+}
+
+#[test]
+fn command_option_and_control_each_make_a_shortcut() {
+    for modifier in [Modifiers::COMMAND, Modifiers::OPTION, Modifiers::CONTROL] {
+        assert!(modifier.makes_shortcut(), "{modifier:?}");
+        assert!(
+            (modifier | Modifiers::SHIFT).makes_shortcut(),
+            "{modifier:?}"
+        );
+    }
+}
+
+#[test]
+fn shift_alone_or_nothing_makes_no_shortcut() {
+    assert!(!Modifiers::SHIFT.makes_shortcut());
+    assert!(!Modifiers::NONE.makes_shortcut());
+}
+
+#[test]
+fn a_typing_key_bare_or_shifted_types() {
+    for text in ["f", "shift+f", "space", "shift+1", "/", "shift+["] {
+        assert!(stroke(text).types_text(), "{text}");
+    }
+}
+
+#[test]
+fn a_typing_key_with_command_option_or_control_types_nothing() {
+    for text in ["cmd+f", "alt+f", "ctrl+f", "shift+alt+f", "ctrl+space"] {
+        assert!(!stroke(text).types_text(), "{text}");
+    }
+}
+
+#[test]
+fn a_silent_key_types_nothing_bare() {
+    for text in ["escape", "f5", "shift+tab", "up"] {
+        assert!(!stroke(text).types_text(), "{text}");
+    }
+}
+
+#[test]
+fn a_chord_that_starts_with_a_typing_stroke_is_no_shortcut() {
+    let chord = Chord::try_from("shift+f cmd+k").unwrap();
+
+    assert_eq!(chord.check_shortcut(), Err(TypingStroke(stroke("shift+f"))));
+}
+
+#[test]
+fn a_chord_may_type_on_its_second_stroke() {
+    let chord = Chord::try_from("cmd+k f").unwrap();
+
+    assert_eq!(chord.check_shortcut(), Ok(()));
+}
+
+#[test]
+fn a_typing_stroke_reads_as_its_keybinding_text() {
+    let error = TypingStroke(stroke("shift+f"));
+
+    assert_eq!(
+        error.to_string(),
+        "a shortcut needs cmd, alt or ctrl: `shift+f` would type into text fields"
+    );
 }

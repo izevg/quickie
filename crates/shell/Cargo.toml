@@ -35,6 +35,8 @@ objc2-app-kit = { workspace = true, features = [
   "NSResponder",
   "NSRunningApplication",
   "NSSavePanel",
+  "NSTextInputClient",
+  "NSTextInputContext",
   "NSView",
   "NSWindow",
   "NSWorkspace",

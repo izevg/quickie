@@ -1,16 +1,17 @@
-//! Link hints: `F` asks the active page where its links and controls are, the labels show
+//! Link hints: `⌥F` asks the active page where its links and controls are, the labels show
 //! over them, and typing one follows it. The page answers asynchronously, off the key.
 
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use quickie_application::{Followed, LinkTarget, PageContent, PageRect, Ticket};
 use quickie_domain_browsing::{Focus, JarChoice, TabId};
-use quickie_domain_commands::{Key, KeyStroke, Modifiers};
+use quickie_domain_commands::{Key, KeyStroke, Modifiers, Resolution};
 use quickie_ui_widgets::HintKey;
 
 use super::super::Browser;
+use super::super::commands::Action;
 
 impl Browser {
-    /// `F` (`⇧F` for `background`): labels what the active page shows.
+    /// `⌥F` (`⇧⌥F` for `background`): labels what the active page shows.
     pub(in crate::browser) fn open_hints(&self, background: bool) {
         let Some((window, _)) = self.current() else {
             return;
@@ -70,16 +71,23 @@ impl Browser {
 
     /// Keys while the hints show: letters type a label (`⇧` on the last one opens a link in
     /// the background), `⌫` takes one back, `⎋` cancels. A shortcut with `⌘`, `⌃`, or `⌥`
-    /// cancels them and runs; any other key does nothing.
+    /// cancels them and runs, except the hints' own key, which only cancels; any other key
+    /// does nothing.
     pub(super) fn hints_key(&self, stroke: KeyStroke) -> bool {
         let hints = &self.navigation.hints;
         if !hints.is_open() {
             return false;
         }
         let modifiers = stroke.modifiers;
-        if modifiers != Modifiers::NONE && modifiers != Modifiers::SHIFT {
+        if modifiers.makes_shortcut() {
+            // The key that shows the hints (`⌥F`) takes them away again, as a toggle does;
+            // any other shortcut cancels them and runs.
+            let toggles = matches!(
+                self.keymap.borrow().resolve(stroke, None, &self.when()),
+                Resolution::Command(id) if matches!(Action::of(&id), Some(Action::Hints { .. }))
+            );
             hints.hide();
-            return false;
+            return toggles;
         }
         match stroke.key {
             Key::Escape => hints.hide(),
