@@ -25,6 +25,7 @@ use url::Url;
 use crate::downloads::DownloadCenter;
 use crate::page::asks::Reply;
 use crate::page::{FocusReports, Hooks, PageEvent, WebPage};
+use crate::shields::cosmetic::Cosmetics;
 
 /// The tab a page reports for; `None` while a page the engine opened waits to be adopted.
 pub(crate) type Owner = Rc<Cell<Option<TabId>>>;
@@ -71,6 +72,8 @@ pub(crate) struct Inbox {
     pub(crate) focus: FocusReports,
     /// Where a page's downloads go; set once the center exists.
     pub(crate) downloads: RefCell<Weak<DownloadCenter>>,
+    /// The cosmetic shields a frame's document waits for; set once they exist.
+    pub(crate) cosmetics: RefCell<Weak<Cosmetics>>,
     /// The jar of each page, for the downloads it starts.
     pub(crate) jars: RefCell<HashMap<TabId, Jar>>,
     pub(crate) links: RefCell<Vec<Link>>,
@@ -93,7 +96,20 @@ impl Inbox {
         );
         let (event_owner, ask_owner, opener) =
             (Rc::clone(owner), Rc::clone(owner), Rc::clone(owner));
+        let (starting, arriving) = (
+            inbox.cosmetics.borrow().clone(),
+            inbox.cosmetics.borrow().clone(),
+        );
         Hooks {
+            on_navigation: Box::new(move |url| {
+                if let Some(cosmetics) = starting.upgrade() {
+                    Cosmetics::expect(&cosmetics, url);
+                }
+            }),
+            before_document: Box::new(move |url, go| match arriving.upgrade() {
+                Some(cosmetics) => Cosmetics::prepare(&cosmetics, url, go),
+                None => go(),
+            }),
             on_event: Box::new(move |event| Self::record(&events, &event_owner, event)),
             on_ask: Box::new(move |origin, kind, reply| {
                 Self::ask(&asks, &ask_owner, origin, kind, reply);
@@ -125,6 +141,7 @@ impl Inbox {
                 inbox.push(EngineEvent::Fullscreen { tab, entered });
             }
             PageEvent::Crashed => inbox.push(EngineEvent::Crashed { tab }),
+            PageEvent::Blocked => inbox.events.borrow_mut().blocked(tab),
             PageEvent::Download(download) => {
                 let center = inbox.downloads.borrow().upgrade();
                 if let Some(center) = center {

@@ -1,5 +1,5 @@
 //! The palette query: what the user typed, answered from the open tabs, the library, the
-//! command catalog, and the agent's skills.
+//! command catalog, the running extensions, and the agent's skills.
 //!
 //! Opening the palette gathers every candidate and scores its frecency once
 //! ([`Palette::open`]); each keystroke then only ranks ([`PaletteIndex::query`]), synchronously,
@@ -18,7 +18,10 @@ use quickie_domain_library::{Bookmarks, History, SearchShortcuts};
 pub use index::{AddressSuggestions, InlineCompletion, PaletteIndex, Suggestion, SuggestionKind};
 pub use item::{PaletteItem, Target};
 
-use crate::Clock;
+use crate::{Clock, ExtensionOffer};
+
+/// The row that installs the extension a pasted Chrome Web Store page shows.
+const INSTALL_TITLE: &str = "Install Extension from Chrome Web Store";
 
 /// The start of the row that asks the agent the typed question.
 const ASK_TITLE: &str = "Ask about this page: ";
@@ -39,6 +42,8 @@ pub struct Sources<'a> {
     pub shortcuts: &'a SearchShortcuts,
     /// The keys bound to each command.
     pub keymap: &'a Keymap,
+    /// The actions and commands of running extensions.
+    pub extensions: &'a [ExtensionOffer],
 }
 
 /// The palette use case.

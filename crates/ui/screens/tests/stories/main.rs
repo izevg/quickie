@@ -5,7 +5,9 @@
 //! sidebar shows the page behind it.
 //!
 //! - [`keyboard`]: the keymap editor: the table, a refused user entry, and recording keys.
+//! - [`extensions`]: the installed extensions, none, and a macOS without them.
 
+mod extensions;
 mod keyboard;
 
 use std::cell::RefCell;
@@ -25,10 +27,17 @@ use quickie_ui_screens::{
 use quickie_ui_shared::stories::{self, Key, LIGHT, LIGHT_DARK, Scene, Story, Theme};
 use quickie_ui_widgets::{AgentSettings, SettingsSummary, Tone};
 
-const fn settings(state: &'static str, themes: &'static [Theme], scene: fn(&mut Scene)) -> Story {
+/// One story of a Settings pane; each pane is its own widget so its states stay within the rule
+/// of four.
+const fn settings(
+    pane: &'static str,
+    state: &'static str,
+    themes: &'static [Theme],
+    scene: fn(&mut Scene),
+) -> Story {
     Story {
         group: "settings",
-        widget: "settings",
+        widget: pane,
         state,
         themes,
         window: (900.0, 640.0),
@@ -37,18 +46,37 @@ const fn settings(state: &'static str, themes: &'static [Theme], scene: fn(&mut 
 }
 
 const STORIES: &[Story] = &[
-    settings("general", LIGHT_DARK, general),
-    settings("general-default", LIGHT, general_default),
-    settings("shields", LIGHT_DARK, shields),
-    settings("shields-fetching", LIGHT, shields_fetching),
-    settings("keyboard", LIGHT_DARK, keyboard::table_full),
-    settings("keyboard-refused", LIGHT_DARK, keyboard::table),
-    settings("keyboard-problems", LIGHT, keyboard::problems),
-    settings("keyboard-recording", LIGHT, keyboard::recording),
-    settings("keyboard-recorded", LIGHT, keyboard::recorded),
-    settings("keyboard-conflict", LIGHT_DARK, keyboard::conflict),
-    settings("agent", LIGHT_DARK, agent),
-    settings("agent-problem", LIGHT, agent_problem),
+    settings("general", "general", LIGHT_DARK, general),
+    settings("general", "general-default", LIGHT, general_default),
+    settings("shields", "shields", LIGHT_DARK, shields),
+    settings("shields", "shields-fetching", LIGHT, shields_fetching),
+    settings("shields", "shields-no-lists", LIGHT_DARK, shields_no_lists),
+    settings(
+        "extensions",
+        "extensions",
+        LIGHT_DARK,
+        extensions::installed,
+    ),
+    settings("extensions", "extensions-empty", LIGHT, extensions::empty),
+    settings(
+        "extensions",
+        "extensions-old-macos",
+        LIGHT,
+        extensions::unavailable,
+    ),
+    settings("keyboard", "keyboard", LIGHT_DARK, keyboard::table_full),
+    settings("keyboard", "keyboard-refused", LIGHT_DARK, keyboard::table),
+    settings("keyboard", "keyboard-problems", LIGHT, keyboard::problems),
+    settings("keyboard", "keyboard-recording", LIGHT, keyboard::recording),
+    settings("keyboard", "keyboard-recorded", LIGHT, keyboard::recorded),
+    settings(
+        "keyboard",
+        "keyboard-conflict",
+        LIGHT_DARK,
+        keyboard::conflict,
+    ),
+    settings("agent", "agent", LIGHT_DARK, agent),
+    settings("agent", "agent-problem", LIGHT, agent_problem),
 ];
 
 fn main() -> ExitCode {
@@ -72,7 +100,7 @@ pub struct Settings {
 
 /// The window filled as the browser fills it, its content on the story's page, the sidebar
 /// with the keyboard on General.
-fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> {
+pub fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> {
     let agent = AgentSettings::new(scene.mtm());
     agent.load(&SettingsSummary {
         base: "http://127.0.0.1:1234/v1".to_owned(),
@@ -136,12 +164,13 @@ fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> {
 }
 
 /// Goes to `pane` with `↓` in the sidebar, from General, and checks the pane is up.
-fn go(scene: &mut Scene, pane: Pane, title: &str) {
+pub fn go(scene: &mut Scene, pane: Pane, title: &str) {
     let steps = match pane {
         Pane::General => 0,
         Pane::Shields => 1,
-        Pane::Keys => 2,
-        Pane::Agent => 3,
+        Pane::Extensions => 2,
+        Pane::Keys => 3,
+        Pane::Agent => 4,
     };
     for _ in 0..steps {
         scene.press(Key::Down);
@@ -177,6 +206,7 @@ fn shields_state(status: &str) -> ShieldsState {
         keep_fresh: true,
         site_keys: "⌥⌘S".to_owned(),
         status: status.to_owned(),
+        rules: "Rules active: 81,203 rules in 1 list, compiled 2 h ago".to_owned(),
     }
 }
 
@@ -209,6 +239,27 @@ fn general_default(scene: &mut Scene) {
 fn shields(scene: &mut Scene) {
     open(scene, None);
     go(scene, Pane::Shields, "Privacy & Shields");
+}
+
+/// No list on: the card says so, and its one button asks to turn them on.
+fn shields_no_lists(scene: &mut Scene) {
+    let settings = open(scene, None);
+    let mut state = shields_state("");
+    for list in &mut state.lists {
+        list.enabled = false;
+    }
+    state.rules = String::new();
+    settings.screen.set_shields(&state);
+    go(scene, Pane::Shields, "Privacy & Shields");
+    match scene.view_labelled("Enable") {
+        Some(button) => scene.click(&button),
+        None => scene.check(false, "the Enable button is labelled"),
+    }
+    scene.check_eq(
+        settings.actions.borrow().clone(),
+        vec![SettingsAction::EnableLists],
+        "Enable asks to turn the lists on",
+    );
 }
 
 fn shields_fetching(scene: &mut Scene) {

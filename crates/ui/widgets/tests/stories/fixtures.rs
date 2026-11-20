@@ -129,6 +129,7 @@ impl World {
             bookmarks: &self.bookmarks,
             shortcuts: &self.shortcuts,
             keymap: &self.keymap,
+            extensions: &[],
         })
     }
 

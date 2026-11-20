@@ -23,12 +23,15 @@ Rust module names in the `crates/ui/*` crates. Tokens: [system.md](system.md).
 | system | Full-screen notice | [fullscreen](mocks/system/fullscreen/light.html) | `fullscreen_notice` |
 | system | Shields popover | [shields](mocks/system/shields/light.html) | `shields_popover` |
 | system | Downloads popover `⌘J` | [downloads](mocks/system/downloads/light.html) | `downloads_popover` |
+| system | Extension sheet (install, update, request) | — (the permission sheet's form) | `extension_sheet` |
+| system | Extension popup (from the palette or its key) | — (a popover holding the extension's page) | `extension_popover` |
 | agent | Agent-controlled tab | [session](mocks/agent/session/light.html) | `agent_frame` |
 | agent | Approval sheet | [approval](mocks/agent/approval/light.html) | `agent_approval_sheet` |
 | agent | Ask agent `?` | [ask](mocks/agent/ask/light.html) | `command_palette` (ask mode) → `agent_answer_panel` |
 | agent | Ask agent, no endpoint | [ask-empty](mocks/agent/ask-empty/light.html) | `agent_answer_panel` (empty state) |
 | settings | Settings window | [general](mocks/settings/general/light.html) | screen `settings` |
 | settings | Keymap editor | [keymap](mocks/settings/keymap/light.html) | screen `settings`, pane `keyboard` |
+| settings | Extensions | — (the shields pane's form) | screen `settings`, pane `extensions` |
 
 Each folder also has `dark.html`. Sticker sheets of single components: [mocks/components](mocks/components/).
 
@@ -98,8 +101,8 @@ the slices inside a group still never use each other.
 | `page` | `find_bar`, `load_progress_line`, `origin_chip` |
 | `hints` | `link_hints_layer` (labels drawn natively above the page, never in its DOM) |
 | `feedback` | `toast_stack`, `fullscreen_notice`, `key_log` (E1, the last key presses and what became of them; palette only) |
-| `sheets` | `permission_sheet`, `dialog_sheet` (a page's `alert`, `confirm`, `prompt`), `agent_approval_sheet` |
-| `popovers` | `shields_popover`, `downloads_popover` |
+| `sheets` | `permission_sheet`, `dialog_sheet` (a page's `alert`, `confirm`, `prompt`), `extension_sheet` (what an extension asks for), `agent_approval_sheet` |
+| `popovers` | `shields_popover`, `downloads_popover`, `extension_popover` (an extension's action popup) |
 | `agent` | `agent_frame` (2 px border + badge), `agent_answer_panel` (streaming, citations, empty state), `agent_settings` (endpoint, model, key; a form the Settings window's Agent pane shows) |
 
 ## screens and app

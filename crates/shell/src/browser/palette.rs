@@ -12,6 +12,7 @@ use quickie_domain_browsing::{Focus, JarChoice};
 use url::Url;
 
 use super::Browser;
+use crate::Addons;
 use crate::input::keystroke::OverlayKey;
 
 /// How many answers a query asks for; the list shows eight and scrolls the rest.
@@ -40,8 +41,10 @@ impl Opening {
 }
 
 impl Browser {
-    /// Hands the palette's edits and clicks to the browser.
+    /// Hands the palette's edits and clicks to the browser, and the address overlay's, which
+    /// answers from the same index.
     pub(super) fn wire_palette(&self) {
+        self.wire_address();
         let this = self.this.clone();
         self.command_palette.on_change(move || {
             if let Some(browser) = this.upgrade() {
@@ -99,12 +102,18 @@ impl Browser {
         let browsing = self.browsing.borrow();
         let library = self.library.borrow();
         let keymap = self.keymap.borrow();
+        let extensions = self
+            .extensions
+            .borrow()
+            .as_ref()
+            .map_or_default(Addons::offers);
         self.palette.open(&Sources {
             session: browsing.session(),
             history: library.history(),
             bookmarks: library.bookmarks(),
             shortcuts: library.shortcuts(),
             keymap: &keymap,
+            extensions: &extensions,
         })
     }
 
@@ -146,8 +155,8 @@ impl Browser {
     }
 
     /// Runs what a palette or address row chose, closing both: switch to a tab, open a page
-    /// as `opening` says, run a command, or ask the agent. A tag narrows the palette instead,
-    /// and nothing else chooses one.
+    /// as `opening` says, run a command or an extension, install one, or ask the agent. A tag
+    /// narrows the palette instead, and nothing else chooses one.
     pub(super) fn run_target(&self, target: Target, opening: Opening) {
         self.command_palette.hide();
         self.address.hide();
@@ -165,6 +174,8 @@ impl Browser {
             Target::Url(url) | Target::Search(url) => self.go(url, opening),
             Target::Skill(id) => self.ask_skill(&id),
             Target::Ask(question) => self.ask_question(question),
+            Target::InstallExtension(page) => self.install_from_store(&page),
+            Target::Extension(trigger) => self.run_extension(&trigger),
         }
     }
 

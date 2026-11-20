@@ -7,14 +7,16 @@
 # WEBKIT_COMMIT   the exact commit that is fetched and built; the only value the build trusts
 # WEBKIT_CHECKED  when WEBKIT_COMMIT was read off WEBKIT_BRANCH (UTC date)
 #
-# Checked on 2026-11-20: `git ls-remote https://github.com/izevg/WebKit refs/heads/main` gave
-# a6331649 ("[Win] VM::updateStackLimits cache committed pages", committed 2026-11-20T02:47Z).
-# The fork's main tracks WebKit/WebKit main; there are no Quickie patches on it yet.
+# Base: the WebKitGTK/WPE stable series, the one branch both ports (macOS and GTK) build from
+# (docs/architecture.md, "Decision: our own WebKit"). Release tag webkitgtk-2.54.3
+# (tagged 2026-11-18) peels to eb74cd57; the fork's branch quickie/2.54 starts there and will
+# carry our patches as commits. Apple's Mac-only security fixes are cherry-picked from each
+# Apple security note; the series moves to webkitglib/2.56 when it is released.
 #
 # To bump: put the new commit and date here, push, and let .github/workflows/webkit.yml build it
 # (engine/README.md, "Bumping the pin").
 
 WEBKIT_REPO=https://github.com/izevg/WebKit.git
-WEBKIT_BRANCH=main
-WEBKIT_COMMIT=a6331649580b67f2af8a827f0eb89f73422fea55
+WEBKIT_BRANCH=quickie/2.54
+WEBKIT_COMMIT=eb74cd57254e5b9738fbaa5ad13df320a68a7119
 WEBKIT_CHECKED=2026-11-20

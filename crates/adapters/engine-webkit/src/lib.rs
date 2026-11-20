@@ -20,8 +20,12 @@
 //! answers them. A page whose web content process died is reported ([`EngineEvent::Crashed`])
 //! and stays blank until it is reloaded.
 //!
-//! Every page shares one user content controller, so the [`WebKitContentBlocker`] the engine
-//! hands out ([`WebKitEngine::content_blocker`]) blocks on all of them. [`UrlSessionHttp`] is the
+//! Main-jar pages share one user content controller and throwaway-jar pages another, so the
+//! [`WebKitContentBlocker`] the engine hands out ([`WebKitEngine::content_blocker`]) installs
+//! the same rules in both and blocks on every page, popups included, and on pages made before
+//! its rules were compiled. Its cosmetic filters and scriptlets ride in the same controllers; a
+//! frame's document waits, briefly, for its host's. Extensions' content scripts land only in
+//! the main jar's controller, so they never reach a throwaway page. [`UrlSessionHttp`] is the
 //! network for the browser's own requests, such as fetching filter lists.
 //!
 //! Navigations that become downloads go to one download center, which saves them into the
@@ -33,15 +37,20 @@
 //! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it.
 //! Page zoom ([`WebKitEngine::set_zoom`]) and printing ([`WebKitEngine::print`]) are the
 //! view's own.
+//!
+//! Web extensions ([`WebKitExtensions`], from [`WebKitEngine::web_extensions`]) run in the
+//! main jar's pages through one `WKWebExtensionController`, on macOS 15.4 and later; never in
+//! a throwaway jar's.
 
 #![expect(
     unsafe_code,
     reason = "WebKit through objc2: its bindings mark most methods unsafe; KVO, the navigation \
-              UI, and download delegates and the scheme handler need classes; content rule \
-              lists cross threads"
+              UI, download delegates, the scheme handler, and the extension controller's \
+              delegate, tabs and windows need classes; content rule lists cross threads"
 )]
 
 mod downloads;
+mod extensions;
 mod inbox;
 mod network;
 mod page;
@@ -61,19 +70,21 @@ use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrdering
 use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
-    Answer, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found, Navigation,
-    PageContent, ReplyToken, Ticket,
+    Answer, Capabilities, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep, Found,
+    Navigation, PageContent, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use url::Url;
 
 use downloads::DownloadCenter;
+pub use extensions::WebKitExtensions;
 pub use inbox::OpenedPage;
 use inbox::{Event, Inbox, Owner};
 pub use network::UrlSessionHttp;
 use page::WebPage;
 use scheme::InternalPages;
-pub use shields::{BlockerStatus, WebKitContentBlocker};
+use shields::cosmetic::Cosmetics;
+pub use shields::{BlockerStatus, Installed, WebKitContentBlocker};
 
 /// The size, in points, of the tab overview's pictures until the shell sets its own
 /// ([`WebKitEngine::set_thumbnail_size`]): the overview's widest card, 16:10.
@@ -90,14 +101,23 @@ pub struct WebKitEngine {
     shown: HashMap<WindowId, TabId>,
     jars: HashMap<JarId, Retained<WKWebsiteDataStore>>,
     internal: Retained<InternalPages>,
-    /// Shared by every page: the content blocker installs its rule lists here.
+    /// Shared by every main-jar page: the content blocker installs its rule lists and shields
+    /// scripts here, and the extension controller its content scripts.
     content: Retained<WKUserContentController>,
+    /// Shared by every throwaway-jar page: the same rule lists and shields scripts, and no
+    /// extension's content scripts.
+    throwaway_content: Retained<WKUserContentController>,
+    /// The cosmetic filters and scriptlets of every page, in `content`; the content blocker
+    /// gives them their lists.
+    cosmetics: Rc<Cosmetics>,
     downloads: Rc<DownloadCenter>,
     inbox: Rc<Inbox>,
     /// The last picture of each page, taken when it was hidden or asked for.
     thumbnails: Thumbnails,
     /// The size pictures are drawn at, in points; the screen's scale multiplies it.
     thumbnail_size: NSSize,
+    /// The main jar's extension controller and every page's view, once extensions are on.
+    extensions: Option<Rc<extensions::Shared>>,
 }
 
 impl std::fmt::Debug for WebKitEngine {
@@ -117,8 +137,11 @@ impl WebKitEngine {
     pub fn new(internal: &[(Url, String)], mtm: MainThreadMarker) -> Self {
         // SAFETY: a fresh controller has no preconditions.
         let content = unsafe { WKUserContentController::new(mtm) };
+        // SAFETY: as above.
+        let throwaway_content = unsafe { WKUserContentController::new(mtm) };
         let inbox = Rc::<Inbox>::default();
         page::install_focus_script(&content, Rc::clone(&inbox.focus), mtm);
+        page::install_focus_script(&throwaway_content, Rc::clone(&inbox.focus), mtm);
         let waiting = Rc::downgrade(&inbox);
         let downloads = DownloadCenter::new(
             move |event| {
@@ -130,6 +153,8 @@ impl WebKitEngine {
             mtm,
         );
         *inbox.downloads.borrow_mut() = Rc::downgrade(&downloads);
+        let cosmetics = Cosmetics::new(vec![content.clone(), throwaway_content.clone()], mtm);
+        *inbox.cosmetics.borrow_mut() = Rc::downgrade(&cosmetics);
         Self {
             mtm,
             pages: HashMap::new(),
@@ -138,10 +163,50 @@ impl WebKitEngine {
             jars: HashMap::new(),
             internal: InternalPages::new(internal, mtm),
             content,
+            throwaway_content,
+            cosmetics,
             downloads,
             inbox,
             thumbnails: Rc::default(),
             thumbnail_size: THUMBNAIL_SIZE,
+            extensions: None,
+        }
+    }
+
+    /// What this engine offers the UI beyond its ports.
+    pub const CAPS: Capabilities = Capabilities {
+        web_extensions: true,
+    };
+
+    /// The main jar's web extensions, made once: pages created from now on run them. Call it
+    /// before the first page exists. `None` on a macOS without `WKWebExtension` (before 15.4)
+    /// and on a second call.
+    pub fn web_extensions(&mut self) -> Option<WebKitExtensions> {
+        if self.extensions.is_some() {
+            return None;
+        }
+        let shared = extensions::Shared::new(&user_agent::safari_tail(), self.mtm)?;
+        for (&tab, page) in &self.pages {
+            if self.inbox.jar_of(tab) == Jar::Main {
+                shared
+                    .views
+                    .borrow_mut()
+                    .insert(tab, page.web_view().retain());
+            }
+        }
+        self.extensions = Some(Rc::clone(&shared));
+        Some(WebKitExtensions::new(shared, self.mtm))
+    }
+
+    /// Lets extensions reach a tab's page, when it is in the main jar.
+    fn share_view(&self, tab: TabId) {
+        if let (Some(shared), Some(page)) = (&self.extensions, self.pages.get(&tab))
+            && self.inbox.jar_of(tab) == Jar::Main
+        {
+            shared
+                .views
+                .borrow_mut()
+                .insert(tab, page.web_view().retain());
         }
     }
 
@@ -235,7 +300,8 @@ impl WebKitEngine {
             .ok_or_else(|| EngineError(format!("no rule list store in {path}")))?;
         Ok(WebKitContentBlocker::new(
             store,
-            self.content.clone(),
+            vec![self.content.clone(), self.throwaway_content.clone()],
+            Rc::clone(&self.cosmetics),
             self.mtm,
         ))
     }
@@ -426,6 +492,7 @@ impl EnginePort for WebKitEngine {
         self.inbox.release_asks();
         Inbox::schedule(&self.inbox);
         self.pages.insert(tab, page);
+        self.share_view(tab);
         Ok(())
     }
 
@@ -437,10 +504,18 @@ impl EnginePort for WebKitEngine {
         // Known before the page exists: a download it starts at once needs its jar.
         self.inbox.jars.borrow_mut().insert(tab, jar);
         let owner: Owner = Rc::new(Cell::new(Some(tab)));
+        let (content, extensions) = match jar {
+            Jar::Main => (
+                &self.content,
+                self.extensions.as_ref().map(|shared| &*shared.controller),
+            ),
+            Jar::Throwaway(_) => (&self.throwaway_content, None),
+        };
         let page = WebPage::new(
             &store,
-            &self.content,
+            content,
             &self.internal,
+            extensions,
             Inbox::hooks(&self.inbox, &owner, self.mtm),
             Rc::clone(&self.inbox.focus),
             self.mtm,
@@ -449,6 +524,7 @@ impl EnginePort for WebKitEngine {
         self.thumbnails.borrow_mut().open(tab);
         let loaded = page.load(url);
         self.pages.insert(tab, page);
+        self.share_view(tab);
         loaded
     }
 
@@ -487,6 +563,9 @@ impl EnginePort for WebKitEngine {
         self.shown.retain(|_, shown| *shown != tab);
         self.inbox.forget(tab);
         self.thumbnails.borrow_mut().close(tab);
+        if let Some(shared) = &self.extensions {
+            shared.views.borrow_mut().remove(&tab);
+        }
         match self.pages.remove(&tab) {
             Some(_page) => Ok(()),
             None => Err(EngineError(format!("no page for {tab}"))),

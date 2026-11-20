@@ -22,7 +22,8 @@ use objc2_foundation::{
 };
 use objc2_web_kit::{
     WKContentWorld, WKSnapshotConfiguration, WKUserContentController, WKUserScript,
-    WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKUserScriptInjectionTime, WKWebExtensionController, WKWebView, WKWebViewConfiguration,
+    WKWebsiteDataStore,
 };
 use quickie_application::{AskKind, EngineError, FindStep, Followed, LinkTarget};
 use quickie_domain_browsing::{FindMatches, Focus};
@@ -40,7 +41,17 @@ use asks::delegate::PageUi;
 /// Where a page's reports and requests go. Called on the main thread, sometimes from inside a
 /// call into the view: a hook records, it never calls back into the engine.
 pub(crate) struct Hooks {
-    /// Navigations, titles, loading, links to open elsewhere, closing, full screen, crashes.
+    /// A navigation of the page or of one of its frames is about to start, to this URL.
+    pub(crate) on_navigation: Box<dyn Fn(&Url)>,
+    /// A frame's response arrived; its document loads once the shields have its host's
+    /// filters, which the second argument is called for.
+    #[expect(
+        clippy::type_complexity,
+        reason = "a hook and the continuation it calls, written out where it is held"
+    )]
+    pub(crate) before_document: Box<dyn Fn(&Url, Box<dyn FnOnce()>)>,
+    /// Navigations, titles, loading, links to open elsewhere, closing, full screen, crashes,
+    /// blocked loads.
     pub(crate) on_event: Box<dyn Fn(PageEvent)>,
     /// A dialog or a permission, from the origin in the URL, waiting for its reply.
     pub(crate) on_ask: Box<dyn Fn(Url, AskKind, Reply)>,
@@ -75,12 +86,19 @@ impl WebPage {
         store: &WKWebsiteDataStore,
         content: &WKUserContentController,
         internal: &InternalPages,
+        extensions: Option<&WKWebExtensionController>,
         hooks: Hooks,
         focus: FocusReports,
         mtm: MainThreadMarker,
     ) -> Self {
         // SAFETY: a fresh configuration has no preconditions.
         let configuration = unsafe { WKWebViewConfiguration::new(mtm) };
+        // Web extensions run in the main jar's pages only; a page it opens copies this. The
+        // setter exists only where the controller does (macOS 15.4).
+        if let Some(controller) = extensions {
+            // SAFETY: a controller made on the main thread; the configuration retains it.
+            unsafe { configuration.setWebExtensionController(Some(controller)) };
+        }
         // SAFETY: `store` is a valid data store; the configuration is copied on use.
         unsafe { configuration.setWebsiteDataStore(store) };
         // SAFETY: a valid controller; the copy keeps the same controller, so rule lists

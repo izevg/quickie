@@ -685,6 +685,35 @@ mod fetching {
     }
 
     #[test]
+    fn content_lost_at_start_comes_back_with_an_unchanged_fetch() {
+        let mut saved = saved_list(EASYLIST, true, BODY);
+        saved.bodies = vec![(EASYLIST, b"tampered".to_vec())];
+        let mut shields = start_with(saved);
+
+        let refreshed = shields
+            .lists_fetched(vec![fetched(EASYLIST, BODY)])
+            .unwrap();
+
+        assert_eq!(refreshed.updated, [EASYLIST]);
+        assert_eq!(shields.repo.saved.bodies, [(EASYLIST, BODY.to_vec())]);
+        assert_eq!(shields.blocker.installed, [rules(&[(EASYLIST, BODY)], &[])]);
+    }
+
+    #[test]
+    fn content_lost_at_start_comes_back_even_within_the_same_millisecond() {
+        let mut saved = saved_list(EASYLIST, true, BODY);
+        saved.bodies = Vec::new();
+        let mut shields = start_with(saved);
+
+        shields
+            .lists_fetched(vec![fetched(EASYLIST, BODY)])
+            .unwrap();
+
+        assert_eq!(shields.repo.saved.bodies, [(EASYLIST, BODY.to_vec())]);
+        assert_eq!(shields.blocker.installed.len(), 1);
+    }
+
+    #[test]
     fn changed_content_replaces_the_old() {
         let mut shields = start_with(saved_list(EASYLIST, true, BODY));
 

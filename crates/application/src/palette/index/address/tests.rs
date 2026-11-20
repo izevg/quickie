@@ -70,6 +70,7 @@ impl World {
                 bookmarks: &self.bookmarks,
                 shortcuts: &self.shortcuts,
                 keymap: &self.keymap,
+                extensions: &[],
             })
             .suggest(typed, complete)
     }
@@ -396,6 +397,7 @@ mod page_actions {
             bookmarks: &world.bookmarks,
             shortcuts: &world.shortcuts,
             keymap: &world.keymap,
+            extensions: &[],
         });
 
         let actions = index.page_actions();

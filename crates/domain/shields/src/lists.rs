@@ -64,7 +64,7 @@ pub enum Refresh {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilterListSet {
     /// One per source, in [`FilterListId::ALL`] order.
-    lists: [FilterList; 4],
+    lists: [FilterList; FilterListId::ALL.len()],
     refresh: Refresh,
 }
 

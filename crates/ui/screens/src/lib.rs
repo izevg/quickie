@@ -10,6 +10,6 @@
 pub mod settings;
 
 pub use settings::{
-    GeneralState, KeyPress, KeysState, ListState, Pane, Recorded, SettingsAction, SettingsScreen,
-    ShieldsState,
+    ExtensionState, ExtensionsState, GeneralState, KeyPress, KeysState, ListState, Pane, Recorded,
+    SettingsAction, SettingsScreen, ShieldsState,
 };

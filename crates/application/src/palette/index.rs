@@ -9,8 +9,10 @@ use quickie_domain_browsing::Timestamp;
 use quickie_domain_commands::Catalog;
 use quickie_domain_library::SearchShortcuts;
 use quickie_domain_palette::{Kind, Mode, Query, Ranker};
+use quickie_domain_settings::ExtensionId;
+use url::Url;
 
-use super::{ASK_DETAIL, ASK_TITLE, PaletteItem, Sources, Target};
+use super::{ASK_DETAIL, ASK_TITLE, INSTALL_TITLE, PaletteItem, Sources, Target};
 pub use address::{AddressSuggestions, InlineCompletion, Suggestion, SuggestionKind};
 use shelf::Shelf;
 
@@ -37,7 +39,7 @@ impl PaletteIndex {
         Self {
             ranker: Ranker::default(),
             go_to: gather::go_to(sources, now),
-            commands: gather::commands(catalog, sources.keymap),
+            commands: gather::commands(catalog, sources.keymap, sources.extensions),
             tags: gather::tags(sources.bookmarks),
             skills: gather::skills(skills),
             shortcuts: sources.shortcuts.clone(),
@@ -52,7 +54,7 @@ impl PaletteIndex {
         let query = Query::parse(text);
         let shortcuts;
         let offered = match query.mode() {
-            Mode::GoTo => &self.go_to,
+            Mode::GoTo => return self.go_to(text, &query, limit),
             Mode::Commands => &self.commands,
             Mode::Tags => &self.tags,
             Mode::SearchShortcut => {
@@ -65,6 +67,30 @@ impl PaletteIndex {
             Mode::Headings => return Vec::new(),
         };
         answer(&mut self.ranker, &query, offered, limit)
+    }
+
+    /// No prefix: tabs, bookmarks, and history; a Chrome Web Store page pasted whole first
+    /// offers to install its extension, which nothing ranks above.
+    fn go_to(&mut self, text: &str, query: &Query, limit: usize) -> Vec<PaletteItem> {
+        let store = Url::parse(text.trim())
+            .ok()
+            .filter(|url| ExtensionId::from_store_url(url).is_some())
+            .filter(|_| limit > 0);
+        let room = limit.saturating_sub(usize::from(store.is_some()));
+        let mut items = Vec::with_capacity(limit);
+        if let Some(url) = store {
+            items.push(PaletteItem {
+                title: INSTALL_TITLE.to_owned(),
+                detail: url.to_string(),
+                target: Target::InstallExtension(url),
+                kind: Kind::Command,
+                glyphs: Vec::new(),
+                title_matches: Vec::new(),
+                detail_matches: Vec::new(),
+            });
+        }
+        items.extend(answer(&mut self.ranker, query, &self.go_to, room));
+        items
     }
 
     /// `?`: the skills the text matches (all of them for no text), then the row that asks the

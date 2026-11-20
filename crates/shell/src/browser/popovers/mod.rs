@@ -77,11 +77,20 @@ impl Browser {
     pub(super) fn hide_popovers(&self) {
         self.popovers.downloads.hide();
         self.popovers.shields.hide();
+        self.hide_extension_popup();
         self.hide_agent();
     }
 
     /// A popover's fixed key; `false` when no popover shows or the key is not one of its own.
+    /// An extension's popup takes only `⎋`: every other key is its page's.
     pub(super) fn popover_key(&self, key: OverlayKey) -> bool {
+        if self.extension_ui.popup_open() {
+            if key == OverlayKey::Dismiss {
+                self.close_popovers();
+                return true;
+            }
+            return false;
+        }
         if self.popovers.downloads.is_open() {
             return self.downloads_key(key);
         }

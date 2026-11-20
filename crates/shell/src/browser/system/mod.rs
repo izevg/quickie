@@ -6,11 +6,14 @@
 //! request, and only from the app bundle (`cargo xtask bundle`), never from a bare binary.
 //!
 //! - [`settings`]: the Settings window behind `⌘,`.
+//! - [`extensions`]: web extensions: installing, updating, their sheet, popup, and keys.
 
+mod extensions;
 mod settings;
 #[cfg(test)]
 mod tests;
 
+pub use extensions::ExtensionUi;
 pub use settings::{KeymapProblems, keymap_from};
 
 use std::path::{Path, PathBuf};

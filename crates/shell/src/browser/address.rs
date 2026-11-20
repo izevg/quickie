@@ -49,12 +49,21 @@ impl Browser {
             browsing.session().tab(tab).map(|tab| tab.url.clone())
         });
         let url = url.filter(|url| *url != self.home);
-        // Shields does not count what it blocks on a page yet: no count, rather than a guess.
+        // What WebKit's content rule lists counted on this page, while Shields protect its
+        // site; no count otherwise, rather than a guess.
+        let blocked = url
+            .as_ref()
+            .zip(self.active(window))
+            .and_then(|(url, tab)| {
+                let shields = self.shields.borrow();
+                let protected = shields.policy(url).is_some_and(|policy| policy.shields);
+                protected.then(|| shields.blocked_count(tab))
+            });
         self.address.show(
             &host,
             &ns_window,
             url.as_ref().map_or("", Url::as_str),
-            None,
+            blocked,
         );
         self.palette_sources_changed();
         let actions = self.with_index(|index| index.page_actions());

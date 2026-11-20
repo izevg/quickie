@@ -15,8 +15,8 @@
 //! - [`navigation`]: the tab overview and its pinch, and link hints.
 //! - [`popovers`]: the downloads and the shields popovers.
 //! - [`windows`]: new and closed windows, and the pages pages open or close.
-//! - [`system`]: links other apps open, the default browser, the profile in Finder, and the
-//!   Settings window.
+//! - [`system`]: links other apps open, the default browser, the profile in Finder, the
+//!   Settings window, and web extensions.
 //! - [`agent`]: asking the agent about the page, its answer panel, badge, and settings.
 
 mod address;
@@ -43,7 +43,7 @@ use quickie_application::{AppError, PaletteIndex, PaletteItem};
 use quickie_domain_browsing::{Session, TabId, WindowId};
 use quickie_domain_commands::{Catalog, CommandId, Keymap, Modifiers};
 use quickie_store::{KeybindingsFile, PendingWrites};
-use quickie_system::KeychainSecrets;
+use quickie_system::{ExtensionFiles, KeychainSecrets};
 use quickie_ui_screens::SettingsScreen;
 use quickie_ui_widgets::{AddressOverlay, CommandPalette, KeyLogPanel, TabSwitcher, ToastStack};
 use url::Url;
@@ -56,7 +56,7 @@ use crate::input::keystroke::Passed;
 use crate::input::keystroke::chord::PendingChord;
 use crate::input::keystroke::log::KeyLog;
 use crate::window::{browser_window, set_title};
-use crate::{Agents, App, Guard, Lib, Palette, Zooms};
+use crate::{Addons, Agents, App, Guard, Lib, Palette, Zooms};
 use navigation::NavigationOverlays;
 
 /// What the browser runs on, composed by `main`.
@@ -82,6 +82,10 @@ pub struct Services {
     pub downloads_folder: PathBuf,
     /// The profile folder: the stores and the content rules.
     pub profile: PathBuf,
+    /// The main profile's web extensions; `None` on a macOS without them (before 15.4).
+    pub extensions: Option<Addons>,
+    /// Where extension packages are checked and kept.
+    pub extension_files: ExtensionFiles,
 }
 
 pub struct Browser {
@@ -91,6 +95,8 @@ pub struct Browser {
     agent: RefCell<Agents>,
     agent_ui: agent::AgentUi,
     zoom: RefCell<Zooms>,
+    extensions: RefCell<Option<Addons>>,
+    extension_ui: system::ExtensionUi,
     palette: Palette,
     catalog: Catalog,
     /// Replaced when the user reloads `keybindings.json`.
@@ -102,6 +108,9 @@ pub struct Browser {
     settings: OnceCell<SettingsScreen>,
     /// How the last filter list fetch went, for the Settings window.
     lists_status: RefCell<String>,
+    /// The user changed the lists: once their rules are compiled, open pages are offered a
+    /// reload.
+    rules_wanted: Cell<bool>,
     downloads_folder: PathBuf,
     writes: Vec<PendingWrites>,
     windows: RefCell<BTreeMap<WindowId, Retained<NSWindow>>>,
@@ -176,6 +185,13 @@ impl Browser {
                 .corrupt_on_start()
                 .map(|corrupt| format!("Site zooms started fresh: {corrupt}")),
         );
+        notices.extend(
+            services
+                .extensions
+                .as_ref()
+                .and_then(Addons::corrupt_on_start)
+                .map(|corrupt| format!("Extensions started fresh: {corrupt}")),
+        );
         let browser = Rc::new_cyclic(|this| Self {
             browsing: RefCell::new(services.browsing),
             library: RefCell::new(services.library),
@@ -183,6 +199,8 @@ impl Browser {
             agent: RefCell::new(services.agent),
             agent_ui: agent::AgentUi::new(services.secrets, mtm),
             zoom: RefCell::new(services.zoom),
+            extensions: RefCell::new(services.extensions),
+            extension_ui: system::ExtensionUi::new(services.extension_files, mtm),
             palette: services.palette,
             catalog: services.catalog,
             keymap: RefCell::new(services.keymap),
@@ -190,6 +208,7 @@ impl Browser {
             keymap_problems: RefCell::new(services.keymap_problems),
             settings: OnceCell::new(),
             lists_status: RefCell::new(String::new()),
+            rules_wanted: Cell::new(false),
             downloads_folder: services.downloads_folder.clone(),
             writes: services.writes,
             windows: RefCell::new(BTreeMap::new()),
@@ -218,15 +237,11 @@ impl Browser {
         });
         browser.open_windows();
         browser.wire_palette();
-        browser.wire_address();
         browser.wire_find();
         browser.wire_navigation();
         browser.wire_popovers();
         browser.wire_agent();
-        // Only lists the user enabled and that never arrived, or stale ones when the user keeps
-        // lists fresh: nothing on a fresh profile.
-        let due = browser.shields.borrow().due_fetches();
-        browser.fetch_lists(due);
+        browser.wire_shields();
         let weak = Rc::downgrade(&browser);
         browser
             .browsing
@@ -237,6 +252,7 @@ impl Browser {
                     browser.drain();
                 }
             });
+        browser.wire_extensions();
         browser
     }
 
@@ -296,7 +312,9 @@ impl Browser {
         let overlay = self.address.is_open()
             || self.command_palette.is_open()
             || self.navigation.overview_open()
-            || self.sheet_open(window);
+            || self.extension_ui.popup_open()
+            || self.sheet_open(window)
+            || self.extension_sheet_open(window);
         if let (Some(ns_window), Some(view)) = (self.window(window), view)
             && !overlay
         {
@@ -304,6 +322,7 @@ impl Browser {
         }
         self.refresh_titles();
         self.page_changes();
+        self.arrange_extensions();
     }
 
     fn refresh_titles(&self) {

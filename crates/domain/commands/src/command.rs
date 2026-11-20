@@ -35,6 +35,8 @@ pub enum Category {
     Shields,
     /// The built-in agent: asking about the page, its answer, its endpoint.
     Agent,
+    /// Web extensions: installing, updating, and where they run.
+    Extensions,
     /// The developer tools and their panels.
     Developer,
     /// Quickie in the system: the default browser, the profile on disk.
@@ -53,6 +55,7 @@ impl Category {
             Self::Downloads => "Downloads",
             Self::Shields => "Shields",
             Self::Agent => "Agent",
+            Self::Extensions => "Extensions",
             Self::Developer => "Developer",
             Self::App => "App",
         }

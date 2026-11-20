@@ -10,6 +10,7 @@
 //!
 //! - [`chrome`]: what the panes are made of, and the sidebar.
 //! - [`panes`]: General, Privacy & Shields, Agent.
+//! - [`extensions`]: Extensions, the installed web extensions.
 //! - [`keymap`]: Keyboard, the keymap editor.
 //!
 //! The Agent pane shows the agent settings form, handed in by the browser. Every button,
@@ -17,6 +18,7 @@
 //! only show what the browser gives them.
 
 mod chrome;
+mod extensions;
 mod keymap;
 mod panes;
 
@@ -31,11 +33,13 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use quickie_domain_commands::{Chord, CommandId};
+use quickie_domain_settings::ExtensionId;
 use quickie_domain_shields::FilterListId;
 use quickie_ui_widgets::AgentSettings;
 
 use chrome::sidebar::{self, Sidebar};
 use chrome::{Flipped, HEIGHT, PANE_WIDTH, SettingsTarget, hairline};
+pub use extensions::{ExtensionState, ExtensionsState};
 pub use keymap::{KeysState, Recorded};
 pub use panes::general::GeneralState;
 pub use panes::shields::{ListState, ShieldsState};
@@ -45,17 +49,25 @@ pub use panes::shields::{ListState, ShieldsState};
 pub enum Pane {
     General,
     Shields,
+    Extensions,
     Keys,
     Agent,
 }
 
 impl Pane {
-    const ALL: [Self; 4] = [Self::General, Self::Shields, Self::Keys, Self::Agent];
+    const ALL: [Self; 5] = [
+        Self::General,
+        Self::Shields,
+        Self::Extensions,
+        Self::Keys,
+        Self::Agent,
+    ];
 
     fn title(self) -> &'static str {
         match self {
             Self::General => "General",
             Self::Shields => "Privacy & Shields",
+            Self::Extensions => "Extensions",
             Self::Keys => "Keyboard",
             Self::Agent => "Agent",
         }
@@ -65,6 +77,7 @@ impl Pane {
         match self {
             Self::General => "gearshape",
             Self::Shields => "hand.raised",
+            Self::Extensions => "puzzlepiece.extension",
             Self::Keys => "keyboard",
             Self::Agent => "sparkles",
         }
@@ -74,8 +87,9 @@ impl Pane {
         match self {
             Self::General => 0,
             Self::Shields => 1,
-            Self::Keys => 2,
-            Self::Agent => 3,
+            Self::Extensions => 2,
+            Self::Keys => 3,
+            Self::Agent => 4,
         }
     }
 }
@@ -101,6 +115,8 @@ pub enum SettingsAction {
     ShowDownloads,
     /// Turn a filter list on or off.
     SetList(FilterListId, bool),
+    /// Turn every filter list on, which fetches them.
+    EnableLists,
     /// Fetch one list now.
     RefreshList(FilterListId),
     /// Fetch the enabled lists now.
@@ -118,12 +134,22 @@ pub enum SettingsAction {
     Rebind(CommandId, Chord),
     /// Give the command its default bindings back.
     ResetBinding(CommandId),
+    /// Run an extension, or stop it.
+    SetExtension(ExtensionId, bool),
+    /// Remove an extension and its data.
+    RemoveExtension(ExtensionId),
+    /// Choose a `.crx`, a `.zip`, or a folder to install.
+    ChooseExtensionFile,
+    /// Look for extension updates now.
+    CheckExtensionUpdates,
+    /// Let extension updates come once a day on their own (`true`), or only on request.
+    AutoUpdateExtensions(bool),
 }
 
 /// The root view and the panes it switches between.
 struct Frame {
     root: Retained<Flipped>,
-    views: [Retained<NSView>; 4],
+    views: [Retained<NSView>; 5],
     current: Cell<Option<Pane>>,
     keys: Rc<keymap::Keys>,
 }
@@ -155,6 +181,7 @@ pub struct SettingsScreen {
     frame: Rc<Frame>,
     general: panes::general::General,
     shields: panes::shields::Shields,
+    extensions: extensions::Extensions,
     _agent: panes::agent::Agent,
     keys: Rc<keymap::Keys>,
     target: Retained<SettingsTarget>,
@@ -167,6 +194,7 @@ impl SettingsScreen {
         let target = SettingsTarget::new(mtm);
         let general = panes::general::General::new(&target, mtm);
         let shields = panes::shields::Shields::new(&target, mtm);
+        let extensions = extensions::Extensions::new(&target, mtm);
         let agent = panes::agent::Agent::new(agent, mtm);
         let keys = Rc::new(keymap::Keys::new(&target, mtm));
         let size = NSSize::new(sidebar::WIDTH + PANE_WIDTH, HEIGHT);
@@ -180,7 +208,14 @@ impl SettingsScreen {
             ),
             mtm,
         ));
-        let views = [general.view(), shields.view(), keys.view(), agent.view()].map(Retained::from);
+        let views = [
+            general.view(),
+            shields.view(),
+            extensions.view(),
+            keys.view(),
+            agent.view(),
+        ]
+        .map(Retained::from);
         let frame = Rc::new(Frame {
             root,
             views,
@@ -217,6 +252,7 @@ impl SettingsScreen {
             frame,
             general,
             shields,
+            extensions,
             _agent: agent,
             keys,
             target,
@@ -271,6 +307,10 @@ impl SettingsScreen {
 
     pub fn set_shields(&self, state: &ShieldsState) {
         self.shields.update(state);
+    }
+
+    pub fn set_extensions(&self, state: &ExtensionsState) {
+        self.extensions.update(state);
     }
 
     pub fn set_keys(&self, state: &KeysState) {

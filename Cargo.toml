@@ -17,10 +17,19 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-# Shields in the development engine: filter lists to WebKit content rule lists. MPL-2.0. Only the
-# converter is used, so the default features (a domain resolver and regex handling for request
-# matching) stay out.
-adblock = { version = "0.13.6", default-features = false, features = ["content-blocking"] }
+# Shields in the development engine: filter lists to WebKit content rule lists, and the cosmetic
+# filters and scriptlets each site gets. MPL-2.0. The domain resolver (the public suffix list, by
+# `addr` and `psl`, MIT OR Apache-2.0) is needed: parsing a `$to=` rule and looking up a site's
+# cosmetic filters ask it, and without one they panic. CSS validation (`cssparser`, `selectors`,
+# MPL-2.0; `precomputed-hash`, MIT) parses procedural filters (`:has-text()`, `:upward()`, ...)
+# into their operators and refuses `:style()` declarations that could load anything; without it
+# a procedural filter stays a CSS selector that never matches, and a style goes in unread.
+# Request matching is WebKit's, so the regex handling for it stays out.
+adblock = { version = "0.13.6", default-features = false, features = [
+  "content-blocking",
+  "css-validation",
+  "embedded-domain-resolver",
+] }
 # The Chromium boundary (adapter engine-chromium). Pinned to the copy Chromium vendors at the
 # version in engine/chromium/chromium.pin (third_party/rust/chromium_crates_io/vendor/cxx-v1), which GN
 # builds against; bump both together.
@@ -42,8 +51,14 @@ quickie-domain-palette = { path = "crates/domain/palette" }
 quickie-domain-settings = { path = "crates/domain/settings" }
 quickie-domain-shields = { path = "crates/domain/shields" }
 rusqlite = { version = "0.43", features = ["bundled"] }
-# The Keychain (adapter system), where LLM API keys live instead of files. MIT OR Apache-2.0.
+# The Keychain (adapter system), where LLM API keys live instead of files, and the signature
+# checks of web extension packages. MIT OR Apache-2.0.
 security-framework = "3.7"
+# What security-framework leaves unwrapped for those checks: `SecKeyCreateWithData` and the
+# Core Foundation values it takes. Already in the tree under security-framework; MIT OR
+# Apache-2.0.
+core-foundation = "0.10"
+security-framework-sys = "2.17"
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
