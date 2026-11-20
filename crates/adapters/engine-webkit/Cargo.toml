@@ -80,8 +80,13 @@ serde_json.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-# The conformance test's native clicks.
-objc2-app-kit = { workspace = true, features = ["NSGraphicsContext"] }
+# The conformance test's native clicks; the thumbnails test reads pictures' pixels.
+objc2-app-kit = { workspace = true, features = [
+  "NSBitmapImageRep",
+  "NSColor",
+  "NSGraphicsContext",
+  "NSImageRep",
+] }
 quickie-application = { workspace = true, features = ["conformance"] }
 tempfile.workspace = true
 
@@ -94,6 +99,11 @@ harness = false
 # The application's engine conformance suite (crates/application/src/engine/conformance).
 [[test]]
 name = "conformance"
+harness = false
+
+# The tab overview's pictures: taken, sized, and dropped with their tabs.
+[[test]]
+name = "thumbnails"
 harness = false
 
 [lints]
