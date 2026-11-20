@@ -56,7 +56,8 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter};
 use quickie_application::{
-    Agent, Browsing, Clock, Downloads, Engine, EnginePort, Extensions, Library, Shields, Zoom,
+    Agent, AppearanceSettings, Browsing, Clock, Downloads, Engine, EnginePort, Extensions, Library,
+    Shields, Zoom,
 };
 use quickie_domain_browsing::{Profile, Timestamp};
 use quickie_domain_commands::{Catalog, Platform};
@@ -116,6 +117,9 @@ pub type Agents = Agent<WriteBehindStore, KeychainSecrets, SystemEntropy>;
 
 /// The page zoom use cases as the app composes them.
 pub type Zooms = Zoom<WriteBehindStore>;
+
+/// The appearance use cases as the app composes them.
+pub type Looks = AppearanceSettings<WriteBehindStore>;
 
 /// The web extension use cases as the app composes them: the main profile's extensions on the
 /// main engine's host, saved in the store.
@@ -224,6 +228,12 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let zoom_store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let zoom_pending = zoom_store.pending();
     let zoom = Zoom::start(zoom_store).map_err(|error| error.to_string())?;
+    // And the appearance.
+    let appearance_store =
+        WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
+    let appearance_pending = appearance_store.pending();
+    let appearance =
+        AppearanceSettings::start(appearance_store).map_err(|error| error.to_string())?;
     let downloads_folder = home_dir()?.join("Downloads");
     browsing
         .engine_mut()
@@ -249,6 +259,7 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         shields_pending,
         agent_pending,
         zoom_pending,
+        appearance_pending,
         extensions_pending,
     ];
     let services = Services {
@@ -258,6 +269,7 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         agent,
         secrets,
         zoom,
+        appearance,
         palette: Palette::new(catalog.clone(), SystemClock),
         catalog,
         keymap,

@@ -86,6 +86,13 @@ Rules: never glass on glass; one E2 or E3 at a time (an E3 collapses the E2 unde
 where something floats above the page. On macOS 15 the fallback is `NSVisualEffectView`
 (`.popover` for E2, `.hudWindow` for E3) with the same shadows and dimming.
 
+**Inset page** (Settings, General, Appearance; off by default): the page, E0, becomes a card over
+the window's background, 8 pt from the sides and the bottom and the titlebar's height from the
+top, so the window buttons sit in the band above it. Corners 12 (continuous), a soft shadow
+(`0 1 12` black 16 %), and a 1 px `separator` ring. The band around the card is the window's
+chrome and moves it; the card never does. Full screen, the window's or a page's, drops the
+inset.
+
 ## Motion
 
 Following Emil Kowalski's [great animations](https://emilkowal.ski/ui/great-animations) and

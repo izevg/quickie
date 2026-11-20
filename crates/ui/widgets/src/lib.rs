@@ -32,6 +32,7 @@ pub use feedback::key_log::KeyLogPanel;
 pub use feedback::toast_stack::{Toast, ToastKind, ToastStack};
 pub use hints::link_hints_layer::{HintKey, LinkHintsLayer};
 pub use page::find_bar::{FindBar, FindRequest};
+pub use page::frame::PageFrame;
 pub use page::load_progress_line::LoadProgressLine;
 pub use page::origin_chip::OriginChip;
 pub use palette::address_overlay::AddressOverlay;

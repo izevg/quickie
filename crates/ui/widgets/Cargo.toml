@@ -46,6 +46,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSWindow",
 ] }
 objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }
+objc2-core-graphics = { workspace = true, features = ["CGPath"] }
 objc2-foundation = { workspace = true, features = [
   "block2",
   "NSAttributedString",

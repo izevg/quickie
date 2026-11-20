@@ -151,9 +151,9 @@ impl Browser {
         self.set_progress(window, progress);
     }
 
-    /// The window's progress line at `progress`; gone for `None`.
+    /// The window's progress line at `progress`, along the top of the page; gone for `None`.
     fn set_progress(&self, window: WindowId, progress: Option<f64>) {
-        let Some(host) = self.window(window).and_then(|window| window.contentView()) else {
+        let Some(host) = self.page_host(window) else {
             return;
         };
         let mut lines = self.page.lines.borrow_mut();

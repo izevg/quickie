@@ -39,12 +39,13 @@ pub use palette::{
     Suggestion, SuggestionKind, Target,
 };
 pub use ports::{
-    ActiveRules, AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended,
-    EnginePort, Entropy, ExtensionsRepo, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest,
-    KeybindingText, KeymapFile, KeymapRepo, LibraryRepo, LibrarySnapshot, ListRules, LlmPort,
-    Navigation, RulesStatus, SecretStore, SessionRepo, ShieldsRepo, ShieldsSnapshot, StopSignal,
-    ZoomRepo,
+    ActiveRules, AgentRepo, AppearanceRepo, BlockerRules, ChatEvent, ChatRequest, Clock,
+    ContentBlockerPort, Ended, EnginePort, Entropy, ExtensionsRepo, Flow, HttpEvent, HttpMethod,
+    HttpPort, HttpRequest, KeybindingText, KeymapFile, KeymapRepo, LibraryRepo, LibrarySnapshot,
+    ListRules, LlmPort, Navigation, RulesStatus, SecretStore, SessionRepo, ShieldsRepo,
+    ShieldsSnapshot, StopSignal, ZoomRepo,
 };
+pub use settings::appearance::AppearanceSettings;
 pub use settings::extensions::{
     Approval, ExtensionOffer, ExtensionRun, ExtensionTrigger, Extensions, Fetched, ReadOutcome,
     UpdateCheck, UpdateOffer, fetch_packages, parse_answer,
