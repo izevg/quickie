@@ -1,5 +1,5 @@
 //! What floats over the page: find in page (`⌘F`, `⌘G`, `⇧⌘G`), the origin chip after a
-//! cross-origin navigation or a tab switch, the load progress line, the sheets of what pages
+//! cross-origin navigation or a tab switch, the load glow, the sheets of what pages
 //! ask ([`asks`]), and the full-screen notice ([`fullscreen`]). The engine's reports reach them
 //! from [`Browser::drain`], tab switches from [`Browser::settle`].
 
@@ -14,7 +14,7 @@ use std::rc::Rc;
 use objc2::MainThreadMarker;
 use quickie_application::PageSurface;
 use quickie_domain_browsing::{Origin, TabId, WindowId, is_cross_origin};
-use quickie_ui_widgets::{FindBar, FullscreenNotice, LoadProgressLine, OriginChip};
+use quickie_ui_widgets::{FindBar, FullscreenNotice, OriginChip};
 use url::Url;
 
 pub use asks::SheetRoute;
@@ -29,10 +29,8 @@ pub struct PageWidgets {
     /// The tab the find bar searches.
     find_tab: Cell<Option<TabId>>,
     chip: Rc<OriginChip>,
-    lines: RefCell<BTreeMap<WindowId, LoadProgressLine>>,
     /// Per window, the active tab and its committed URL when last looked at.
     seen: RefCell<BTreeMap<WindowId, (TabId, Url)>>,
-    mtm: MainThreadMarker,
 }
 
 impl PageWidgets {
@@ -43,9 +41,7 @@ impl PageWidgets {
             find_bar: FindBar::new(mtm),
             find_tab: Cell::new(None),
             chip: OriginChip::new(mtm),
-            lines: RefCell::new(BTreeMap::new()),
             seen: RefCell::new(BTreeMap::new()),
-            mtm,
         }
     }
 }
@@ -71,15 +67,12 @@ fn change(before: Option<&(TabId, Url)>, tab: TabId, url: &Url) -> Change {
 }
 
 impl Browser {
-    /// A window closed: its progress line and what it last showed go.
+    /// A window closed: what it last showed goes.
     pub(super) fn forget_window_page(&self, window: WindowId) {
-        if let Some(line) = self.page.lines.borrow_mut().remove(&window) {
-            line.reset();
-        }
         self.page.seen.borrow_mut().remove(&window);
     }
 
-    /// A tab's page loaded more, or stopped: the progress line of every window it is active in.
+    /// A tab's page loaded more, or stopped: the load glow of every window it is active in.
     pub(super) fn loading(&self, tab: TabId, progress: Option<f64>) {
         let windows: Vec<WindowId> = self.windows.borrow().keys().copied().collect();
         for window in windows {
@@ -114,8 +107,8 @@ impl Browser {
                 .borrow_mut()
                 .insert(window, (tab, url.clone()));
             if change == Change::Tab {
-                if let Some(line) = self.page.lines.borrow().get(&window) {
-                    line.reset();
+                if let Some(frame) = self.frames.borrow().get(&window) {
+                    frame.reset_loading();
                 }
                 self.show_progress(window);
                 if self.page.find_tab.get().is_some_and(|find| find != tab) {
@@ -137,7 +130,7 @@ impl Browser {
         }
     }
 
-    /// The window's active tab's loading, on its progress line.
+    /// The window's active tab's loading, in its load glow.
     fn show_progress(&self, window: WindowId) {
         let progress = self.active(window).and_then(|tab| {
             let browsing = self.browsing.try_borrow().ok()?;
@@ -146,16 +139,11 @@ impl Browser {
         self.set_progress(window, progress);
     }
 
-    /// The window's progress line at `progress`, along the top of the page; gone for `None`.
+    /// The window's load glow at `progress`; fading out for `None`.
     fn set_progress(&self, window: WindowId, progress: Option<f64>) {
-        let Some(host) = self.page_host(window) else {
-            return;
-        };
-        let mut lines = self.page.lines.borrow_mut();
-        let line = lines
-            .entry(window)
-            .or_insert_with(|| LoadProgressLine::new(self.page.mtm));
-        line.set(&host, progress);
+        if let Some(frame) = self.frames.borrow().get(&window) {
+            frame.set_loading(progress);
+        }
     }
 }
 

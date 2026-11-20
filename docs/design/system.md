@@ -93,6 +93,14 @@ top, so the window buttons sit in the band above it. Corners 12 (continuous), a 
 chrome and moves it; the card never does. Full screen, the window's or a page's, drops the
 inset.
 
+**Load glow** (E1, never a click): while the page loads, a faint 1.5 pt `accent` ring (22 %)
+marks the page's edge and a comet of `accent` light runs round it clockwise with a 5 pt halo.
+It turns at 0.35 turns a second when loading starts and speeds up with the engine's progress
+to 1.1; a speed change carries the comet on from where it is. It fades in and out with
+`fade-fast`. Edge to edge it runs along the window's inner edge (corners 16); with *Inset page*
+it runs around the card, under it, as its box shadow. Reduce Motion: no comet, a still ring at
+60 %, opacity only. Core Animation: a conic gradient turning under a stroked mask.
+
 ## Motion
 
 Following Emil Kowalski's [great animations](https://emilkowal.ski/ui/great-animations) and

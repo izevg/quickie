@@ -318,7 +318,7 @@ scaffold and `engine-chromium` stay as reference until the WebKit fork replaces 
 |---|---|---|
 | `app` | Window composition, overlay router (one active E2 at a time), theme, tokens | everything below |
 | `screens` | `BrowserScreen`, `SettingsScreen`, `KeymapEditorScreen`, `AgentAuditScreen` | widgets and below |
-| `widgets` | `CommandPalette`, `AddressOverlay`, `TabSwitcher`, `TabOverview`, `FindBar`, `LinkHintsLayer`, `ToastStack`, `PageFrame`, `LoadProgressLine`, `OriginChip`, `PermissionSheet`, `ShieldsPopover`, `DownloadsPopover`, `AgentAnswerPanel`, `AgentApprovalSheet` | features and below |
+| `widgets` | `CommandPalette`, `AddressOverlay`, `TabSwitcher`, `TabOverview`, `FindBar`, `LinkHintsLayer`, `ToastStack`, `PageFrame` (with its load glow), `OriginChip`, `PermissionSheet`, `ShieldsPopover`, `DownloadsPopover`, `AgentAnswerPanel`, `AgentApprovalSheet` | features and below |
 | `features` | `copy_url`, `copy_as_markdown`, `reopen_closed_tab`, `find_in_page`, `toggle_shields`, `ask_agent`, `approve_agent_action`, `record_shortcut`, `swipe_navigation`, `link_hints` | entities and below, application |
 | `entities` | `TabRow`, `TabThumbnail`, `CommandRow`, `HistoryRow`, `KeycapGroup`, `AgentBadge`, `OriginLabel` | shared, domain |
 | `shared` | `GlassSurface::new(Elevation)`, `ListView` (`NSTableView` with a diffing source), `Keycap`, spring presets (`CASpringAnimation`), colors, typography | `objc2` |
@@ -335,7 +335,7 @@ and private AppKit methods are never overridden.
 | Level | What | Material | Shadow | Content dimming |
 |---|---|---|---|---|
 | E0 | Web content | none | — | — |
-| E1 | Progress line, toasts, `OriginChip`, `AgentBadge` | glass `.clear` | none | none |
+| E1 | Load glow (no glass: a light on the edge), toasts, `OriginChip`, `AgentBadge` | glass `.clear` | none | none |
 | E2 | Palette, address, switcher, overview, find, popovers, `AgentAnswerPanel` | glass `.regular` inside `NSGlassEffectContainerView` | medium | 8–12 % |
 | E3 | Permission, approval, auth sheets | glass `.regular` + tint | deep | 25–35 % |
 

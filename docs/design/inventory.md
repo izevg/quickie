@@ -8,9 +8,9 @@ Rust module names in the `crates/ui/*` crates. Tokens: [system.md](system.md).
 
 | Group | Screen | Mockup (light / dark) | Widgets on it |
 |---|---|---|---|
-| content | Idle, full bleed | [idle](mocks/content/idle/light.html) | `load_progress_line` |
+| content | Idle, full bleed | [idle](mocks/content/idle/light.html) | `frame` (its load glow replaces the mock's progress line) |
 | content | Origin chip after navigation | [origin-chip](mocks/content/origin-chip/light.html) | `origin_chip` |
-| content | E1 indicators | [indicators](mocks/content/indicators/light.html) | `origin_chip`, `toast_stack`, `load_progress_line` |
+| content | E1 indicators | [indicators](mocks/content/indicators/light.html) | `origin_chip`, `toast_stack`, `frame` (load glow) |
 | content | Toast stack | [toasts](mocks/content/toasts/light.html) | `toast_stack` |
 | navigation | Address overlay `⌘L` | [address](mocks/navigation/address/light.html) | `address_overlay` |
 | navigation | Command palette `⌘⇧P` | [commands](mocks/navigation/commands/light.html) | `command_palette` (commands mode) |
@@ -98,7 +98,7 @@ the slices inside a group still never use each other.
 |---|---|
 | `palette` | `command_palette` (modes: commands, go-to, ask), `address_overlay` (the page's URL and actions; local suggestions with inline completion as the user types) |
 | `tabs` | `tab_switcher`, `tab_overview` |
-| `page` | `frame` (the page in its window: edge to edge, or inset as a card with *Inset page*), `find_bar`, `load_progress_line`, `origin_chip` |
+| `page` | `frame` (the page in its window: edge to edge, or inset as a card with *Inset page*; its load glow), `find_bar`, `origin_chip` |
 | `hints` | `link_hints_layer` (labels drawn natively above the page, never in its DOM) |
 | `feedback` | `toast_stack`, `fullscreen_notice`, `key_log` (E1, the last key presses and what became of them; palette only) |
 | `sheets` | `permission_sheet`, `dialog_sheet` (a page's `alert`, `confirm`, `prompt`), `extension_sheet` (what an extension asks for), `agent_approval_sheet` |
