@@ -137,6 +137,38 @@ fn the_shields_commands_are_built_in() {
 }
 
 #[test]
+fn the_extension_commands_are_in_their_category() {
+    let catalog = Catalog::builtin();
+
+    let titles: Vec<(&str, Category)> = [
+        "quickie.extensions.installFromUrl",
+        "quickie.extensions.installFromFile",
+        "quickie.extensions.checkUpdates",
+        "quickie.extensions.offOnSite",
+        "quickie.extensions.onOnSite",
+        "quickie.extensions.settings",
+    ]
+    .into_iter()
+    .map(|text| {
+        let command = catalog.get(&id(text)).unwrap();
+        (command.title, command.category)
+    })
+    .collect();
+
+    assert_eq!(
+        titles,
+        [
+            ("Install Extension from URL…", Category::Extensions),
+            ("Install Extension from File…", Category::Extensions),
+            ("Check Extension Updates", Category::Extensions),
+            ("Turn Extensions Off on This Site", Category::Extensions),
+            ("Turn Extensions On on This Site", Category::Extensions),
+            ("Show Extensions", Category::Extensions),
+        ]
+    );
+}
+
+#[test]
 fn the_app_commands_are_built_in() {
     let catalog = Catalog::builtin();
 
@@ -206,6 +238,7 @@ fn every_category_has_its_label() {
         (Category::Downloads, "Downloads"),
         (Category::Shields, "Shields"),
         (Category::Agent, "Agent"),
+        (Category::Extensions, "Extensions"),
         (Category::Developer, "Developer"),
         (Category::App, "App"),
     ];

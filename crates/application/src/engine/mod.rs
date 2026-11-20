@@ -9,6 +9,7 @@
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
 mod event;
+mod extensions;
 mod queue;
 #[cfg(test)]
 mod tests;
@@ -19,9 +20,22 @@ pub use event::{
     Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, FindStep, Followed,
     Found, LinkTarget, PageRect, ReplyToken, Ticket,
 };
+pub use extensions::{
+    Access, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
+    ExtensionPackages, PackageSource, Unpacked, WindowTabs,
+};
 pub use queue::EventQueue;
 
 use crate::EngineError;
+
+/// What an engine can do that the UI only degrades without, declared once per engine as a
+/// `const` (`CAPS` on the adapter's engine type), so the shell decides at compile time what to
+/// offer. A capability a use case cannot work without is a trait bound instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Capabilities {
+    /// Web extensions run in the main profile's pages ([`ExtensionHost`]).
+    pub web_extensions: bool,
+}
 
 /// What is on a tab's page, as the user sees it: the matches of a find, the links and controls
 /// on screen for link hints, and the page's text for the agent.

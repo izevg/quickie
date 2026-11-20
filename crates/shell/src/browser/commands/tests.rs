@@ -149,8 +149,26 @@ fn every_action_names_a_command_of_the_catalog() {
         .filter(|command| Action::of(&command.id).is_some())
         .count();
 
-    // 44 named commands, nine slots to go to and nine to pin, and the nine developer tools.
-    assert_eq!(built, 44 + 9 + 9 + 9);
+    // 50 named commands, nine slots to go to and nine to pin, and the nine developer tools.
+    assert_eq!(built, 50 + 9 + 9 + 9);
+}
+
+#[test]
+fn the_extension_commands_have_their_actions() {
+    use super::ExtensionsAction;
+
+    assert_eq!(
+        of("quickie.extensions.installFromUrl"),
+        Some(Action::Extensions(ExtensionsAction::InstallFromUrl))
+    );
+    assert_eq!(
+        of("quickie.extensions.offOnSite"),
+        Some(Action::Extensions(ExtensionsAction::OnSite { off: true }))
+    );
+    assert_eq!(
+        of("quickie.extensions.onOnSite"),
+        Some(Action::Extensions(ExtensionsAction::OnSite { off: false }))
+    );
 }
 
 #[test]

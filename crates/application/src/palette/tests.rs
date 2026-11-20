@@ -5,6 +5,7 @@ use quickie_domain_palette::Kind;
 use url::Url;
 
 use super::{Palette, PaletteIndex, PaletteItem, Sources, Target};
+use crate::ExtensionOffer;
 use crate::fakes::FakeClock;
 
 fn url(path: &str) -> Url {
@@ -28,6 +29,7 @@ struct World {
     bookmarks: Bookmarks,
     shortcuts: SearchShortcuts,
     keymap: Keymap,
+    extensions: Vec<ExtensionOffer>,
 }
 
 impl World {
@@ -40,6 +42,7 @@ impl World {
             bookmarks: Bookmarks::new(),
             shortcuts: SearchShortcuts::defaults(),
             keymap: Keymap::defaults(Platform::MacOs),
+            extensions: Vec::new(),
         }
     }
 
@@ -73,12 +76,99 @@ impl World {
             bookmarks: &self.bookmarks,
             shortcuts: &self.shortcuts,
             keymap: &self.keymap,
+            extensions: &self.extensions,
         })
     }
 
     /// The answer of a palette opened for this one query.
     fn query(&self, text: &str, limit: usize) -> Vec<PaletteItem> {
         self.open().query(text, limit)
+    }
+}
+
+mod extensions {
+    use quickie_domain_commands::KeyStroke;
+    use quickie_domain_settings::ExtensionId;
+
+    use super::*;
+    use crate::{ExtensionRun, ExtensionTrigger};
+
+    const BITWARDEN: &str = "nngceckbapebfimnlniiiahkandclblb";
+
+    fn trigger(run: ExtensionRun) -> ExtensionTrigger {
+        ExtensionTrigger {
+            id: ExtensionId::try_from(BITWARDEN).unwrap(),
+            run,
+        }
+    }
+
+    fn world() -> World {
+        let mut world = World::new();
+        world.extensions = vec![
+            ExtensionOffer {
+                trigger: trigger(ExtensionRun::Action),
+                title: "Bitwarden: Open".to_owned(),
+                stroke: Some(KeyStroke::parse("cmd+shift+y", Platform::MacOs).unwrap()),
+            },
+            ExtensionOffer {
+                trigger: trigger(ExtensionRun::Command("autofill_login".to_owned())),
+                title: "Bitwarden: Autofill".to_owned(),
+                stroke: None,
+            },
+        ];
+        world
+    }
+
+    #[test]
+    fn running_extensions_are_commands_with_their_keys() {
+        let mut items = world().query(">bitwarden", 10);
+        items.sort_by(|a, b| a.title.cmp(&b.title));
+
+        assert_eq!(
+            targets(&items),
+            [
+                Target::Extension(trigger(ExtensionRun::Command("autofill_login".to_owned()))),
+                Target::Extension(trigger(ExtensionRun::Action)),
+            ]
+        );
+        assert_eq!(items[1].title, "Bitwarden: Open");
+        assert_eq!(items[1].detail, "Extension");
+        assert_eq!(items[1].kind, Kind::Command);
+        assert_eq!(items[1].glyphs, ["⇧⌘Y"]);
+        assert_eq!(items[0].glyphs, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_pasted_store_page_offers_to_install_first() {
+        let mut world = world();
+        let page = format!("https://chromewebstore.google.com/detail/bitwarden/{BITWARDEN}");
+        world.visit("x", &page, 1);
+
+        let items = world.query(&format!("  {page} "), 10);
+
+        assert_eq!(
+            items[0].target,
+            Target::InstallExtension(Url::parse(&page).unwrap())
+        );
+        assert_eq!(items[0].title, "Install Extension from Chrome Web Store");
+        assert_eq!(items[0].detail, page);
+        assert_eq!(items[0].kind, Kind::Command);
+        assert_eq!(items.len(), 2);
+        assert_eq!(world.query(&page, 1).len(), 1);
+        assert_eq!(world.query(&page, 0), []);
+    }
+
+    #[test]
+    fn other_pages_offer_no_install() {
+        let world = world();
+
+        let items = world.query("https://example.test/x", 10);
+
+        assert!(
+            items
+                .iter()
+                .all(|item| !matches!(item.target, Target::InstallExtension(_)))
+        );
     }
 }
 

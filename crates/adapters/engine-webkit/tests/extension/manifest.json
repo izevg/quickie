@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Quickie Test Extension",
+  "version": "1.0.0",
+  "description": "A content script, an action popup, storage, and a command, for Quickie's tests.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_title": "Show Test Popup",
+    "default_popup": "popup/popup.html"
+  },
+  "commands": {
+    "mark-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Mark the Page"
+    }
+  }
+}
