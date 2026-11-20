@@ -51,7 +51,7 @@ impl Browser {
         if self.active(window) != Some(tab) {
             return;
         }
-        let Some(host) = self.window(window).and_then(|window| window.contentView()) else {
+        let Some(host) = self.page_host(window) else {
             return;
         };
         if targets.is_empty() {
