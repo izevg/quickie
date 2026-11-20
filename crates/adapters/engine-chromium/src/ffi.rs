@@ -18,6 +18,8 @@ pub(crate) mod bridge {
         Forward,
         /// Reload.
         Reload,
+        /// Reload past every cache (`ReloadType::BYPASSING_CACHE`).
+        HardReload,
         /// Stop loading.
         Stop,
     }

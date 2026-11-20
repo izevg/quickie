@@ -45,6 +45,7 @@ quickie-domain-agents.workspace = true
 quickie-domain-browsing.workspace = true
 quickie-domain-commands.workspace = true
 quickie-domain-library.workspace = true
+quickie-domain-settings.workspace = true
 quickie-domain-shields.workspace = true
 quickie-engine-webkit.workspace = true
 quickie-llm.workspace = true

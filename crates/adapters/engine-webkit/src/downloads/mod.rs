@@ -18,6 +18,7 @@ mod name;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
@@ -35,7 +36,7 @@ use quickie_domain_browsing::{Jar, TabId};
 use url::Url;
 
 use delegate::{DelegateEvent, DownloadDelegate};
-pub(crate) use name::wants_download;
+pub(crate) use name::{pdf_name, wants_download};
 
 /// How often a running download's progress is read, in seconds.
 const POLL_INTERVAL: f64 = 0.25;
@@ -70,6 +71,18 @@ pub enum DownloadReport {
     Failed { key: DownloadKey, reason: String },
     /// It never started: no file could be picked for it, for `reason`.
     Refused { key: DownloadKey, reason: String },
+    /// A file Quickie made from a page, such as a PDF of it, is written whole: it starts and
+    /// ends at once.
+    Saved {
+        key: DownloadKey,
+        /// The tab whose page it was made from, and that page's jar.
+        tab: TabId,
+        jar: Jar,
+        /// The page.
+        url: Url,
+        /// The file; it did not exist before.
+        file: PathBuf,
+    },
 }
 
 impl DownloadReport {
@@ -81,7 +94,8 @@ impl DownloadReport {
             | Self::Progress { key, .. }
             | Self::Finished { key }
             | Self::Failed { key, .. }
-            | Self::Refused { key, .. } => *key,
+            | Self::Refused { key, .. }
+            | Self::Saved { key, .. } => *key,
         }
     }
 }
@@ -179,6 +193,63 @@ impl DownloadCenter {
         // SAFETY: `request` is a valid request for an absolute URL, and WebKit calls the block on
         // the main thread, where the captured center lives.
         unsafe { view.startDownloadUsingRequest_completionHandler(&request, &adopt) };
+    }
+
+    /// Writes `made`, the bytes of a file made from `tab`'s page at `url`, into the folder
+    /// under `name` or its next free number, on a worker thread; reports it
+    /// [`DownloadReport::Saved`] on the main thread, or [`DownloadReport::Refused`] with why it
+    /// was not made or written.
+    pub(crate) fn save(
+        this: &Rc<Self>,
+        tab: TabId,
+        jar: Jar,
+        url: Url,
+        name: &str,
+        made: Result<Vec<u8>, String>,
+    ) {
+        let key = DownloadKey(this.next.get());
+        this.next.set(key.0 + 1);
+        let directory = this.directory.borrow().clone();
+        let (bytes, directory) = match (made, directory) {
+            (Ok(bytes), Some(directory)) => (bytes, directory),
+            (Err(reason), _) => return this.report(DownloadReport::Refused { key, reason }),
+            (Ok(_), None) => {
+                let reason = "there is no downloads folder".to_owned();
+                return this.report(DownloadReport::Refused { key, reason });
+            }
+        };
+        let name = name::safe_name(name);
+        let reserved = Arc::clone(&this.reserved);
+        let center = MainThreadBound::new(Rc::downgrade(this), this.mtm);
+        let spawned = thread::Builder::new()
+            .name("quickie-save-file".to_owned())
+            .spawn(move || {
+                let written = write_new(&directory, &name, &bytes, &reserved);
+                DispatchQueue::main().exec_async(move || {
+                    let Some(mtm) = MainThreadMarker::new() else {
+                        return;
+                    };
+                    let Some(center) = center.into_inner(mtm).upgrade() else {
+                        return;
+                    };
+                    center.report(match written {
+                        Ok(file) => DownloadReport::Saved {
+                            key,
+                            tab,
+                            jar,
+                            url,
+                            file,
+                        },
+                        Err(reason) => DownloadReport::Refused { key, reason },
+                    });
+                });
+            });
+        if spawned.is_err() {
+            this.report(DownloadReport::Refused {
+                key,
+                reason: "Quickie could not start a thread to write the file".to_owned(),
+            });
+        }
     }
 
     /// Stops a running download and deletes the part of the file it wrote; nothing more is
@@ -432,6 +503,33 @@ fn discard(file: PathBuf, reserved: Arc<Mutex<HashSet<PathBuf>>>) {
     let _ = thread::Builder::new()
         .name("quickie-download-discard".to_owned())
         .spawn(release);
+}
+
+/// Writes `bytes` to the first free file for `name` in `directory` and returns it. The file is
+/// created new, never over another; one written only in part is deleted.
+fn write_new(
+    directory: &Path,
+    name: &str,
+    bytes: &[u8],
+    reserved: &Mutex<HashSet<PathBuf>>,
+) -> Result<PathBuf, String> {
+    let file = pick(directory, name, reserved)?;
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file)
+        .and_then(|mut opened| opened.write_all(bytes));
+    if written.is_err() {
+        // Nothing was there before `create_new`, so nothing else is lost.
+        let _ = std::fs::remove_file(&file);
+    }
+    reserved
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&file);
+    written
+        .map(|()| file.clone())
+        .map_err(|error| format!("{}: {error}", file.display()))
 }
 
 /// The first free file for `name` in `directory`, reserved; the directory is created first.

@@ -1,6 +1,7 @@
 //! Downloads: the engine's reports become library transitions (`Library::download_*`), and the
 //! popover's requests become library commands and engine calls. A toast says when one starts,
-//! ends, or fails.
+//! ends, or fails. A file Quickie writes itself, a page saved as a PDF, is listed started and
+//! finished at once.
 
 use std::path::PathBuf;
 
@@ -72,6 +73,18 @@ impl Browser {
             (DownloadReport::Refused { reason, .. }, _) => {
                 drop(library);
                 return self.toast(&format!("Couldn't download: {reason}"));
+            }
+            (DownloadReport::Saved { jar, url, file, .. }, _) => {
+                let name = file_name(&file);
+                let toast = format!("Saved {name} to Downloads");
+                let listed = library
+                    .download_started(url, name, jar)
+                    .and_then(|id| library.download_finished(id));
+                drop(library);
+                return match listed {
+                    Ok(()) => self.toast(&toast),
+                    Err(error) => self.report(&error),
+                };
             }
             (_, None) => return,
             (

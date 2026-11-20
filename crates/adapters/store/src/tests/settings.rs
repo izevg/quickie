@@ -1,5 +1,6 @@
-use quickie_application::{AgentRepo, KeybindingText, KeymapRepo};
+use quickie_application::{AgentRepo, KeybindingText, KeymapRepo, StoreError, ZoomRepo};
 use quickie_domain_agents::EndpointSnapshot;
+use quickie_domain_settings::{Site, SiteZoomsSnapshot};
 use rusqlite::params;
 
 use crate::SqliteStore;
@@ -118,4 +119,51 @@ fn entries_load_in_file_order_as_written() {
     let loaded = store.load_keybindings();
 
     assert_eq!(loaded, Ok(vec![first, second, broken]));
+}
+
+fn site(text: &str) -> Site {
+    Site::try_from(text).unwrap()
+}
+
+#[test]
+fn a_new_store_has_no_site_zooms() {
+    let store = SqliteStore::in_memory().unwrap();
+
+    assert_eq!(store.load_site_zooms(), Ok(SiteZoomsSnapshot::default()));
+}
+
+#[test]
+fn site_zooms_round_trip_in_order_and_replace_what_was_saved() {
+    let mut store = SqliteStore::in_memory().unwrap();
+    let first = SiteZoomsSnapshot {
+        sites: vec![(site("b.test"), 150), (site("a.test"), 75)],
+    };
+    let second = SiteZoomsSnapshot {
+        sites: vec![(site("a.test"), 300)],
+    };
+
+    store.save_site_zooms(&first).unwrap();
+    assert_eq!(store.load_site_zooms(), Ok(first));
+
+    store.save_site_zooms(&second).unwrap();
+    assert_eq!(store.load_site_zooms(), Ok(second));
+}
+
+#[test]
+fn a_zoom_row_that_names_no_host_is_a_store_error() {
+    let store = SqliteStore::in_memory().unwrap();
+    store
+        .db
+        .execute(
+            "INSERT INTO site_zooms (position, site, percent) VALUES (0, 'exa mple', 150)",
+            [],
+        )
+        .unwrap();
+
+    let loaded = store.load_site_zooms();
+
+    assert_eq!(
+        loaded,
+        Err(StoreError("\"exa mple\" is not a host".to_owned()))
+    );
 }

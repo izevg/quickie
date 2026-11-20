@@ -19,6 +19,8 @@ pub const MAX_TOASTS: usize = 3;
 
 struct Toast {
     id: u64,
+    /// What a newer toast of the same tag replaces, such as the page zoom.
+    tag: Option<&'static str>,
     text: String,
     pill: Pill,
     host: Retained<NSView>,
@@ -45,6 +47,26 @@ impl ToastStack {
 
     /// Shows `text` at the bottom of `host` for `toast-hold`.
     pub fn show(&self, host: &NSView, text: &str) {
+        self.push(host, text, None);
+    }
+
+    /// Shows `text` in place of the toast of the same `tag`, which leaves at once: a value that
+    /// changes key by key, such as the page zoom, shows once, never stacked.
+    pub fn show_tagged(&self, host: &NSView, text: &str, tag: &'static str) {
+        let replaced: Vec<u64> = self
+            .toasts
+            .borrow()
+            .iter()
+            .filter(|toast| toast.tag == Some(tag))
+            .map(|toast| toast.id)
+            .collect();
+        for id in replaced {
+            self.remove(id);
+        }
+        self.push(host, text, Some(tag));
+    }
+
+    fn push(&self, host: &NSView, text: &str, tag: Option<&'static str>) {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
         let pill = Pill::new(text, self.mtm);
@@ -57,6 +79,7 @@ impl ToastStack {
             let mut toasts = self.toasts.borrow_mut();
             toasts.push(Toast {
                 id,
+                tag,
                 text: text.to_owned(),
                 pill,
                 host: host.retain(),

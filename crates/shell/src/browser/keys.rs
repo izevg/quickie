@@ -30,6 +30,13 @@ use crate::input::keystroke::{OverlayKey, is_quit, overlay_key, stroke};
 impl Browser {
     /// Handles a key press if it is the browser's; the page never sees it then.
     fn key_down(&self, event: &NSEvent) -> bool {
+        // A system panel over a window, such as the print panel, takes its own keys and types.
+        let elsewhere = event
+            .window(self.mtm)
+            .is_some_and(|window| !self.windows.borrow().values().any(|own| **own == *window));
+        if elsewhere {
+            return false;
+        }
         let handled =
             if let Some(stroke) = stroke(event.keyCode(), modifiers(event.modifierFlags())) {
                 self.route(stroke)

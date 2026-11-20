@@ -126,14 +126,14 @@ ninth context means regrouping first.
 
 | Crate | Aggregates / value objects | Invariants |
 |---|---|---|
-| `kernel` | IDs (`TabId`, `WindowId`, `CommandId`, ...), `Timestamp`, shared value types | — |
+| `kernel` | IDs (`TabId`, `WindowId`, `CommandId`, ...), `Timestamp`, `Site`, shared value types | — |
 | `browsing` | `Window`, `Tab` (id, engine ref, pinned slot, last active), `MruStack`, `ClosedTabTrash` | MRU updates synchronously on activation; a closed tab stays 30 days in the trash |
 | `commands` | `Command`, `Keymap`, `KeyBinding` (chord, `when`), `WhenExpr`, `KeyStroke` (key code + ASCII) | Browser-reserved shortcuts never reach the page; a binding conflict is a validation error |
 | `palette` | `Query` (prefixes `>` `@` `#` `?` `!`), `Candidate`, `Frecency` | First batch within 16 ms, then streaming |
 | `library` | `HistoryEntry`, `Download` | Local only |
 | `shields` | `SitePolicy`, `FilterListSet`, `FingerprintPolicy` | Per-site exceptions; lists only from allowed sources |
 | `agents` | `AgentSession` (built-in or external), `Mode` (Ask or Act), `ToolCall`, `CapabilityGrant`, `PendingAction`, `ProvenanceSet`, `LlmEndpoint` (base URL, model, key ref) | **Ask** only reads the current page of `main`, on an explicit request. **Act** only in the agent profile, URLs only from provenance, irreversible actions only after approval |
-| `settings` | `Preferences` | — |
+| `settings` | `Preferences`; `SiteZooms` with `ZoomLevel` (Safari's steps, 50 % to 300 %) | A site at 100 % is not listed; a throwaway jar's zoom is never saved |
 
 **Ports** (`crates/application`), all traits:
 
@@ -218,6 +218,13 @@ overlays at once.
 | `net_bridge/` | C++ + `cxx` | `HttpPort` on `SimpleURLLoader` with streaming (LLM SSE) |
 | `privacy/` | C++ patches | On top of ungoogled-chromium ([privacy.md](privacy.md)) |
 | `agent_bridge/` | C++ | Internal DevTools session (`DevToolsAgentHost`), agent profile only, no port |
+
+**Developer tools.** On the WebKit stand-in every page sets the public `isInspectable`, so Web
+Inspector attaches from right-click → Inspect Element or Safari's Develop menu; `WKWebView` has no
+public call that opens it, and Quickie calls no private API, so the `quickie.devtools.*` commands
+say where it is in a toast. On Chromium the bridge opens `DevTools` docked in the window
+(`DevToolsWindow::OpenDevToolsWindow` with the asked panel, `ToggleDevToolsWindow` for the toggle),
+in the main profile only and never on a port.
 
 Inherited Views surfaces (permission bubbles, extension popups, autofill) stay in v1 as separate
 windows anchored to a point; permissions and the fullscreen notice become native E3 sheets in P3.

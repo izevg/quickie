@@ -21,7 +21,13 @@
 //!
 //! Navigations that become downloads go to one download center, which saves them into the
 //! folder [`WebKitEngine::set_download_directory`] names and reports through
-//! [`WebKitEngine::take_download_reports`].
+//! [`WebKitEngine::take_download_reports`]; a page saved as a PDF
+//! ([`WebKitEngine::save_pdf`]) is written there too, under a free name.
+//!
+//! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from the
+//! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it.
+//! Page zoom ([`WebKitEngine::set_zoom`]) and printing ([`WebKitEngine::print`]) are the
+//! view's own.
 
 #![expect(
     unsafe_code,
@@ -322,6 +328,60 @@ impl WebKitEngine {
         std::mem::take(&mut *self.inbox.found.borrow_mut())
     }
 
+    /// A tab's page zoom, `1.0` for actual size; `None` for a tab without a page.
+    #[must_use]
+    pub fn zoom(&self, tab: TabId) -> Option<f64> {
+        self.pages.get(&tab).map(WebPage::zoom)
+    }
+
+    /// Zooms a tab's page by `factor` (`WKWebView.pageZoom`): text and layout scale, as
+    /// Safari's zoom does. The page keeps it across navigations until it is set again.
+    pub fn set_zoom(&self, tab: TabId, factor: f64) {
+        if let Some(page) = self.pages.get(&tab) {
+            page.set_zoom(factor);
+        }
+    }
+
+    /// Whether Web Inspector may attach to a tab's page: every page, popups included, is
+    /// inspectable on macOS 13.3 and later.
+    #[must_use]
+    pub fn inspectable(&self, tab: TabId) -> bool {
+        self.pages.get(&tab).is_some_and(WebPage::inspectable)
+    }
+
+    /// Opens the print panel for a tab's page, as a sheet on its window.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or its page is not in a window.
+    pub fn print(&self, tab: TabId) -> Result<(), EngineError> {
+        self.page(tab)?.print()
+    }
+
+    /// Saves a tab's page as a PDF in the downloads folder, under its title and a free name;
+    /// it is reported through [`Self::take_download_reports`] as [`DownloadReport::Saved`], or
+    /// [`DownloadReport::Refused`] when it could not be made or written.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or its page has not committed a URL yet.
+    pub fn save_pdf(&self, tab: TabId) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        let (url, title) = page
+            .committed()
+            .ok_or_else(|| EngineError(format!("{tab} has no page to save yet")))?;
+        let url = Url::parse(&url).map_err(|error| EngineError(format!("{url}: {error}")))?;
+        let name = downloads::pdf_name(title.as_deref(), &url);
+        let jar = self.inbox.jar_of(tab);
+        let center = Rc::downgrade(&self.downloads);
+        page.pdf(move |made| {
+            if let Some(center) = center.upgrade() {
+                DownloadCenter::save(&center, tab, jar, url, &name, made);
+            }
+        });
+        Ok(())
+    }
+
     /// The pages pages opened since the last call, oldest first, each to adopt into a tab.
     /// A link opened in another tab gets its page now, in its opener's data store; one whose
     /// opener has closed is dropped.
@@ -481,6 +541,7 @@ impl EnginePort for WebKitEngine {
             Navigation::Back => page.go_back(),
             Navigation::Forward => page.go_forward(),
             Navigation::Reload => page.reload(),
+            Navigation::HardReload => page.reload_from_origin(),
             Navigation::Stop => page.stop(),
         }
         Ok(())

@@ -12,6 +12,7 @@ quickie-domain-browsing.workspace = true
 quickie-domain-commands.workspace = true
 quickie-domain-library.workspace = true
 quickie-domain-palette.workspace = true
+quickie-domain-settings.workspace = true
 quickie-domain-shields.workspace = true
 thiserror.workspace = true
 url.workspace = true

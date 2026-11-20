@@ -19,13 +19,14 @@ use std::time::Duration;
 
 use quickie_application::{
     AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
-    ShieldsSnapshot, StoreError,
+    ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
 };
+use quickie_domain_settings::SiteZoomsSnapshot;
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 
 use crate::SqliteStore;
@@ -73,7 +74,14 @@ impl WriteBehindStore {
     /// The thread could not start.
     pub fn spawn<S>(store: S, settle: Duration) -> Result<Self, StoreError>
     where
-        S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo + Send + 'static,
+        S: SessionRepo
+            + LibraryRepo
+            + KeymapRepo
+            + ShieldsRepo
+            + AgentRepo
+            + ZoomRepo
+            + Send
+            + 'static,
     {
         let (jobs, inbox) = mpsc::channel();
         let failure = Failure::default();
@@ -199,6 +207,16 @@ impl LibraryRepo for WriteBehindStore {
 impl KeymapRepo for WriteBehindStore {
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError> {
         self.ask(Barrier::LoadKeybindings)?
+    }
+}
+
+impl ZoomRepo for WriteBehindStore {
+    fn load_site_zooms(&self) -> Result<SiteZoomsSnapshot, StoreError> {
+        self.ask(Barrier::LoadZooms)?
+    }
+
+    fn save_site_zooms(&mut self, zooms: &SiteZoomsSnapshot) -> Result<(), StoreError> {
+        self.hand_over(Save::Zooms(zooms.clone()))
     }
 }
 
