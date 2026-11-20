@@ -80,7 +80,9 @@ glass above the page, and is gone when you are done:
 
 All of them are commands in the palette and can be rebound in `keybindings.json` (Settings →
 Keys opens it, VS Code's format). ⌘ is Ctrl on Linux: `keybindings.json` writes it `mod`
-(`mod+shift+p`), and `⌃⇥` stays Ctrl on both.
+(`mod+shift+p`), and `⌃⇥` stays Ctrl on both. A shortcut never takes a key that types: a
+letter, digit, punctuation key, or the space bar needs ⌘, ⌥ or ⌃ (⇧ alone does not count), so
+every text field always gets its characters.
 
 | Keys | Command |
 |---|---|
@@ -99,7 +101,7 @@ Keys opens it, VS Code's format). ⌘ is Ctrl on Linux: `keybindings.json` write
 | `⌘D` | Bookmark the page |
 | `⌘F` | Find in page |
 | `⌘G` / `⌘⇧G` | Next / previous match |
-| `F` / `⇧F` | Link hints (when no text field has focus); `⇧F` opens the link in a background tab |
+| `⌥F` / `⇧⌥F` | Link hints; `⇧⌥F` opens the link in a background tab |
 | `⌘⇧\` | Tab overview (or pinch in on the page) |
 | `⌘⇧C` | Copy the URL |
 | `⌘⌥C` | Copy as Markdown link |

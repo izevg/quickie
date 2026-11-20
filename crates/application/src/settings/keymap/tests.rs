@@ -144,6 +144,42 @@ fn a_conflicting_entry_is_left_out_and_the_default_keeps_its_key() {
 }
 
 #[test]
+fn a_bare_typing_key_from_an_old_file_is_left_out() {
+    let typing = entry("g", "quickie.hints.toggle");
+
+    let loaded = load(vec![typing.clone(), entry("cmd+e", "quickie.page.find")]);
+
+    assert!(matches!(
+        loaded.rejected.as_slice(),
+        [RejectedEntry {
+            position: 0,
+            reason: Rejection::Malformed(BindingError::Typing(_)),
+            ..
+        }]
+    ));
+    assert_eq!(runs(&loaded.keymap, "g"), Resolution::Unbound);
+    assert_eq!(runs(&loaded.keymap, "cmd+e"), command("quickie.page.find"));
+}
+
+#[test]
+fn an_old_removal_of_bare_f_loads_and_removes_nothing() {
+    let old = KeybindingText {
+        when: Some("pageFocused && !inputFocused".to_owned()),
+        ..entry("f", "-quickie.hints.toggle")
+    };
+
+    let loaded = load(vec![old]);
+
+    assert_eq!(loaded.rejected, []);
+    let page = WhenContext::new().with_flag("pageFocused");
+    let stroke = KeyStroke::try_from("alt+f").unwrap();
+    assert_eq!(
+        loaded.keymap.resolve(stroke, None, &page),
+        command("quickie.hints.toggle")
+    );
+}
+
+#[test]
 fn a_failed_read_is_an_error() {
     let repo = FakeKeymapRepo {
         load_fails: true,

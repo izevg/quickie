@@ -116,14 +116,14 @@ impl Browser {
         self.key_log_panel.show(&host, &[]);
     }
 
-    /// Logs a press while the overlay shows.
-    pub(super) fn log_key(&self, press: Press, outcome: &Outcome) {
+    /// Logs a press while the overlay shows; `press` describes it only then.
+    pub(super) fn log_key(&self, press: impl FnOnce() -> Press, outcome: &Outcome) {
         let lines = {
             let mut log = self.key_log.borrow_mut();
             let Some(log) = log.as_mut() else {
                 return;
             };
-            log.push(press, outcome.clone());
+            log.push(press(), outcome.clone());
             log.lines(self.keymap.borrow().platform())
         };
         self.key_log_panel.update(&lines);
