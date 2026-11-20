@@ -137,6 +137,28 @@ fn the_shields_commands_are_built_in() {
 }
 
 #[test]
+fn the_app_commands_are_built_in() {
+    let catalog = Catalog::builtin();
+
+    let titles: Vec<(&str, Category)> =
+        ["quickie.app.setDefaultBrowser", "quickie.app.revealProfile"]
+            .into_iter()
+            .map(|text| {
+                let command = catalog.get(&id(text)).unwrap();
+                (command.title, command.category)
+            })
+            .collect();
+
+    assert_eq!(
+        titles,
+        [
+            ("Set as Default Browser", Category::App),
+            ("Show Profile in Finder", Category::App),
+        ]
+    );
+}
+
+#[test]
 fn every_title_starts_with_a_capitalized_word() {
     let catalog = Catalog::builtin();
 
@@ -156,6 +178,7 @@ fn every_category_has_its_label() {
         (Category::Downloads, "Downloads"),
         (Category::Shields, "Shields"),
         (Category::Developer, "Developer"),
+        (Category::App, "App"),
     ];
 
     for (category, label) in labels {

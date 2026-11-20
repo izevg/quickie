@@ -35,6 +35,8 @@ pub enum Category {
     Shields,
     /// The developer tools and their panels.
     Developer,
+    /// Quickie in the system: the default browser, the profile on disk.
+    App,
 }
 
 impl Category {
@@ -49,6 +51,7 @@ impl Category {
             Self::Downloads => "Downloads",
             Self::Shields => "Shields",
             Self::Developer => "Developer",
+            Self::App => "App",
         }
     }
 }

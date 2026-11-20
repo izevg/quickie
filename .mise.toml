@@ -24,6 +24,12 @@ rust = { version = "stable", components = "rustfmt,clippy", profile = "minimal" 
 description = "Point git at the versioned hooks in .githooks"
 run = "git config core.hooksPath .githooks"
 
+# ---- the app ------------------------------------------------------------------------------------
+
+[tasks.bundle]
+description = "The development app as target/<profile>/Quickie.app (--release, --bundle-id <id>)"
+run = "cargo xtask bundle"
+
 # ---- single gates ------------------------------------------------------------------------------
 
 [tasks.fmt]
