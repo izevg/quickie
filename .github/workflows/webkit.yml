@@ -1,0 +1,140 @@
+name: webkit
+
+# Builds our WebKit fork at the commit in engine/webkit/webkit.pin and publishes the frameworks as
+# an artifact with a sha256 and a build provenance attestation, both made by the job that built
+# them. The engine is built here only, never on a developer's machine (engine/README.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label (xcode-27 is macOS 27 with Xcode 27; macos-26 has Xcode 26)
+        default: xcode-27
+        type: string
+      xcode:
+        description: Xcode to select, by its path under /Applications
+        default: Xcode_27.2.app
+        type: string
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - engine/webkit/**
+      - .github/workflows/webkit.yml
+      - .github/scripts/free-disk-macos.sh
+
+permissions: {}
+
+concurrency:
+  group: webkit-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  webkit-macos:
+    name: webkit (macOS arm64)
+    # xcode-27: macOS 27 with Xcode 27 on arm64 (Apple silicon, 3 CPUs, 7 GB RAM), free for public
+    # repositories. WebKit main needs Xcode 26.2 or later (Tools/Scripts/webkitdirs.pm) and builds
+    # for the host's macOS (its deployment target follows the SDK), so the newest image gives the
+    # build that runs on the newest macOS.
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
+    # The hosted-runner limit is 6 h; the build step stops itself earlier (QUICKIE_BUILD_MINUTES)
+    # to leave time for packaging and for the logs.
+    timeout-minutes: 355
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      CI: "true"
+      XCODE_APP: ${{ inputs.xcode || 'Xcode_27.2.app' }}
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "/Applications/$XCODE_APP"
+          xcodebuild -version
+          sw_vers
+          for tool in python3 ruby perl git; do printf '%s: %s\n' "$tool" "$(command -v "$tool")"; done
+
+      - name: Free disk
+        run: |
+          df -h /
+          .github/scripts/free-disk-macos.sh
+          df -h /
+
+      # Xcode 26 and later ship without the Metal compiler; WebCore and WebGPU compile shaders.
+      - name: Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Sync
+        run: engine/webkit/scripts/sync
+
+      - name: Build
+        env:
+          QUICKIE_BUILD_MINUTES: "300"
+        run: engine/webkit/scripts/build
+
+      - name: Package
+        id: package
+        run: engine/webkit/scripts/package "$RUNNER_TEMP/webkit"
+
+      # The attestation names the archive's sha256 and this workflow run; check it with
+      # `gh attestation verify <archive> --repo izevg/quickie`.
+      # actions/attest-build-provenance v4.2.2
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+
+      # actions/upload-artifact v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ runner.temp }}/webkit
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo '### WebKit (macOS arm64)'
+            echo '```'
+            df -h /
+            cat "$RUNNER_TEMP"/webkit/*.sha256 2>/dev/null || echo 'no archive'
+            ls -lh "$RUNNER_TEMP"/webkit 2>/dev/null || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          gzip -c .build/webkit-build.log >"$RUNNER_TEMP/webkit-build.log.gz" 2>/dev/null || true
+
+      # actions/upload-artifact v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: webkit-macos-build-log
+          path: ${{ runner.temp }}/webkit-build.log.gz
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # webkit-linux (planned, not enabled): WebKitGTK from the same pin, as a first-class target.
+  #
+  #   runs-on: ubuntu-24.04 (x86_64) and ubuntu-24.04-arm (arm64), both free for public
+  #     repositories (4 CPUs, 16 GB RAM, ~14 GB free before cleanup)
+  #   free disk: remove /usr/local/lib/android, /usr/share/dotnet, /opt/ghc, /opt/hostedtoolcache
+  #     (as the macOS job does)
+  #   sync: engine/webkit/scripts/sync (portable POSIX sh, same sparse checkout)
+  #   deps: the WebKit SDK container (Tools/Scripts/container-sdk, `wkdev-sdk`) pinned by digest,
+  #     or Tools/gtk/install-dependencies on the runner; the container is the reproducible choice
+  #   build: Tools/Scripts/build-webkit --gtk --release --cmakeargs="-DENABLE_DOCUMENTATION=OFF
+  #     -DENABLE_INTROSPECTION=OFF -DENABLE_MINIBROWSER=OFF -DENABLE_API_TESTS=OFF
+  #     -DUSE_LIBBACKTRACE=OFF -DDEVELOPER_MODE=OFF", ninja, no debug info (-g0)
+  #   package: `ninja install` into a staging prefix (libwebkitgtk-6.0.so, libjavascriptcoregtk-6.0.so,
+  #     the WebKitWebProcess/WebKitNetworkProcess/WebKitGPUProcess helpers, injected-bundle dir),
+  #     tar.gz + sha256 + attestation from the same job, like webkit-macos

@@ -30,14 +30,17 @@ pub use engine::{
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, SecretError, StoreError,
 };
-pub use keymap::{LoadedKeymap, RejectedEntry, Rejection, load_keymap};
+pub use keymap::{
+    BindingLine, BindingSource, LoadedKeymap, RebindError, RejectedEntry, Rejection, check_binding,
+    keymap_lines, load_keymap, rebind, reset_binding,
+};
 pub use library::{CorruptLibrary, Library};
 pub use palette::{Palette, PaletteIndex, PaletteItem, Sources, Target};
 pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
-    Entropy, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapRepo,
-    LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore, SessionRepo,
-    ShieldsRepo, ShieldsSnapshot, StopSignal, ZoomRepo,
+    Entropy, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText, KeymapFile,
+    KeymapRepo, LibraryRepo, LibrarySnapshot, ListRules, LlmPort, Navigation, SecretStore,
+    SessionRepo, ShieldsRepo, ShieldsSnapshot, StopSignal, ZoomRepo,
 };
 pub use shields::{CorruptShields, FetchedList, ListFetch, Refreshed, Shields, fetch_lists};
 pub use site::{DialogGate, Permission, PermissionAnswer, PermissionGate, Prompts, Zoom};

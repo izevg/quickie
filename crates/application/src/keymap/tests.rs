@@ -1,3 +1,6 @@
+mod edit;
+mod listing;
+
 use quickie_domain_commands::{
     BindingError, Catalog, ChordError, CommandId, KeyStroke, Keymap, KeymapError, Platform,
     Resolution, WhenContext,

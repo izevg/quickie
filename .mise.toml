@@ -54,7 +54,7 @@ run = "cargo xtask layers"
 
 [tasks.shell]
 description = "Shell scripts (git hooks, agent hooks, CI scripts, engine scripts)"
-run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh engine/scripts/sync engine/scripts/apply engine/scripts/build"
+run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh engine/chromium/scripts/sync engine/chromium/scripts/apply engine/chromium/scripts/build engine/webkit/scripts/*"
 
 [tasks.actions]
 description = "GitHub Actions workflows"
@@ -88,6 +88,10 @@ run = "cargo test --workspace --no-fail-fast --quiet"
 [tasks.conformance]
 description = "The engine conformance suite on the WebKit engine (macOS)"
 run = "cargo test --package quickie-engine-webkit --test conformance"
+
+[tasks.ui]
+description = "UI stories: headless renders, plays, and comparison with the reference images (macOS)"
+run = "cargo xtask ui check"
 
 [tasks.deny]
 description = "Licenses, advisories, bans, sources"

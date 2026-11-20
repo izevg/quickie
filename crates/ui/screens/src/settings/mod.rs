@@ -1,84 +1,99 @@
-//! The Settings window: macOS's standard one, a toolbar of panes that resizes the window to the
-//! pane, opened (or brought forward, there is only one) by `⌘,` and closed by `⌘W`. No glass:
-//! it is a window of its own, not something floating above a page.
+//! The Settings window: a standard window with a sidebar of panes, as System Settings has
+//! (`docs/design/mocks/settings`), opened (or brought forward, there is only one) by `⌘,` and
+//! closed by `⌘W`. No glass: it is a window of its own, not something floating above a page,
+//! so the sidebar is the system's sidebar material and the panes are plain.
 //!
-//! - [`general`]: the default browser and the downloads folder.
-//! - [`shields`]: where per-site shields live, the filter lists, and keeping them fresh.
-//! - [`keys`]: `keybindings.json` and the entries that were left out.
+//! Every pane has its title in the titlebar's band, the window's buttons above the sidebar.
+//! The keyboard goes everywhere: `↑` `↓` in the sidebar switch panes, `⇥` moves through each
+//! pane top down (its buttons and switches too with Full Keyboard Access), and `⌘F` goes to the
+//! keymap's search.
 //!
-//! The Agent pane is the agent settings view, handed in by the browser. Every button and
-//! switch asks the browser through one [`SettingsAction`] handler; the panes only show what
-//! the browser gives them.
+//! - [`chrome`]: what the panes are made of, and the sidebar.
+//! - [`panes`]: General, Privacy & Shields, Agent.
+//! - [`keymap`]: Keyboard, the keymap editor.
+//!
+//! The Agent pane shows the agent settings form, handed in by the browser. Every button,
+//! switch, and recorded key asks the browser through one [`SettingsAction`] handler; the panes
+//! only show what the browser gives them.
 
-mod general;
-mod keys;
-mod shields;
+mod chrome;
+mod keymap;
+mod panes;
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::rc::Rc;
 
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSBezelStyle, NSButton, NSColor, NSImage, NSLineBreakMode, NSTabViewController,
-    NSTabViewControllerTabStyle, NSTabViewItem, NSTextField, NSView, NSViewController, NSWindow,
-    NSWindowStyleMask,
+    NSBackingStoreType, NSEventModifierFlags, NSView, NSWindow, NSWindowStyleMask,
+    NSWindowTitleVisibility,
 };
-use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use quickie_domain_commands::{Chord, CommandId};
 use quickie_domain_shields::FilterListId;
-use quickie_ui_shared::tokens::{TextRole, color, space};
+use quickie_ui_widgets::AgentSettings;
 
-pub use general::GeneralState;
-pub use keys::KeysState;
-pub use shields::{ListState, ShieldsState};
+use chrome::sidebar::{self, Sidebar};
+use chrome::{Flipped, HEIGHT, PANE_WIDTH, SettingsTarget, hairline};
+pub use keymap::{KeysState, Recorded};
+pub use panes::general::GeneralState;
+pub use panes::shields::{ListState, ShieldsState};
 
-/// The width of every pane.
-pub const PANE_WIDTH: CGFloat = 540.0;
-
-/// A pane of the window, in toolbar order.
+/// A pane of the window, in sidebar order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pane {
     General,
     Shields,
-    Agent,
     Keys,
+    Agent,
 }
 
 impl Pane {
-    const ALL: [Self; 4] = [Self::General, Self::Shields, Self::Agent, Self::Keys];
+    const ALL: [Self; 4] = [Self::General, Self::Shields, Self::Keys, Self::Agent];
 
     fn title(self) -> &'static str {
         match self {
             Self::General => "General",
-            Self::Shields => "Shields",
+            Self::Shields => "Privacy & Shields",
+            Self::Keys => "Keyboard",
             Self::Agent => "Agent",
-            Self::Keys => "Keys",
         }
     }
 
     fn symbol(self) -> &'static str {
         match self {
             Self::General => "gearshape",
-            Self::Shields => "shield.lefthalf.filled",
-            Self::Agent => "sparkles",
+            Self::Shields => "hand.raised",
             Self::Keys => "keyboard",
+            Self::Agent => "sparkles",
         }
     }
 
-    fn index(self) -> isize {
+    fn index(self) -> usize {
         match self {
             Self::General => 0,
             Self::Shields => 1,
-            Self::Agent => 2,
-            Self::Keys => 3,
+            Self::Keys => 2,
+            Self::Agent => 3,
         }
     }
 }
 
-/// What a button or a switch in the window asks of the browser.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A key pressed while a command records its keys, as `AppKit` gave it: the browser reads it
+/// the way its keymap reads every press.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyPress {
+    /// The hardware key code.
+    pub code: u16,
+    /// What the key types, ignoring modifiers.
+    pub typed: String,
+    /// The modifiers held, `fn` included.
+    pub flags: NSEventModifierFlags,
+}
+
+/// What a button, a switch, or a recorded key in the window asks of the browser.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettingsAction {
     /// Ask macOS to make Quickie the default browser.
     MakeDefaultBrowser,
@@ -86,6 +101,8 @@ pub enum SettingsAction {
     ShowDownloads,
     /// Turn a filter list on or off.
     SetList(FilterListId, bool),
+    /// Fetch one list now.
+    RefreshList(FilterListId),
     /// Fetch the enabled lists now.
     RefreshLists,
     /// Fetch stale lists on their own (`true`) or only on request.
@@ -94,158 +111,123 @@ pub enum SettingsAction {
     OpenKeybindings,
     /// Read `keybindings.json` again and apply it.
     ReloadKeybindings,
+    /// A key was pressed while the command recorded its keys: say what the keymap makes of
+    /// it, with [`SettingsScreen::show_recorded`].
+    Record(CommandId, KeyPress),
+    /// Bind the command to the chord in place of what it has.
+    Rebind(CommandId, Chord),
+    /// Give the command its default bindings back.
+    ResetBinding(CommandId),
 }
 
-type Handler = Rc<dyn Fn(SettingsAction)>;
-
-pub struct Ivars {
-    handler: RefCell<Option<Handler>>,
+/// The root view and the panes it switches between.
+struct Frame {
+    root: Retained<Flipped>,
+    views: [Retained<NSView>; 4],
+    current: Cell<Option<Pane>>,
+    keys: Rc<keymap::Keys>,
 }
 
-define_class!(
-    // SAFETY: `NSObject` has no subclassing requirements, and `SettingsTarget` implements no
-    // `Drop`.
-    #[unsafe(super(NSObject))]
-    #[thread_kind = MainThreadOnly]
-    #[name = "QuickieSettingsTarget"]
-    #[ivars = Ivars]
-    pub struct SettingsTarget;
-
-    unsafe impl NSObjectProtocol for SettingsTarget {}
-
-    impl SettingsTarget {
-        #[unsafe(method(makeDefault:))]
-        fn make_default(&self, _sender: Option<&NSButton>) {
-            self.ask(SettingsAction::MakeDefaultBrowser);
+impl Frame {
+    fn show(&self, pane: Pane) {
+        if self.current.get() == Some(pane) {
+            return;
         }
-
-        #[unsafe(method(showDownloads:))]
-        fn show_downloads(&self, _sender: Option<&NSButton>) {
-            self.ask(SettingsAction::ShowDownloads);
+        if let Some(old) = self.current.get() {
+            self.views[old.index()].removeFromSuperview();
         }
-
-        #[unsafe(method(refreshLists:))]
-        fn refresh_lists(&self, _sender: Option<&NSButton>) {
-            self.ask(SettingsAction::RefreshLists);
+        self.keys.stop_recording();
+        let view = &self.views[pane.index()];
+        view.setFrameOrigin(NSPoint::new(sidebar::WIDTH, 0.0));
+        self.root.addSubview(view);
+        self.current.set(Some(pane));
+        // `⇥` runs from the sidebar through the pane top down, and back to the sidebar.
+        if let Some(window) = self.root.window() {
+            window.recalculateKeyViewLoop();
         }
-
-        #[unsafe(method(openKeybindings:))]
-        fn open_keybindings(&self, _sender: Option<&NSButton>) {
-            self.ask(SettingsAction::OpenKeybindings);
-        }
-
-        #[unsafe(method(reloadKeybindings:))]
-        fn reload_keybindings(&self, _sender: Option<&NSButton>) {
-            self.ask(SettingsAction::ReloadKeybindings);
-        }
-    }
-);
-
-impl SettingsTarget {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars {
-            handler: RefCell::new(None),
-        });
-        // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
-        unsafe { msg_send![super(this), init] }
-    }
-
-    fn ask(&self, action: SettingsAction) {
-        let handler = self.ivars().handler.borrow().clone();
-        if let Some(handler) = handler {
-            handler(action);
-        }
-    }
-}
-
-define_class!(
-    // SAFETY: `NSView` has no subclassing requirements, and `PaneView` implements no `Drop`;
-    // `isFlipped` is public API meant to be overridden.
-    #[unsafe(super(NSView))]
-    #[thread_kind = MainThreadOnly]
-    #[name = "QuickieSettingsPane"]
-    pub struct PaneView;
-
-    impl PaneView {
-        /// Panes lay out top down.
-        #[unsafe(method(isFlipped))]
-        fn is_flipped(&self) -> bool {
-            true
-        }
-    }
-);
-
-impl PaneView {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(());
-        // SAFETY: `init` is `NSView`'s initializer for a zero frame.
-        unsafe { msg_send![super(this), init] }
     }
 }
 
 /// The Settings window and its panes.
 pub struct SettingsScreen {
     window: Retained<NSWindow>,
-    tabs: Retained<NSTabViewController>,
-    panes: [Retained<NSViewController>; 4],
-    general: general::General,
-    shields: shields::Shields,
-    keys: keys::Keys,
-    agent: Retained<NSView>,
+    sidebar: Sidebar,
+    frame: Rc<Frame>,
+    general: panes::general::General,
+    shields: panes::shields::Shields,
+    _agent: panes::agent::Agent,
+    keys: Rc<keymap::Keys>,
     target: Retained<SettingsTarget>,
 }
 
 impl SettingsScreen {
-    /// The window, hidden, with `agent` as its Agent pane; `agent` is laid out for
-    /// [`PANE_WIDTH`] by its owner and keeps its height.
+    /// The window, hidden, with `agent` as its Agent pane.
     #[must_use]
-    pub fn new(agent: &NSView, mtm: MainThreadMarker) -> Self {
+    pub fn new(agent: &AgentSettings, mtm: MainThreadMarker) -> Self {
         let target = SettingsTarget::new(mtm);
-        let general = general::General::new(&target, mtm);
-        let shields = shields::Shields::new(&target, mtm);
-        let keys = keys::Keys::new(&target, mtm);
-        let tabs = NSTabViewController::new(mtm);
-        tabs.setTabStyle(NSTabViewControllerTabStyle::Toolbar);
-        let agent_pane = PaneView::new(mtm);
-        agent_pane.addSubview(agent);
-        let views: [&NSView; 4] = [general.view(), shields.view(), &agent_pane, keys.view()];
-        let panes = Pane::ALL.map(|pane| {
-            let controller = NSViewController::new(mtm);
-            controller.setTitle(Some(&NSString::from_str(pane.title())));
-            controller
+        let general = panes::general::General::new(&target, mtm);
+        let shields = panes::shields::Shields::new(&target, mtm);
+        let agent = panes::agent::Agent::new(agent, mtm);
+        let keys = Rc::new(keymap::Keys::new(&target, mtm));
+        let size = NSSize::new(sidebar::WIDTH + PANE_WIDTH, HEIGHT);
+        let root = Flipped::new(NSRect::new(NSPoint::ZERO, size), mtm);
+        let sidebar = Sidebar::new(mtm);
+        root.addSubview(sidebar.view());
+        root.addSubview(&hairline(
+            NSRect::new(
+                NSPoint::new(sidebar::WIDTH - 1.0, 0.0),
+                NSSize::new(1.0, HEIGHT),
+            ),
+            mtm,
+        ));
+        let views = [general.view(), shields.view(), keys.view(), agent.view()].map(Retained::from);
+        let frame = Rc::new(Frame {
+            root,
+            views,
+            current: Cell::new(None),
+            keys: Rc::clone(&keys),
         });
-        for ((controller, view), pane) in panes.iter().zip(views).zip(Pane::ALL) {
-            controller.setView(view);
-            let item = NSTabViewItem::tabViewItemWithViewController(controller);
-            item.setLabel(&NSString::from_str(pane.title()));
-            let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
-                &NSString::from_str(pane.symbol()),
-                Some(&NSString::from_str(pane.title())),
-            );
-            item.setImage(image.as_deref());
-            tabs.addTabViewItem(&item);
-        }
-        let window = NSWindow::windowWithContentViewController(&tabs);
-        window.setStyleMask(NSWindowStyleMask::Titled | NSWindowStyleMask::Closable);
+        let chooser = Rc::clone(&frame);
+        sidebar.on_choose(move |pane| chooser.show(pane));
+
+        let style = NSWindowStyleMask::Titled
+            | NSWindowStyleMask::Closable
+            | NSWindowStyleMask::Miniaturizable
+            | NSWindowStyleMask::FullSizeContentView;
+        // SAFETY: a buffered window of a valid frame and style, made on the main thread.
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+                NSWindow::alloc(mtm),
+                NSRect::new(NSPoint::ZERO, size),
+                style,
+                NSBackingStoreType::Buffered,
+                false,
+            )
+        };
+        window.setTitle(&NSString::from_str("Settings"));
+        window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+        window.setTitlebarAppearsTransparent(true);
+        window.setContentView(Some(&frame.root));
+        window.setInitialFirstResponder(Some(sidebar.list()));
         // SAFETY: the screen owns the window, so AppKit must not release it on close as well.
         unsafe { window.setReleasedWhenClosed(false) };
         let screen = Self {
             window,
-            tabs,
-            panes,
+            sidebar,
+            frame,
             general,
             shields,
+            _agent: agent,
             keys,
-            agent: agent_pane.into_super(),
             target,
         };
-        screen.fit_agent();
+        screen.select(Pane::General);
         screen
     }
 
     /// Runs `handler` with what the user asks.
     pub fn on_action(&self, handler: impl Fn(SettingsAction) + 'static) {
-        *self.target.ivars().handler.borrow_mut() = Some(Rc::new(handler));
+        self.target.set_handler(handler);
     }
 
     /// The window, to tell its keys from a browser window's.
@@ -264,9 +246,8 @@ impl SettingsScreen {
     /// time.
     pub fn show(&self, pane: Option<Pane>) {
         if let Some(pane) = pane {
-            self.tabs.setSelectedTabViewItemIndex(pane.index());
+            self.select(pane);
         }
-        self.fit_agent();
         if !self.window.isVisible() {
             self.window.center();
         }
@@ -275,153 +256,35 @@ impl SettingsScreen {
 
     /// Closes the window, as its close button would.
     pub fn close(&self) {
+        self.keys.stop_recording();
         self.window.performClose(None);
     }
 
-    /// The Agent pane changed height (a status line wrapped): the window follows.
-    pub fn fit_agent(&self) {
-        let height = self
-            .agent
-            .subviews()
-            .iter()
-            .map(|view| view.frame().size.height)
-            .fold(0.0, CGFloat::max);
-        for view in &self.agent.subviews() {
-            view.setFrameOrigin(NSPoint::new(space::XL, space::XL));
-        }
-        self.panes[Pane::Agent.index().unsigned_abs()]
-            .setPreferredContentSize(NSSize::new(PANE_WIDTH, height + space::XL * 2.0));
-        self.agent
-            .setFrameSize(NSSize::new(PANE_WIDTH, height + space::XL * 2.0));
+    fn select(&self, pane: Pane) {
+        self.sidebar.select(pane);
+        self.frame.show(pane);
     }
 
     pub fn set_general(&self, state: &GeneralState) {
-        let height = self.general.update(state);
-        self.resize(Pane::General, height);
+        self.general.update(state);
     }
 
     pub fn set_shields(&self, state: &ShieldsState) {
-        let height = self.shields.update(state);
-        self.resize(Pane::Shields, height);
+        self.shields.update(state);
     }
 
     pub fn set_keys(&self, state: &KeysState) {
-        let height = self.keys.update(state);
-        self.resize(Pane::Keys, height);
+        self.keys.update(state);
     }
 
-    fn resize(&self, pane: Pane, height: CGFloat) {
-        self.panes[pane.index().unsigned_abs()]
-            .setPreferredContentSize(NSSize::new(PANE_WIDTH, height));
-    }
-}
-
-/// Stacks views top down in a flipped pane, `space-xl` in from its edges.
-struct Column {
-    top: CGFloat,
-}
-
-impl Column {
-    const INNER: CGFloat = PANE_WIDTH - space::XL * 2.0;
-
-    fn new() -> Self {
-        Self { top: space::XL }
+    /// What the keymap makes of the key the user pressed while `command` recorded.
+    pub fn show_recorded(&self, command: &CommandId, recorded: Recorded) {
+        self.keys.show_recorded(command, recorded);
     }
 
-    /// Places `view` at the full inner width, `height` tall.
-    fn full(&mut self, view: &NSView, height: CGFloat) {
-        view.setFrame(NSRect::new(
-            NSPoint::new(space::XL, self.top),
-            NSSize::new(Self::INNER, height),
-        ));
-        self.top += height;
+    /// The keymap's search takes the keyboard, on the Keyboard pane.
+    pub fn search_keymap(&self) {
+        self.select(Pane::Keys);
+        self.keys.focus_search();
     }
-
-    /// Places buttons side by side at their own sizes.
-    fn buttons(&mut self, buttons: &[&NSButton]) {
-        let mut x = space::XL;
-        let mut tallest: CGFloat = 0.0;
-        for button in buttons {
-            let size = button.frame().size;
-            button.setFrameOrigin(NSPoint::new(x, self.top));
-            x += size.width + space::SM;
-            tallest = tallest.max(size.height);
-        }
-        self.top += tallest;
-    }
-
-    fn gap(&mut self, height: CGFloat) {
-        self.top += height;
-    }
-
-    /// The pane's height so far, with the bottom margin.
-    fn height(&self) -> CGFloat {
-        self.top + space::XL
-    }
-}
-
-/// A one-line label in `role` and `tint`.
-fn label(
-    text: &str,
-    role: TextRole,
-    tint: &NSColor,
-    mtm: MainThreadMarker,
-) -> Retained<NSTextField> {
-    let field = NSTextField::labelWithString(&NSString::from_str(text), mtm);
-    field.setFont(Some(&role.font()));
-    field.setTextColor(Some(tint));
-    field.setLineBreakMode(NSLineBreakMode::ByTruncatingMiddle);
-    field.sizeToFit();
-    field
-}
-
-/// A section heading: `caption`, secondary.
-fn heading(text: &str, mtm: MainThreadMarker) -> Retained<NSTextField> {
-    label(text, TextRole::Caption, &color::secondary_label(), mtm)
-}
-
-/// A label that wraps at the column's width.
-fn paragraph(text: &str, mtm: MainThreadMarker) -> Retained<NSTextField> {
-    let field = NSTextField::wrappingLabelWithString(&NSString::from_str(text), mtm);
-    field.setFont(Some(&TextRole::RowDetail.font()));
-    field.setTextColor(Some(&color::secondary_label()));
-    field.setSelectable(false);
-    field
-}
-
-/// The height `field` needs to wrap within the column.
-fn wrapped_height(field: &NSTextField) -> CGFloat {
-    field
-        .cell()
-        .map_or(field.frame().size.height, |cell| {
-            cell.cellSizeForBounds(NSRect::new(
-                NSPoint::new(0.0, 0.0),
-                NSSize::new(Column::INNER, 10_000.0),
-            ))
-            .height
-        })
-        .ceil()
-}
-
-fn set(field: &NSTextField, text: &str) {
-    field.setStringValue(&NSString::from_str(text));
-}
-
-/// A push button that sends `action` to the screen's target.
-fn button(
-    title: &str,
-    action: Sel,
-    target: &SettingsTarget,
-    mtm: MainThreadMarker,
-) -> Retained<NSButton> {
-    let button = NSButton::new(mtm);
-    button.setTitle(&NSString::from_str(title));
-    button.setBezelStyle(NSBezelStyle::Push);
-    let target: &AnyObject = target.as_ref();
-    // SAFETY: the target is weak; the screen keeps it alive for as long as its buttons.
-    unsafe { button.setTarget(Some(target)) };
-    // SAFETY: the target implements `action`, which takes the sender.
-    unsafe { button.setAction(Some(action)) };
-    button.sizeToFit();
-    button
 }

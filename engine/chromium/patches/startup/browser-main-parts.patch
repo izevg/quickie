@@ -1,0 +1,39 @@
+Why: Quickie's shell starts from the browser's main parts. This adds one ChromeBrowserMainExtraParts
+made by //quickie (engine/chromium/quickie/main_parts.cc), right after the macOS parts. The default
+definition is weak and returns nullptr, so targets that do not link //quickie (unit_tests,
+browser_tests) still link; the strong definition in //quickie replaces it in the product.
+TODO(verify): ld64 picks the strong definition because //quickie is a source_set (object
+files, not an archive member that would only be loaded for an undefined symbol).
+Against: Chromium 156.0.8078.109 with ungoogled-chromium 156.0.8078.79-1 applied.
+
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -688,6 +688,16 @@
+ 
+ }  // namespace
+ 
++// Quickie: the browser's main parts start the Rust shell (//quickie/main_parts.cc). This weak
++// default keeps targets that do not link //quickie (unit_tests, browser_tests) linking; the
++// strong definition in //quickie replaces it in the product.
++namespace quickie {
++__attribute__((weak)) std::unique_ptr<ChromeBrowserMainExtraParts>
++CreateBrowserMainExtraParts() {
++  return nullptr;
++}
++}  // namespace quickie
++
+ // ChromeBrowserMainParts::ProfileInitManager ----------------------------------
+ 
+ // Runs `CallPostProfileInit()` on all existing and future profiles, the
+@@ -823,6 +833,11 @@
+   main_parts->AddParts(std::make_unique<ChromeBrowserMainExtraPartsMac>());
+ #endif
+ 
++  // Quickie: after the platform parts, so AppKit and the profile are set up first.
++  if (auto quickie_parts = quickie::CreateBrowserMainExtraParts()) {
++    main_parts->AddParts(std::move(quickie_parts));
++  }
++
+ #if BUILDFLAG(IS_CHROMEOS)
+   // TODO(jamescook): Combine with `ChromeBrowserMainPartsAsh`.
+   main_parts->AddParts(std::make_unique<ChromeBrowserMainExtraPartsAsh>());

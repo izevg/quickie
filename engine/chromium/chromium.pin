@@ -1,0 +1,31 @@
+# What the engine is built from. POSIX sh syntax: engine/chromium/scripts/* source this file.
+#
+# Checked on 2026-11-19 against:
+# - Chromium Dash, Extended Stable for Mac:
+#   https://chromiumdash.appspot.com/fetch_releases?channel=Extended&platform=Mac&num=1
+#   (156.0.8078.109, released 2026-11-17; previous 156.0.8078.100)
+# - the tag on chromium.googlesource.com/chromium/src (refs/tags/156.0.8078.109 -> f8ec2e9b)
+# - ungoogled-chromium tags (GitHub API): the newest M156 tag is 156.0.8078.79-1. There is no
+#   tag for .109; the series of the same milestone is applied to the newer patch release, which
+#   ungoogled's own platform builds also do between tags. A hunk that fails is a rebase item,
+#   see engine/chromium/README.md.
+# - ungoogled-chromium-macos tags: 156.0.8078.79-1.1 (only a curated subset is applied).
+#
+# Bump all of these together, on every Extended Stable release (every 8 weeks) and every security
+# respin, and re-run engine/chromium/scripts/sync and apply.
+
+CHROMIUM_VERSION=156.0.8078.109
+CHROMIUM_COMMIT=f8ec2e9b4054b80e455132faba2ce1a3548be61b
+
+UNGOOGLED_REPO=https://github.com/ungoogled-software/ungoogled-chromium.git
+UNGOOGLED_TAG=156.0.8078.79-1
+UNGOOGLED_COMMIT=28a211ab4ab6b83d919966a4f58a6df23cf4fb29
+
+UNGOOGLED_MACOS_REPO=https://github.com/ungoogled-software/ungoogled-chromium-macos.git
+UNGOOGLED_MACOS_TAG=156.0.8078.79-1.1
+UNGOOGLED_MACOS_COMMIT=31f01756a43d55b2c4211e73ca329bfab4ebfcb2
+
+DEPOT_TOOLS_REPO=https://chromium.googlesource.com/chromium/tools/depot_tools.git
+# depot_tools main on 2026-11-19. depot_tools self-updates unless DEPOT_TOOLS_UPDATE=0 (the
+# scripts set it), so this pin holds.
+DEPOT_TOOLS_COMMIT=e0ac4551f74a0cf2e9f095fa1690702a919de186

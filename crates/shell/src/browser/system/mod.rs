@@ -11,7 +11,7 @@ mod settings;
 #[cfg(test)]
 mod tests;
 
-pub use settings::keymap_from;
+pub use settings::{KeymapProblems, keymap_from};
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

@@ -1,6 +1,6 @@
 //! In-memory fakes of the ports, for the use case tests.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use quickie_domain_browsing::{Jar, JarId, SessionSnapshot, TabId, Timestamp, WindowId};
@@ -10,8 +10,8 @@ use quickie_domain_library::{
 use url::Url;
 
 use crate::{
-    Clock, EngineError, EnginePort, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
-    Navigation, SessionRepo, StoreError,
+    Clock, EngineError, EnginePort, KeybindingText, KeymapFile, KeymapRepo, LibraryRepo,
+    LibrarySnapshot, Navigation, SessionRepo, StoreError,
 };
 
 /// Keeps what was saved last, like a store would; counts saves per part, and fails loads or
@@ -95,11 +95,14 @@ impl LibraryRepo for FakeLibraryRepo {
     }
 }
 
-/// The user's `keybindings.json` entries, or a failing read.
+/// The user's `keybindings.json` entries, or a failing read; keeps what was saved last, or
+/// fails saves on request.
 #[derive(Debug, Default)]
 pub struct FakeKeymapRepo {
     pub entries: Vec<KeybindingText>,
     pub load_fails: bool,
+    pub save_fails: bool,
+    pub saved: RefCell<Option<Vec<KeybindingText>>>,
 }
 
 impl KeymapRepo for FakeKeymapRepo {
@@ -109,6 +112,16 @@ impl KeymapRepo for FakeKeymapRepo {
         } else {
             Ok(self.entries.clone())
         }
+    }
+}
+
+impl KeymapFile for FakeKeymapRepo {
+    fn save_keybindings(&self, entries: &[KeybindingText]) -> Result<(), StoreError> {
+        if self.save_fails {
+            return Err(StoreError("save".to_owned()));
+        }
+        *self.saved.borrow_mut() = Some(entries.to_vec());
+        Ok(())
     }
 }
 

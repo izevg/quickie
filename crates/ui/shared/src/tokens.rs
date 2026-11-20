@@ -3,11 +3,14 @@
 
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSColor, NSFont, NSFontTextStyle, NSFontTextStyleBody, NSFontTextStyleCaption1,
-    NSFontTextStyleSubheadline, NSFontTextStyleTitle2, NSFontTextStyleTitle3, NSFontWeightRegular,
+    NSAppearanceCustomization, NSAppearanceNameAccessibilityHighContrastAqua,
+    NSAppearanceNameAccessibilityHighContrastDarkAqua, NSAppearanceNameAqua,
+    NSAppearanceNameDarkAqua, NSColor, NSFont, NSFontTextStyle, NSFontTextStyleBody,
+    NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleSubheadline,
+    NSFontTextStyleTitle2, NSFontTextStyleTitle3, NSFontWeightRegular, NSView, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::NSDictionary;
+use objc2_foundation::{NSArray, NSDictionary};
 
 /// Spacing scale; no other values are used for gaps and insets.
 pub mod space {
@@ -129,6 +132,77 @@ pub mod color {
     pub fn selection_text() -> Retained<NSColor> {
         NSColor::labelColor()
     }
+
+    /// Placeholders, and what is there but does not matter now.
+    #[must_use]
+    pub fn tertiary_label() -> Retained<NSColor> {
+        NSColor::tertiaryLabelColor()
+    }
+
+    /// Behind a group of rows in a standard window, where there is no glass to sit on.
+    #[must_use]
+    pub fn group_fill() -> Retained<NSColor> {
+        NSColor::quaternarySystemFillColor()
+    }
+
+    /// How much color a tinted row or card has.
+    pub const TINT_ALPHA: objc2_core_foundation::CGFloat = 0.12;
+
+    /// How much color a tinted border has.
+    pub const LINE_ALPHA: objc2_core_foundation::CGFloat = 0.5;
+
+    /// Behind a row that is in conflict.
+    #[must_use]
+    pub fn destructive_fill() -> Retained<NSColor> {
+        NSColor::systemRedColor().colorWithAlphaComponent(TINT_ALPHA)
+    }
+
+    /// The border of something in conflict: a keycap, a card.
+    #[must_use]
+    pub fn destructive_line() -> Retained<NSColor> {
+        NSColor::systemRedColor().colorWithAlphaComponent(LINE_ALPHA)
+    }
+
+    /// Behind a card that says protection is on.
+    #[must_use]
+    pub fn success_fill() -> Retained<NSColor> {
+        NSColor::systemGreenColor().colorWithAlphaComponent(TINT_ALPHA)
+    }
+
+    /// The border of a card that says protection is on.
+    #[must_use]
+    pub fn success_line() -> Retained<NSColor> {
+        NSColor::systemGreenColor().colorWithAlphaComponent(LINE_ALPHA)
+    }
+
+    /// The border of something selected or waiting for keys: a keycap on a selected row, the
+    /// box that records a shortcut.
+    #[must_use]
+    pub fn accent_line() -> Retained<NSColor> {
+        NSColor::controlAccentColor().colorWithAlphaComponent(LINE_ALPHA)
+    }
+}
+
+/// Whether `view` is drawn with Increase Contrast on: borders that carry meaning get heavier.
+/// The system setting, or a high-contrast appearance on the view.
+#[must_use]
+pub fn increased_contrast(view: &NSView) -> bool {
+    if NSWorkspace::sharedWorkspace().accessibilityDisplayShouldIncreaseContrast() {
+        return true;
+    }
+    // SAFETY: the appearance names are immutable `NSString`s exported by AppKit.
+    let (aqua, dark, high, high_dark) = unsafe {
+        (
+            NSAppearanceNameAqua,
+            NSAppearanceNameDarkAqua,
+            NSAppearanceNameAccessibilityHighContrastAqua,
+            NSAppearanceNameAccessibilityHighContrastDarkAqua,
+        )
+    };
+    let names = NSArray::from_slice(&[aqua, dark, high, high_dark]);
+    view.effectiveAppearance()
+        .bestMatchFromAppearancesWithNames(&names)
+        .is_some_and(|name| *name == *high || *name == *high_dark)
 }
 
 /// Typographic roles: SF Pro through text styles, SF Mono at the matching sizes.
@@ -138,6 +212,8 @@ pub enum TextRole {
     PaletteInput,
     /// Sheet titles, empty states.
     Title,
+    /// The title of a Settings pane: `.headline`, bold.
+    Headline,
     /// Rows in palette, switcher, popovers.
     RowTitle,
     /// Hosts, ages, counters.
@@ -152,7 +228,7 @@ impl TextRole {
     pub fn scale(self) -> CGFloat {
         match self {
             Self::PaletteInput => 1.2,
-            Self::Title | Self::RowTitle | Self::RowDetail | Self::Caption => 1.0,
+            Self::Title | Self::Headline | Self::RowTitle | Self::RowDetail | Self::Caption => 1.0,
         }
     }
 
@@ -162,6 +238,7 @@ impl TextRole {
             match self {
                 Self::PaletteInput => NSFontTextStyleTitle3,
                 Self::Title => NSFontTextStyleTitle2,
+                Self::Headline => NSFontTextStyleHeadline,
                 Self::RowTitle => NSFontTextStyleBody,
                 Self::RowDetail => NSFontTextStyleSubheadline,
                 Self::Caption => NSFontTextStyleCaption1,

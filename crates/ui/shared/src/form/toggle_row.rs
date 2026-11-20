@@ -61,12 +61,14 @@ impl ToggleTarget {
     }
 }
 
-/// A label and its detail with a switch.
+/// A label and its detail with a switch, and an optional accessory before the switch (a
+/// refresh button on a filter list).
 pub struct ToggleRow {
     view: Retained<NSView>,
     title: Retained<NSTextField>,
     detail: Retained<NSTextField>,
     switch: Retained<NSSwitch>,
+    accessory: RefCell<Option<Retained<NSView>>>,
     target: Retained<ToggleTarget>,
 }
 
@@ -96,8 +98,17 @@ impl ToggleRow {
             title,
             detail,
             switch,
+            accessory: RefCell::new(None),
             target,
         }
+    }
+
+    /// Puts `accessory`, sized already, between the text and the switch.
+    pub fn set_accessory(&self, accessory: &NSView) {
+        if let Some(old) = self.accessory.replace(Some(Retained::from(accessory))) {
+            old.removeFromSuperview();
+        }
+        self.view.addSubview(accessory);
     }
 
     /// Runs `handler` with the new state each time the user flips the switch.
@@ -160,7 +171,15 @@ impl ToggleRow {
             width - switch.width,
             ((Self::HEIGHT - switch.height) / 2.0).round(),
         ));
-        let text_width = width - switch.width - space::MD;
+        let mut text_width = width - switch.width - space::MD;
+        if let Some(accessory) = self.accessory.borrow().as_ref() {
+            let size = accessory.frame().size;
+            accessory.setFrameOrigin(NSPoint::new(
+                text_width - size.width,
+                ((Self::HEIGHT - size.height) / 2.0).round(),
+            ));
+            text_width -= size.width + space::SM;
+        }
         let title_height = self.title.frame().size.height;
         let detail_height = self.detail.frame().size.height;
         let gap = 2.0;

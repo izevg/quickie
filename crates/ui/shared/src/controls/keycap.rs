@@ -1,14 +1,45 @@
 //! Keycaps: one glyph per chip, a chord as a group (`docs/design/mocks/components/keycap.html`).
 //! Default on glass; on a selected row the glyph takes the primary text color and the border
-//! the accent, to sit on the row's accent tint.
+//! the accent, to sit on the row's accent tint; in conflict both are red. The border is a
+//! [`Plate`]'s, so it follows light and dark.
 
+use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::{MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSTextAlignment, NSTextField, NSView};
+use objc2_app_kit::{NSColor, NSTextAlignment, NSTextField, NSView};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
+use crate::form::{Paint, Plate};
 use crate::tokens::{TextRole, color, radius, space};
+
+/// How a keycap looks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeycapStyle {
+    /// On glass or a plain row.
+    Plain,
+    /// On a selected row's accent tint.
+    Selected,
+    /// Keys that already run another command.
+    Conflict,
+}
+
+impl KeycapStyle {
+    fn text(self) -> Retained<NSColor> {
+        match self {
+            Self::Plain => color::secondary_label(),
+            Self::Selected => color::selection_text(),
+            Self::Conflict => color::destructive(),
+        }
+    }
+
+    fn border(self) -> Paint {
+        match self {
+            Self::Plain => color::separator,
+            Self::Selected => color::accent_line,
+            Self::Conflict => color::destructive_line,
+        }
+    }
+}
 
 /// The modifier glyphs, each on its own cap.
 const MODIFIERS: [char; 4] = ['⌃', '⌥', '⇧', '⌘'];
@@ -35,8 +66,24 @@ pub fn caps(chord: &str) -> Vec<Vec<String>> {
 }
 
 /// A chord as a row of caps, sized to fit: `keycap-gap` 4 inside a stroke, 8 between strokes.
+/// `inverted` caps sit on a selected row.
 #[must_use]
 pub fn keycap_group(chord: &str, inverted: bool, mtm: MainThreadMarker) -> Retained<NSView> {
+    let style = if inverted {
+        KeycapStyle::Selected
+    } else {
+        KeycapStyle::Plain
+    };
+    keycap_group_styled(chord, style, mtm)
+}
+
+/// A chord as a row of caps in `style`, sized to fit.
+#[must_use]
+pub fn keycap_group_styled(
+    chord: &str,
+    style: KeycapStyle,
+    mtm: MainThreadMarker,
+) -> Retained<NSView> {
     let group = NSView::new(mtm);
     let mut x: CGFloat = 0.0;
     let mut height: CGFloat = 0.0;
@@ -45,7 +92,7 @@ pub fn keycap_group(chord: &str, inverted: bool, mtm: MainThreadMarker) -> Retai
             x += space::SM - space::XS;
         }
         for glyph in stroke {
-            let cap = keycap(glyph, inverted, mtm);
+            let cap = keycap(glyph, style, mtm);
             let size = cap.frame().size;
             cap.setFrameOrigin(NSPoint::new(x, 0.0));
             group.addSubview(&cap);
@@ -58,41 +105,27 @@ pub fn keycap_group(chord: &str, inverted: bool, mtm: MainThreadMarker) -> Retai
 }
 
 /// One cap: the glyph in SF Mono, a hairline border, `radius-keycap` corners.
-fn keycap(glyph: &str, inverted: bool, mtm: MainThreadMarker) -> Retained<NSView> {
+fn keycap(glyph: &str, style: KeycapStyle, mtm: MainThreadMarker) -> Retained<NSView> {
     let label = NSTextField::labelWithString(&NSString::from_str(glyph), mtm);
     label.setFont(Some(&TextRole::Caption.mono_font()));
     label.setAlignment(NSTextAlignment::Center);
-    let text = if inverted {
-        color::selection_text()
-    } else {
-        color::secondary_label()
-    };
-    label.setTextColor(Some(&text));
+    label.setTextColor(Some(&style.text()));
     label.sizeToFit();
     let text_size = label.frame().size;
     let height = (text_size.height + space::XS).ceil();
     let width = (text_size.width + space::SM).max(height).ceil();
-    let cap = NSView::initWithFrame(
-        NSView::alloc(mtm),
-        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height)),
-    );
-    cap.setWantsLayer(true);
-    if let Some(layer) = cap.layer() {
-        let border = if inverted {
-            color::accent().colorWithAlphaComponent(0.5)
-        } else {
-            color::separator()
-        };
-        layer.setBorderColor(Some(&border.CGColor()));
-        layer.setBorderWidth(1.0);
-        layer.setCornerRadius(radius::KEYCAP);
-    }
+    let cap = Plate::new(None, Some(style.border()), radius::KEYCAP, mtm);
+    cap.setFrame(NSRect::new(
+        NSPoint::new(0.0, 0.0),
+        NSSize::new(width, height),
+    ));
+    // The plate is flipped: the label sits a hair above the middle, as it did unflipped.
     label.setFrame(NSRect::new(
-        NSPoint::new(0.0, ((height - text_size.height) / 2.0).floor()),
+        NSPoint::new(0.0, ((height - text_size.height) / 2.0).ceil()),
         NSSize::new(width, text_size.height),
     ));
     cap.addSubview(&label);
-    cap
+    cap.into_super()
 }
 
 #[cfg(test)]

@@ -1,0 +1,19 @@
+Why: links //quickie (engine/chromium/quickie/BUILD.gn) into the browser on macOS. GN args cannot add
+dependencies, and //chrome/browser cannot depend on //quickie (//quickie depends on it), so the
+group that every Chrome binary depends on does.
+Against: Chromium 156.0.8078.109 with ungoogled-chromium 156.0.8078.79-1 applied.
+
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -1664,6 +1664,11 @@
+     "//v8:v8_headers",
+   ]
+ 
++  # Quickie: the shell, the cxx bridge and the BrowserWindow host (engine/chromium/quickie).
++  if (is_mac) {
++    public_deps += [ "//quickie" ]
++  }
++
+   if (enable_printing) {
+     public_deps += [ "//printing" ]
+   }
