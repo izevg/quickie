@@ -18,9 +18,10 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use quickie_application::{
-    KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
+    AgentRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot, SessionRepo, ShieldsRepo,
     ShieldsSnapshot, StoreError,
 };
+use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistorySnapshot, SearchShortcutsSnapshot,
@@ -72,7 +73,7 @@ impl WriteBehindStore {
     /// The thread could not start.
     pub fn spawn<S>(store: S, settle: Duration) -> Result<Self, StoreError>
     where
-        S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + Send + 'static,
+        S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo + Send + 'static,
     {
         let (jobs, inbox) = mpsc::channel();
         let failure = Failure::default();
@@ -216,6 +217,16 @@ impl ShieldsRepo for WriteBehindStore {
 
     fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {
         self.hand_over(Save::Body(list, body.to_vec()))
+    }
+}
+
+impl AgentRepo for WriteBehindStore {
+    fn load_endpoint(&self) -> Result<Option<EndpointSnapshot>, StoreError> {
+        self.ask(Barrier::LoadEndpoint)?
+    }
+
+    fn save_endpoint(&mut self, endpoint: Option<&EndpointSnapshot>) -> Result<(), StoreError> {
+        self.hand_over(Save::Endpoint(endpoint.cloned()))
     }
 }
 

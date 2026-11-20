@@ -136,4 +136,14 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         next_id INTEGER NOT NULL
     ) STRICT;
 ",
+    // 8: the agent's endpoint, in at most one row. `key_ref` names the API key in the Keychain;
+    // the key itself is never stored here.
+    "
+    CREATE TABLE agent_endpoint (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        base_url TEXT NOT NULL,
+        model TEXT NOT NULL,
+        key_ref TEXT
+    ) STRICT;
+",
 ];
