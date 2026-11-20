@@ -48,6 +48,7 @@ const fn settings(
 const STORIES: &[Story] = &[
     settings("general", "general", LIGHT_DARK, general),
     settings("general", "general-default", LIGHT, general_default),
+    settings("general", "general-inset", LIGHT, general_inset),
     settings("shields", "shields", LIGHT_DARK, shields),
     settings("shields", "shields-fetching", LIGHT, shields_fetching),
     settings("shields", "shields-no-lists", LIGHT_DARK, shields_no_lists),
@@ -153,6 +154,7 @@ pub fn open(scene: &mut Scene, lines: Option<Vec<BindingLine>>) -> Rc<Settings> 
         default_browser: "Safari is your default browser.".to_owned(),
         can_make_default: true,
         downloads_folder: "/Users/ada/Downloads".to_owned(),
+        inset_page: false,
     });
     screen.set_shields(&shields_state(""));
     screen.set_keys(&KeysState {
@@ -265,6 +267,21 @@ fn general(scene: &mut Scene) {
     );
 }
 
+/// The Inset page switch asks the browser to put the page in a card.
+fn general_inset(scene: &mut Scene) {
+    let settings = open(scene, None);
+    go(scene, Pane::General, "General");
+    match scene.view_labelled("Inset page") {
+        Some(switch) => scene.click(&switch),
+        None => scene.check(false, "the Inset page switch is labelled"),
+    }
+    scene.check_eq(
+        settings.actions.borrow().clone(),
+        vec![SettingsAction::InsetPage(true)],
+        "the switch asks for the inset page",
+    );
+}
+
 fn general_default(scene: &mut Scene) {
     let settings = open(scene, None);
     settings.screen.set_general(&GeneralState {
@@ -272,6 +289,7 @@ fn general_default(scene: &mut Scene) {
         can_make_default: false,
         downloads_folder: "/Users/ada/Library/Mobile Documents/com~apple~CloudDocs/Загрузки"
             .to_owned(),
+        inset_page: true,
     });
     go(scene, Pane::General, "General");
 }

@@ -7,15 +7,15 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use quickie_application::{
-    AgentRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
-    SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
+    AgentRepo, AppearanceRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo,
+    LibrarySnapshot, SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
+use quickie_domain_settings::{AppearanceSnapshot, InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use url::Url;
 
@@ -59,6 +59,8 @@ pub(super) enum Save {
     Endpoint(Option<EndpointSnapshot>),
     /// Each site's page zoom.
     Zooms(SiteZoomsSnapshot),
+    /// The appearance choices.
+    Appearance(AppearanceSnapshot),
     /// The installed extensions.
     Extensions(InstalledExtensionsSnapshot),
 }
@@ -78,6 +80,8 @@ pub(super) enum Barrier {
     LoadEndpoint(Sender<Result<Option<EndpointSnapshot>, StoreError>>),
     /// Answer with the saved site zooms.
     LoadZooms(Sender<Result<SiteZoomsSnapshot, StoreError>>),
+    /// Answer with the saved appearance.
+    LoadAppearance(Sender<Result<AppearanceSnapshot, StoreError>>),
     /// Answer with the saved extensions.
     LoadExtensions(Sender<Result<InstalledExtensionsSnapshot, StoreError>>),
     /// Answer once written.
@@ -112,6 +116,7 @@ struct Batch {
     )]
     endpoint: Option<Option<EndpointSnapshot>>,
     zooms: Option<SiteZoomsSnapshot>,
+    appearance: Option<AppearanceSnapshot>,
     extensions: Option<InstalledExtensionsSnapshot>,
 }
 
@@ -144,6 +149,7 @@ impl Batch {
             }
             Save::Endpoint(endpoint) => self.endpoint = Some(endpoint),
             Save::Zooms(zooms) => self.zooms = Some(zooms),
+            Save::Appearance(appearance) => self.appearance = Some(appearance),
             Save::Extensions(extensions) => self.extensions = Some(extensions),
         }
     }
@@ -151,7 +157,15 @@ impl Batch {
     /// Writes and empties the batch. A failure does not stop the other kinds; the last one is
     /// kept for the shell. A list's content goes before the list states that describe it, and a
     /// whole history before the page changes made after it.
-    fn write<S: SessionRepo + LibraryRepo + ShieldsRepo + AgentRepo + ZoomRepo + ExtensionsRepo>(
+    fn write<
+        S: SessionRepo
+            + LibraryRepo
+            + ShieldsRepo
+            + AgentRepo
+            + ZoomRepo
+            + AppearanceRepo
+            + ExtensionsRepo,
+    >(
         &mut self,
         store: &mut S,
         failure: &Failure,
@@ -183,6 +197,9 @@ impl Batch {
                 .take()
                 .map(|endpoint| store.save_endpoint(endpoint)),
             self.zooms.take().map(|zooms| store.save_site_zooms(zooms)),
+            self.appearance
+                .take()
+                .map(|appearance| store.save_appearance(appearance)),
             self.extensions
                 .take()
                 .map(|extensions| store.save_extensions(extensions)),
@@ -225,7 +242,14 @@ fn write_pages<S: LibraryRepo>(
 /// after its first save, or sooner when a job needs it on disk.
 pub(super) fn run<S>(mut store: S, inbox: &Receiver<Job>, settle: Duration, failure: &Failure)
 where
-    S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo + ZoomRepo + ExtensionsRepo,
+    S: SessionRepo
+        + LibraryRepo
+        + KeymapRepo
+        + ShieldsRepo
+        + AgentRepo
+        + ZoomRepo
+        + AppearanceRepo
+        + ExtensionsRepo,
 {
     let mut batch = Batch::default();
     // When the pending batch is written; `None` while nothing is pending.
@@ -264,7 +288,14 @@ where
 /// so a failed reply is dropped.
 fn serve<S>(store: &S, barrier: Barrier)
 where
-    S: SessionRepo + LibraryRepo + KeymapRepo + ShieldsRepo + AgentRepo + ZoomRepo + ExtensionsRepo,
+    S: SessionRepo
+        + LibraryRepo
+        + KeymapRepo
+        + ShieldsRepo
+        + AgentRepo
+        + ZoomRepo
+        + AppearanceRepo
+        + ExtensionsRepo,
 {
     match barrier {
         Barrier::LoadExtensions(reply) => drop(reply.send(store.load_extensions())),
@@ -274,6 +305,7 @@ where
         Barrier::LoadKeybindings(reply) => drop(reply.send(store.load_keybindings())),
         Barrier::LoadShields(reply) => drop(reply.send(store.load_shields())),
         Barrier::LoadZooms(reply) => drop(reply.send(store.load_site_zooms())),
+        Barrier::LoadAppearance(reply) => drop(reply.send(store.load_appearance())),
         Barrier::Flush(reply) => drop(reply.send(())),
     }
 }

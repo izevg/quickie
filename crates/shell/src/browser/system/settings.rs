@@ -11,6 +11,7 @@ use quickie_application::{
     load_keymap, rebind, reset_binding,
 };
 use quickie_domain_commands::{Catalog, Chord, CommandId, Keymap, KeymapError};
+use quickie_domain_settings::PageLayout;
 use quickie_domain_shields::{FilterListId, Refresh};
 use quickie_store::KeybindingsFile;
 use quickie_ui_screens::{
@@ -159,6 +160,31 @@ impl Browser {
             default_browser,
             can_make_default,
             downloads_folder: self.downloads_folder.display().to_string(),
+            inset_page: self.inset_page(),
+        }
+    }
+
+    /// Whether *Inset page* is on.
+    pub(in crate::browser) fn inset_page(&self) -> bool {
+        self.appearance.borrow().appearance().page() == PageLayout::Inset
+    }
+
+    /// Turns *Inset page* on or off, saved, and lays out every window's page at once.
+    fn set_inset_page(&self, on: bool) {
+        let page = if on {
+            PageLayout::Inset
+        } else {
+            PageLayout::EdgeToEdge
+        };
+        let changed = self.appearance.borrow_mut().set_page(page);
+        match changed {
+            Ok(true) => {
+                for frame in self.frames.borrow().values() {
+                    frame.set_inset(on);
+                }
+            }
+            Ok(false) => {}
+            Err(error) => self.report(&error),
         }
     }
 
@@ -236,6 +262,7 @@ impl Browser {
                     Err(error) => self.report(&error),
                 }
             }
+            SettingsAction::InsetPage(on) => self.set_inset_page(on),
             SettingsAction::OpenKeybindings => self.open_keybindings(),
             SettingsAction::ReloadKeybindings => self.reload_keybindings(),
             // The recording goes on: nothing else changed, so nothing is refreshed.
