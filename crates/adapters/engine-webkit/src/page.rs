@@ -203,13 +203,13 @@ impl WebPage {
         Some((url, title))
     }
 
-    /// True when the page last said its focused element takes text.
+    /// True while one of the page's frames says it holds the keyboard in an element that
+    /// takes text.
     pub(crate) fn input_focused(&self) -> bool {
         self.focus
             .borrow()
             .get(&scripts::view_key(&self.view))
-            .copied()
-            .unwrap_or(false)
+            .is_some_and(|frames| !frames.is_empty())
     }
 
     /// The web view itself, to start a download in its jar or to hand to `WebKit` for a page it
