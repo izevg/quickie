@@ -26,7 +26,8 @@ pub trait Clock {
     fn now(&self) -> Timestamp;
 }
 
-/// Where the session persists (`shell.sqlite` in the product).
+/// Where the main profile's session persists (`shell.sqlite` in the product). There is one
+/// saved session, never one per profile: the agent's session has no [`SessionSnapshot`].
 pub trait SessionRepo {
     /// The last saved session, `None` on first launch.
     ///

@@ -141,14 +141,14 @@ impl TryFrom<u8> for PinnedSlot {
 
 #[cfg(test)]
 mod tests {
-    use quickie_domain_kernel::TabId;
+    use quickie_domain_kernel::{Profile, TabId};
     use url::Url;
 
     use super::{Jar, JarId, PinnedSlot, SlotOutOfRange, Tab};
 
     fn tab(url: &str, title: &str) -> Tab {
         Tab {
-            id: TabId::new(1),
+            id: TabId::new(Profile::Main, 1),
             url: Url::parse(url).unwrap(),
             title: title.to_owned(),
             jar: Jar::Main,

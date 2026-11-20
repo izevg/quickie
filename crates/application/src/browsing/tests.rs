@@ -2,8 +2,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use quickie_domain_browsing::{
-    BrowsingError, Closed, Direction, Focus, Jar, JarChoice, JarId, PinnedSlot, RETENTION_MS,
-    Session, TabId, WindowId,
+    BrowsingError, Closed, Direction, Focus, Jar, JarChoice, JarId, PinnedSlot, Profile,
+    RETENTION_MS, Session, TabId, WindowId,
 };
 use url::Url;
 
@@ -26,7 +26,14 @@ fn slot(n: u8) -> PinnedSlot {
 }
 
 fn start_with(repo: FakeRepo) -> Subject {
-    Browsing::start(FakeEngine::default(), repo, FakeClock::default(), &home()).unwrap()
+    Browsing::start(
+        Profile::Main,
+        FakeEngine::default(),
+        repo,
+        FakeClock::default(),
+        &home(),
+    )
+    .unwrap()
 }
 
 /// A fresh start: window 0 with the home tab 0, shown; engine calls cleared.
@@ -37,11 +44,11 @@ fn started() -> Subject {
 }
 
 fn w0() -> WindowId {
-    WindowId::new(0)
+    WindowId::new(Profile::Main, 0)
 }
 
 fn t(raw: u64) -> TabId {
-    TabId::new(raw)
+    TabId::new(Profile::Main, raw)
 }
 
 fn open(browsing: &mut Subject, path: &str) -> TabId {
@@ -52,7 +59,7 @@ fn open(browsing: &mut Subject, path: &str) -> TabId {
 
 /// A saved session: window 0 with tabs 0 (active) and 1, tab 1 pinned to slot 1.
 fn saved_two_tabs() -> FakeRepo {
-    let mut session = Session::new();
+    let mut session = Session::new(Profile::Main);
     let window = session.open_window();
     let back = session
         .open(window, url("b"), JarChoice::Main, Focus::Foreground)
@@ -62,7 +69,7 @@ fn saved_two_tabs() -> FakeRepo {
         .unwrap();
     session.pin(back, slot(1)).unwrap();
     FakeRepo {
-        saved: Some(session.snapshot()),
+        saved: Some(session.snapshot().unwrap()),
         ..FakeRepo::default()
     }
 }
@@ -88,8 +95,60 @@ mod starting {
             ]
         );
         assert_eq!(browsing.session().active(w0()), Some(t(0)));
-        assert_eq!(browsing.repo.saved, Some(browsing.session().snapshot()));
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
         assert_eq!(browsing.corrupt_on_start(), None);
+    }
+
+    #[test]
+    fn the_agent_profile_starts_fresh_without_reading_the_store() {
+        let repo = FakeRepo {
+            load_fails: true,
+            ..saved_two_tabs()
+        };
+
+        let browsing = Browsing::start(
+            Profile::Agent,
+            FakeEngine::default(),
+            repo,
+            FakeClock::default(),
+            &home(),
+        )
+        .unwrap();
+
+        let agent = TabId::new(Profile::Agent, 0);
+        assert_eq!(
+            browsing.engine.calls,
+            vec![
+                Call::Create(agent, home(), Jar::Main),
+                Call::Show(WindowId::new(Profile::Agent, 0), agent)
+            ]
+        );
+        assert_eq!(browsing.session().profile(), Profile::Agent);
+    }
+
+    #[test]
+    fn the_agent_profile_never_saves_its_tabs() {
+        let repo = FakeRepo::default();
+        let mut browsing = Browsing::start(
+            Profile::Agent,
+            FakeEngine::default(),
+            repo,
+            FakeClock::default(),
+            &home(),
+        )
+        .unwrap();
+        let window = WindowId::new(Profile::Agent, 0);
+
+        let tab = browsing.open(window, url("a"), JarChoice::Main, Focus::Foreground);
+
+        assert!(tab.is_ok());
+        assert_eq!(
+            (browsing.repo.saves, browsing.repo.saved.as_ref()),
+            (0, None)
+        );
     }
 
     #[test]
@@ -108,10 +167,10 @@ mod starting {
 
     #[test]
     fn an_empty_restored_window_gets_home() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         session.open_window();
         let repo = FakeRepo {
-            saved: Some(session.snapshot()),
+            saved: Some(session.snapshot().unwrap()),
             ..FakeRepo::default()
         };
 
@@ -147,7 +206,13 @@ mod starting {
             ..FakeRepo::default()
         };
 
-        let result = Browsing::start(FakeEngine::default(), repo, FakeClock::default(), &home());
+        let result = Browsing::start(
+            Profile::Main,
+            FakeEngine::default(),
+            repo,
+            FakeClock::default(),
+            &home(),
+        );
 
         assert_eq!(
             result.err(),
@@ -160,7 +225,13 @@ mod starting {
         let repo = FakeRepo::default();
         repo.save_fails.set(true);
 
-        let result = Browsing::start(FakeEngine::default(), repo, FakeClock::default(), &home());
+        let result = Browsing::start(
+            Profile::Main,
+            FakeEngine::default(),
+            repo,
+            FakeClock::default(),
+            &home(),
+        );
 
         assert_eq!(
             result.err(),
@@ -175,7 +246,13 @@ mod starting {
             ..FakeEngine::default()
         };
 
-        let result = Browsing::start(engine, FakeRepo::default(), FakeClock::default(), &home());
+        let result = Browsing::start(
+            Profile::Main,
+            engine,
+            FakeRepo::default(),
+            FakeClock::default(),
+            &home(),
+        );
 
         assert_eq!(
             result.err(),
@@ -211,7 +288,10 @@ mod opening {
             ]
         );
         assert_eq!(browsing.repo.saves, saves + 1);
-        assert_eq!(browsing.repo.saved, Some(browsing.session().snapshot()));
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
     }
 
     #[test]
@@ -244,7 +324,7 @@ mod opening {
     fn an_unknown_window_changes_nothing() {
         let mut browsing = started();
         let before = browsing.session().clone();
-        let ghost = WindowId::new(9);
+        let ghost = WindowId::new(Profile::Main, 9);
 
         let result = browsing.open(ghost, url("a"), JarChoice::Main, Focus::Foreground);
 
@@ -299,8 +379,11 @@ mod opening {
 
         let window = browsing.open_window().unwrap();
 
-        assert_eq!(window, WindowId::new(1));
-        assert_eq!(browsing.repo.saved, Some(browsing.session().snapshot()));
+        assert_eq!(window, WindowId::new(Profile::Main, 1));
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
     }
 }
 
@@ -458,7 +541,10 @@ mod activating {
 
         assert_eq!(displaced, Ok(Some(t(0))));
         assert_eq!(held, Ok(Some(tab)));
-        assert_eq!(browsing.repo.saved, Some(browsing.session().snapshot()));
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
     }
 
     #[test]
@@ -480,7 +566,7 @@ mod activating {
 
         assert_eq!(browsing.begin_cycle(w0(), Direction::Forward), None);
         assert_eq!(
-            browsing.begin_cycle(WindowId::new(9), Direction::Forward),
+            browsing.begin_cycle(WindowId::new(Profile::Main, 9), Direction::Forward),
             None
         );
     }
@@ -641,7 +727,7 @@ mod closing {
     #[test]
     fn closing_an_unknown_window_is_an_error() {
         let mut browsing = started();
-        let ghost = WindowId::new(9);
+        let ghost = WindowId::new(Profile::Main, 9);
 
         assert_eq!(
             browsing.close_window(ghost),
@@ -683,7 +769,7 @@ mod reopening {
     #[test]
     fn an_unknown_window_is_an_error() {
         let mut browsing = started();
-        let ghost = WindowId::new(9);
+        let ghost = WindowId::new(Profile::Main, 9);
 
         assert_eq!(
             browsing.reopen_closed(ghost),
@@ -704,7 +790,10 @@ mod reopening {
 
         assert_eq!(kept, Ok(0));
         assert_eq!(purged, Ok(1));
-        assert_eq!(browsing.repo.saved, Some(browsing.session().snapshot()));
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
     }
 }
 
@@ -758,7 +847,10 @@ mod navigating {
 
         let tab = browsing.session().tab(t(0)).unwrap();
         assert_eq!((tab.url.clone(), tab.title.as_str()), (url("z"), "Zed"));
-        assert_eq!(browsing.repo.saved, Some(browsing.session().snapshot()));
+        assert_eq!(
+            browsing.repo.saved,
+            Some(browsing.session().snapshot().unwrap())
+        );
     }
 
     #[test]

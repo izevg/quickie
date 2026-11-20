@@ -13,7 +13,7 @@ use quickie_application::{
     ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
-use quickie_domain_browsing::{NextIds, Session, SessionSnapshot};
+use quickie_domain_browsing::{NextIds, Profile, Session, SessionSnapshot};
 use quickie_domain_library::{
     Bookmarks, BookmarksSnapshot, DownloadsSnapshot, History, HistorySnapshot, SearchShortcuts,
     SearchShortcutsSnapshot, Timestamp,
@@ -33,11 +33,11 @@ const NEVER: Duration = Duration::from_secs(3600);
 
 /// A session with `windows` empty windows, so each count is a different snapshot.
 fn session(windows: usize) -> SessionSnapshot {
-    let mut session = Session::new();
+    let mut session = Session::new(Profile::Main);
     for _ in 0..windows {
         session.open_window();
     }
-    session.snapshot()
+    session.snapshot().unwrap()
 }
 
 /// A session the SQLite store refuses to write: its next tab id does not fit a column.

@@ -1,4 +1,4 @@
-use quickie_domain_browsing::{Focus, JarChoice, Session, TabId, Timestamp};
+use quickie_domain_browsing::{Focus, JarChoice, Profile, Session, TabId, Timestamp};
 use quickie_domain_commands::{Catalog, CommandId, Keymap, KeymapEntry, Platform};
 use quickie_domain_library::{Bookmarks, History, Keyword, SearchShortcuts, Tag, UrlTemplate};
 use quickie_domain_palette::Kind;
@@ -32,7 +32,7 @@ struct World {
 
 impl World {
     fn new() -> Self {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         session.open_window();
         Self {
             session,

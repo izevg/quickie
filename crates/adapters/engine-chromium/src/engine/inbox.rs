@@ -8,11 +8,17 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use quickie_domain_browsing::TabId;
+use quickie_domain_browsing::{Profile, TabId};
 use url::Url;
 
 use super::reports::{Navigated, Reports};
 use crate::bridge::{Bridge, Event};
+
+/// The tab a serial from the C++ side names. The fork hosts only the main profile for now, so
+/// its serials are the main profile's.
+fn main_tab(serial: u64) -> TabId {
+    TabId::new(Profile::Main, serial)
+}
 
 /// The engine's handle for a page Chromium opened, until it is adopted as a tab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -55,15 +61,15 @@ impl Inbox {
     pub(crate) fn record(&self, event: Event) {
         match event {
             Event::NavigationCommitted { tab, url } => {
-                self.reports.borrow_mut().committed(TabId::new(tab), &url);
+                self.reports.borrow_mut().committed(main_tab(tab), &url);
             }
             Event::TitleChanged { tab, title } => {
-                self.reports.borrow_mut().titled(TabId::new(tab), title);
+                self.reports.borrow_mut().titled(main_tab(tab), title);
             }
             Event::PageOpenedTab { page, opener, url } => {
                 self.opened.borrow_mut().push(OpenedPage {
                     page: PageHandle(page),
-                    opener: opener.map(TabId::new),
+                    opener: opener.map(main_tab),
                     url: Url::parse(&url).ok(),
                 });
             }

@@ -17,7 +17,7 @@ use objc2_foundation::{NSDate, NSRunLoop};
 use quickie_application::{
     BlockerRules, ContentBlockerPort, EnginePort, HttpError, HttpPort, ListRules, Navigation,
 };
-use quickie_domain_browsing::{Jar, TabId};
+use quickie_domain_browsing::{Jar, Profile, TabId};
 use quickie_domain_shields::{ContentHash, FilterListId, Site};
 use quickie_engine_webkit::{BlockerStatus, UrlSessionHttp, WebKitContentBlocker, WebKitEngine};
 use url::Url;
@@ -88,7 +88,7 @@ fn blocks_until_unshielded(mtm: MainThreadMarker) -> Outcome {
     let mut blocker = engine
         .content_blocker(dir.path())
         .map_err(|error| error.to_string())?;
-    let tab = TabId::new(1);
+    let tab = TabId::new(Profile::Main, 1);
 
     install(&mut blocker, &rules(&[]))?;
     let page = base.join("page.html").map_err(|error| error.to_string())?;

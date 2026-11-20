@@ -1,14 +1,27 @@
 //! The session tables: rows ↔ [`SessionSnapshot`]. Validation is the domain's job
 //! (`Session::restore`); this only maps columns and rejects values that cannot be ids or URLs.
+//!
+//! The tables hold the main profile's session and nothing else: only it has a snapshot, so the
+//! agent's tabs never reach them. A stored id is therefore a serial of [`Profile::Main`], and
+//! needs no profile column; rows written before ids named their profile read back unchanged.
 
 use quickie_application::StoreError;
 use quickie_domain_browsing::{
-    ClosedTab, Jar, JarId, NextIds, PinnedSlot, SessionSnapshot, Tab, TabId, Timestamp, WindowId,
+    ClosedTab, Jar, JarId, NextIds, PinnedSlot, Profile, SessionSnapshot, Tab, TabId, Timestamp,
+    WindowId,
 };
 use rusqlite::{Connection, Row, params};
 
 use crate::failed;
 use crate::schema::columns::{from_sql, ordinal, to_sql, url};
+
+fn tab_id(raw: i64) -> Result<TabId, StoreError> {
+    Ok(TabId::new(Profile::Main, from_sql(raw)?))
+}
+
+fn window_id(raw: i64) -> Result<WindowId, StoreError> {
+    Ok(WindowId::new(Profile::Main, from_sql(raw)?))
+}
 
 fn jar_to_sql(jar: Jar) -> Result<Option<i64>, StoreError> {
     match jar {
@@ -33,7 +46,7 @@ fn tab_row(row: &Row<'_>) -> rusqlite::Result<TabRow> {
 
 fn tab((id, raw_url, title, jar): TabRow) -> Result<Tab, StoreError> {
     Ok(Tab {
-        id: TabId::new(from_sql(id)?),
+        id: tab_id(id)?,
         url: url(&raw_url)?,
         title,
         jar: jar_from_sql(jar)?,
@@ -80,11 +93,8 @@ pub(crate) fn load(db: &Connection) -> Result<Option<SessionSnapshot>, StoreErro
             .prepare("SELECT tab FROM window_tabs WHERE window = ?1 ORDER BY rank")
             .and_then(|mut stmt| stmt.query_map([id], |row| row.get(0))?.collect())
             .map_err(failed)?;
-        let order = order
-            .into_iter()
-            .map(|raw| from_sql(raw).map(TabId::new))
-            .collect::<Result<_, _>>()?;
-        windows.push((WindowId::new(from_sql(id)?), order));
+        let order = order.into_iter().map(tab_id).collect::<Result<_, _>>()?;
+        windows.push((window_id(id)?, order));
     }
 
     let mut slots = [None; PinnedSlot::COUNT];
@@ -100,7 +110,7 @@ pub(crate) fn load(db: &Connection) -> Result<Option<SessionSnapshot>, StoreErro
             .ok()
             .and_then(|n| PinnedSlot::try_from(n).ok())
             .ok_or_else(|| StoreError(format!("bad slot {slot}")))?;
-        slots[slot.index()] = Some(TabId::new(from_sql(id)?));
+        slots[slot.index()] = Some(tab_id(id)?);
     }
 
     let trash = db

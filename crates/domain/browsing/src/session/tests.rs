@@ -1,8 +1,17 @@
 use super::{Closed, ClosedTab, ClosedWindow, CorruptSession, NextIds, RETENTION_MS, Session};
 use crate::{
-    BrowsingError, Focus, Jar, JarChoice, JarId, PinnedSlot, Tab, TabId, Timestamp, WindowId,
+    BrowsingError, Focus, Jar, JarChoice, JarId, PinnedSlot, Profile, Tab, TabId, Timestamp,
+    WindowId,
 };
 use url::Url;
+
+fn tab_id(serial: u64) -> TabId {
+    TabId::new(Profile::Main, serial)
+}
+
+fn window_id(serial: u64) -> WindowId {
+    WindowId::new(Profile::Main, serial)
+}
 
 fn url(path: &str) -> Url {
     Url::parse(&format!("https://example.test/{path}")).unwrap()
@@ -28,7 +37,7 @@ fn mru(session: &Session, window: WindowId) -> Vec<TabId> {
 
 /// A window with tabs a, b, c opened in that order; c is active.
 fn three_tabs() -> (Session, WindowId, [TabId; 3]) {
-    let mut session = Session::new();
+    let mut session = Session::new(Profile::Main);
     let window = session.open_window();
     let a = open(&mut session, window, "a");
     let b = open(&mut session, window, "b");
@@ -41,7 +50,7 @@ mod opening {
 
     #[test]
     fn windows_and_tabs_get_fresh_ids() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
 
         let first = session.open_window();
         let second = session.open_window();
@@ -54,8 +63,30 @@ mod opening {
     }
 
     #[test]
+    fn an_agent_session_hands_out_agent_ids() {
+        let mut session = Session::new(Profile::Agent);
+
+        let window = session.open_window();
+        let tab = open(&mut session, window, "a");
+
+        assert_eq!(session.profile(), Profile::Agent);
+        assert_eq!(window, WindowId::new(Profile::Agent, 0));
+        assert_eq!(tab, TabId::new(Profile::Agent, 0));
+    }
+
+    #[test]
+    fn a_tab_of_another_profile_is_unknown() {
+        let (mut session, _, [a, ..]) = three_tabs();
+        let twin = TabId::new(Profile::Agent, a.get());
+
+        let result = session.activate(twin);
+
+        assert_eq!(result, Err(BrowsingError::UnknownTab(twin)));
+    }
+
+    #[test]
     fn a_new_tab_starts_untitled_at_its_url() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
 
         let id = open(&mut session, window, "a");
@@ -90,7 +121,7 @@ mod opening {
 
     #[test]
     fn a_background_tab_in_an_empty_window_is_active() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
 
         let id = session
@@ -102,18 +133,18 @@ mod opening {
 
     #[test]
     fn opening_into_an_unknown_window_fails_and_allocates_nothing() {
-        let mut session = Session::new();
-        let ghost = WindowId::new(7);
+        let mut session = Session::new(Profile::Main);
+        let ghost = window_id(7);
 
         let result = session.open(ghost, url("a"), JarChoice::NewThrowaway, Focus::Foreground);
 
         assert_eq!(result, Err(BrowsingError::UnknownWindow(ghost)));
-        assert_eq!(session.snapshot().next, NextIds::default());
+        assert_eq!(session.snapshot().unwrap().next, NextIds::default());
     }
 
     #[test]
     fn throwaway_tabs_get_separate_jars() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
 
         let a = session
@@ -129,7 +160,7 @@ mod opening {
 
     #[test]
     fn a_popup_shares_its_openers_jar() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
         let opener = session
             .open(window, url("a"), JarChoice::NewThrowaway, Focus::Foreground)
@@ -152,9 +183,9 @@ mod opening {
 
     #[test]
     fn a_popup_of_an_unknown_opener_fails() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
-        let ghost = TabId::new(9);
+        let ghost = tab_id(9);
 
         let result = session.open(
             window,
@@ -187,8 +218,8 @@ mod activating {
         let (mut session, _, _) = three_tabs();
 
         assert_eq!(
-            session.activate(TabId::new(99)),
-            Err(BrowsingError::UnknownTab(TabId::new(99)))
+            session.activate(tab_id(99)),
+            Err(BrowsingError::UnknownTab(tab_id(99)))
         );
     }
 
@@ -206,8 +237,8 @@ mod activating {
 
     #[test]
     fn listing_an_unknown_window_fails() {
-        let session = Session::new();
-        let ghost = WindowId::new(3);
+        let session = Session::new(Profile::Main);
+        let ghost = window_id(3);
 
         assert!(matches!(session.tabs(ghost), Err(BrowsingError::UnknownWindow(w)) if w == ghost));
         assert_eq!(session.mru(ghost), None);
@@ -254,7 +285,7 @@ mod closing {
 
     #[test]
     fn the_last_tab_leaves_an_empty_window() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
         let a = open(&mut session, window, "a");
 
@@ -276,7 +307,7 @@ mod closing {
 
     #[test]
     fn a_jar_is_released_with_its_last_tab() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
         let a = session
             .open(window, url("a"), JarChoice::NewThrowaway, Focus::Foreground)
@@ -297,8 +328,8 @@ mod closing {
         let (mut session, _, _) = three_tabs();
 
         assert_eq!(
-            session.close(TabId::new(99), at(5)),
-            Err(BrowsingError::UnknownTab(TabId::new(99)))
+            session.close(tab_id(99), at(5)),
+            Err(BrowsingError::UnknownTab(tab_id(99)))
         );
         assert_eq!(session.trash().count(), 0);
     }
@@ -326,7 +357,7 @@ mod closing {
 
     #[test]
     fn closing_a_window_releases_its_jars() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
         let a = session
             .open(window, url("a"), JarChoice::NewThrowaway, Focus::Foreground)
@@ -345,11 +376,11 @@ mod closing {
 
     #[test]
     fn closing_an_unknown_window_fails() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
 
         assert_eq!(
-            session.close_window(WindowId::new(4), at(5)),
-            Err(BrowsingError::UnknownWindow(WindowId::new(4)))
+            session.close_window(window_id(4), at(5)),
+            Err(BrowsingError::UnknownWindow(window_id(4)))
         );
     }
 }
@@ -382,7 +413,7 @@ mod reopening {
 
     #[test]
     fn a_throwaway_tab_comes_back_in_a_fresh_jar() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let window = session.open_window();
         let a = session
             .open(window, url("a"), JarChoice::NewThrowaway, Focus::Foreground)
@@ -402,7 +433,7 @@ mod reopening {
         session.reopen_closed(window).unwrap();
 
         assert_eq!(session.tab(c).unwrap().jar, Jar::Main);
-        assert_eq!(session.snapshot().next.jar, 0);
+        assert_eq!(session.snapshot().unwrap().next.jar, 0);
     }
 
     #[test]
@@ -417,9 +448,9 @@ mod reopening {
         let (mut session, _, [_, _, c]) = three_tabs();
         session.close(c, at(5)).unwrap();
 
-        let result = session.reopen_closed(WindowId::new(9));
+        let result = session.reopen_closed(window_id(9));
 
-        assert_eq!(result, Err(BrowsingError::UnknownWindow(WindowId::new(9))));
+        assert_eq!(result, Err(BrowsingError::UnknownWindow(window_id(9))));
         assert_eq!(session.trash().count(), 1);
     }
 
@@ -460,11 +491,11 @@ mod navigating {
 
     #[test]
     fn an_unknown_tab_is_reported() {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
 
-        let result = session.navigated(TabId::new(1), url("z"), String::new());
+        let result = session.navigated(tab_id(1), url("z"), String::new());
 
-        assert_eq!(result, Err(BrowsingError::UnknownTab(TabId::new(1))));
+        assert_eq!(result, Err(BrowsingError::UnknownTab(tab_id(1))));
     }
 }
 
@@ -509,9 +540,9 @@ mod pinning {
         let (mut session, _, [a, _, _]) = three_tabs();
         session.pin(a, slot(1)).unwrap();
 
-        let result = session.pin(TabId::new(99), slot(1));
+        let result = session.pin(tab_id(99), slot(1));
 
-        assert_eq!(result, Err(BrowsingError::UnknownTab(TabId::new(99))));
+        assert_eq!(result, Err(BrowsingError::UnknownTab(tab_id(99))));
         assert_eq!(session.in_slot(slot(1)), Some(a));
     }
 
@@ -531,7 +562,7 @@ mod restoring {
 
     /// Two windows, a throwaway pair, a pinned tab, one tab in the trash.
     fn busy() -> Session {
-        let mut session = Session::new();
+        let mut session = Session::new(Profile::Main);
         let first = session.open_window();
         let second = session.open_window();
         let a = open(&mut session, first, "a");
@@ -550,7 +581,7 @@ mod restoring {
     fn corrupt(
         edit: impl FnOnce(&mut super::super::SessionSnapshot),
     ) -> Result<Session, CorruptSession> {
-        let mut snapshot = busy().snapshot();
+        let mut snapshot = busy().snapshot().unwrap();
         edit(&mut snapshot);
         Session::restore(snapshot)
     }
@@ -559,20 +590,65 @@ mod restoring {
     fn round_trips() {
         let session = busy();
 
-        assert_eq!(Session::restore(session.snapshot()), Ok(session));
+        assert_eq!(Session::restore(session.snapshot().unwrap()), Ok(session));
+    }
+
+    #[test]
+    fn the_agent_session_has_no_snapshot() {
+        let mut session = Session::new(Profile::Agent);
+        let window = session.open_window();
+        open(&mut session, window, "a");
+
+        let snapshot = session.snapshot();
+
+        assert_eq!(snapshot, None);
+    }
+
+    #[test]
+    fn a_restored_session_is_the_main_profiles() {
+        let session = Session::restore(busy().snapshot().unwrap()).unwrap();
+
+        assert_eq!(session.profile(), Profile::Main);
+    }
+
+    #[test]
+    fn rejects_a_live_agent_tab() {
+        let agent = TabId::new(Profile::Agent, 0);
+
+        let result = corrupt(|s| s.tabs[0].id = agent);
+
+        assert_eq!(result, Err(CorruptSession::ForeignTab(agent)));
+    }
+
+    #[test]
+    fn rejects_a_trashed_agent_tab() {
+        let agent = TabId::new(Profile::Agent, 3);
+
+        let result = corrupt(|s| s.trash[0].tab.id = agent);
+
+        assert_eq!(result, Err(CorruptSession::ForeignTab(agent)));
+    }
+
+    #[test]
+    fn rejects_an_agent_window() {
+        let agent = WindowId::new(Profile::Agent, 0);
+
+        let result = corrupt(|s| s.windows[0].0 = agent);
+
+        assert_eq!(result, Err(CorruptSession::ForeignWindow(agent)));
     }
 
     #[test]
     fn counters_continue_after_restore() {
-        let mut session = Session::restore(busy().snapshot()).unwrap();
+        let mut session = Session::restore(busy().snapshot().unwrap()).unwrap();
         let window = session.open_window();
 
         let tab = session
             .open(window, url("e"), JarChoice::NewThrowaway, Focus::Foreground)
             .unwrap();
 
-        assert_eq!(window, WindowId::new(2));
-        assert_eq!(tab, TabId::new(4));
+        assert_eq!(window, window_id(2));
+        assert_eq!(tab, tab_id(4));
         assert_eq!(session.tab(tab).unwrap().jar, Jar::Throwaway(JarId::new(1)));
     }
 
@@ -580,24 +656,21 @@ mod restoring {
     fn rejects_a_live_tab_twice() {
         let result = corrupt(|s| s.tabs.push(s.tabs[0].clone()));
 
-        assert_eq!(result, Err(CorruptSession::DuplicateTab(TabId::new(0))));
+        assert_eq!(result, Err(CorruptSession::DuplicateTab(tab_id(0))));
     }
 
     #[test]
     fn rejects_a_trashed_tab_that_is_also_live() {
-        let result = corrupt(|s| s.trash[0].tab.id = TabId::new(0));
+        let result = corrupt(|s| s.trash[0].tab.id = tab_id(0));
 
-        assert_eq!(result, Err(CorruptSession::DuplicateTab(TabId::new(0))));
+        assert_eq!(result, Err(CorruptSession::DuplicateTab(tab_id(0))));
     }
 
     #[test]
     fn rejects_a_tab_id_the_counter_would_hand_out() {
         let result = corrupt(|s| s.next.tab = 3);
 
-        assert_eq!(
-            result,
-            Err(CorruptSession::TabIdNotAllocated(TabId::new(3)))
-        );
+        assert_eq!(result, Err(CorruptSession::TabIdNotAllocated(tab_id(3))));
     }
 
     #[test]
@@ -622,12 +695,9 @@ mod restoring {
 
     #[test]
     fn rejects_a_window_twice() {
-        let result = corrupt(|s| s.windows.push((WindowId::new(0), Vec::new())));
+        let result = corrupt(|s| s.windows.push((window_id(0), Vec::new())));
 
-        assert_eq!(
-            result,
-            Err(CorruptSession::DuplicateWindow(WindowId::new(0)))
-        );
+        assert_eq!(result, Err(CorruptSession::DuplicateWindow(window_id(0))));
     }
 
     #[test]
@@ -636,51 +706,42 @@ mod restoring {
 
         assert_eq!(
             result,
-            Err(CorruptSession::WindowIdNotAllocated(WindowId::new(1)))
+            Err(CorruptSession::WindowIdNotAllocated(window_id(1)))
         );
     }
 
     #[test]
     fn rejects_a_window_listing_a_dead_tab() {
-        let result = corrupt(|s| s.windows[0].1.push(TabId::new(3)));
+        let result = corrupt(|s| s.windows[0].1.push(tab_id(3)));
 
-        assert_eq!(
-            result,
-            Err(CorruptSession::UnknownTabInWindow(TabId::new(3)))
-        );
+        assert_eq!(result, Err(CorruptSession::UnknownTabInWindow(tab_id(3))));
     }
 
     #[test]
     fn rejects_a_tab_in_two_windows() {
-        let result = corrupt(|s| s.windows[1].1.push(TabId::new(0)));
+        let result = corrupt(|s| s.windows[1].1.push(tab_id(0)));
 
-        assert_eq!(
-            result,
-            Err(CorruptSession::TabNotInOneWindow(TabId::new(0)))
-        );
+        assert_eq!(result, Err(CorruptSession::TabNotInOneWindow(tab_id(0))));
     }
 
     #[test]
     fn rejects_a_tab_in_no_window() {
-        let result = corrupt(|s| s.windows[0].1.retain(|&id| id != TabId::new(1)));
+        let result = corrupt(|s| s.windows[0].1.retain(|&id| id != tab_id(1)));
 
-        assert_eq!(
-            result,
-            Err(CorruptSession::TabNotInOneWindow(TabId::new(1)))
-        );
+        assert_eq!(result, Err(CorruptSession::TabNotInOneWindow(tab_id(1))));
     }
 
     #[test]
     fn rejects_a_slot_holding_a_dead_tab() {
-        let result = corrupt(|s| s.slots[4] = Some(TabId::new(3)));
+        let result = corrupt(|s| s.slots[4] = Some(tab_id(3)));
 
-        assert_eq!(result, Err(CorruptSession::UnknownTabInSlot(TabId::new(3))));
+        assert_eq!(result, Err(CorruptSession::UnknownTabInSlot(tab_id(3))));
     }
 
     #[test]
     fn rejects_a_tab_in_two_slots() {
-        let result = corrupt(|s| s.slots[4] = Some(TabId::new(0)));
+        let result = corrupt(|s| s.slots[4] = Some(tab_id(0)));
 
-        assert_eq!(result, Err(CorruptSession::TabInTwoSlots(TabId::new(0))));
+        assert_eq!(result, Err(CorruptSession::TabInTwoSlots(tab_id(0))));
     }
 }

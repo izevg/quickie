@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use quickie_domain_browsing::TabId;
+use quickie_domain_browsing::{Profile, TabId};
 use quickie_domain_shields::{
     ContentHash, CorruptLists, CorruptSites, Fetch, FilterList, FilterListId, FilterListSet,
     FilterListSetSnapshot, Refresh, STALE_AFTER_MS, Site, SiteError, SitePolicies,
@@ -776,23 +776,23 @@ mod blocked {
     #[test]
     fn blocked_requests_count_per_page() {
         let mut shields = started();
-        shields.record_blocked(TabId::new(1), 2);
+        shields.record_blocked(TabId::new(Profile::Main, 1), 2);
 
-        let count = shields.record_blocked(TabId::new(1), 1);
+        let count = shields.record_blocked(TabId::new(Profile::Main, 1), 1);
 
         assert_eq!(count, 3);
-        assert_eq!(shields.blocked_count(TabId::new(1)), 3);
-        assert_eq!(shields.blocked_count(TabId::new(2)), 0);
+        assert_eq!(shields.blocked_count(TabId::new(Profile::Main, 1)), 3);
+        assert_eq!(shields.blocked_count(TabId::new(Profile::Main, 2)), 0);
     }
 
     #[test]
     fn a_page_left_behind_counts_from_zero() {
         let mut shields = started();
-        shields.record_blocked(TabId::new(1), 2);
+        shields.record_blocked(TabId::new(Profile::Main, 1), 2);
 
-        shields.page_left(TabId::new(1));
+        shields.page_left(TabId::new(Profile::Main, 1));
 
-        assert_eq!(shields.blocked_count(TabId::new(1)), 0);
+        assert_eq!(shields.blocked_count(TabId::new(Profile::Main, 1)), 0);
     }
 }
 

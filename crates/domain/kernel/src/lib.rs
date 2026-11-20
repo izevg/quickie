@@ -5,6 +5,6 @@ mod id;
 mod site;
 mod time;
 
-pub use id::{CommandId, CommandIdError, TabId, WindowId};
+pub use id::{CommandId, CommandIdError, Profile, TabId, WindowId};
 pub use site::{Site, SiteError};
 pub use time::Timestamp;

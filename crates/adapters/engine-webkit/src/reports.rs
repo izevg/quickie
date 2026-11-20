@@ -90,14 +90,14 @@ impl Reports {
 
 #[cfg(test)]
 mod tests {
-    use quickie_domain_browsing::TabId;
+    use quickie_domain_browsing::{Profile, TabId};
     use url::Url;
 
     use super::{Navigated, Reports};
 
     fn navigated(tab: u64, url: &str, title: &str) -> Navigated {
         Navigated {
-            tab: TabId::new(tab),
+            tab: TabId::new(Profile::Main, tab),
             url: Url::parse(url).unwrap(),
             title: title.to_owned(),
             committed: true,
@@ -114,10 +114,14 @@ mod tests {
     #[test]
     fn a_title_after_the_report_of_its_commit_is_no_visit() {
         let mut reports = Reports::default();
-        reports.committed(TabId::new(1), Some("https://a.example/"), None);
+        reports.committed(
+            TabId::new(Profile::Main, 1),
+            Some("https://a.example/"),
+            None,
+        );
         let _ = reports.take();
 
-        reports.titled(TabId::new(1), Some("Loaded".into()));
+        reports.titled(TabId::new(Profile::Main, 1), Some("Loaded".into()));
 
         assert_eq!(
             reports.take(),
@@ -129,7 +133,11 @@ mod tests {
     fn a_commit_is_reported_once() {
         let mut reports = Reports::default();
 
-        reports.committed(TabId::new(1), Some("https://a.example/"), Some("A".into()));
+        reports.committed(
+            TabId::new(Profile::Main, 1),
+            Some("https://a.example/"),
+            Some("A".into()),
+        );
 
         assert!(!reports.is_empty());
         assert_eq!(reports.take(), [navigated(1, "https://a.example/", "A")]);
@@ -140,9 +148,13 @@ mod tests {
     #[test]
     fn a_later_title_comes_with_the_committed_url() {
         let mut reports = Reports::default();
-        reports.committed(TabId::new(1), Some("https://a.example/"), None);
+        reports.committed(
+            TabId::new(Profile::Main, 1),
+            Some("https://a.example/"),
+            None,
+        );
 
-        reports.titled(TabId::new(1), Some("Loaded".into()));
+        reports.titled(TabId::new(Profile::Main, 1), Some("Loaded".into()));
 
         assert_eq!(
             reports.take(),
@@ -153,9 +165,21 @@ mod tests {
     #[test]
     fn changes_fold_into_one_report_per_tab_in_first_change_order() {
         let mut reports = Reports::default();
-        reports.committed(TabId::new(2), Some("https://b.example/"), None);
-        reports.committed(TabId::new(1), Some("https://a.example/"), None);
-        reports.committed(TabId::new(2), Some("https://c.example/"), Some("C".into()));
+        reports.committed(
+            TabId::new(Profile::Main, 2),
+            Some("https://b.example/"),
+            None,
+        );
+        reports.committed(
+            TabId::new(Profile::Main, 1),
+            Some("https://a.example/"),
+            None,
+        );
+        reports.committed(
+            TabId::new(Profile::Main, 2),
+            Some("https://c.example/"),
+            Some("C".into()),
+        );
 
         assert_eq!(
             reports.take(),
@@ -169,12 +193,16 @@ mod tests {
     #[test]
     fn a_title_before_any_commit_or_unchanged_is_not_news() {
         let mut reports = Reports::default();
-        reports.titled(TabId::new(1), Some("Early".into()));
+        reports.titled(TabId::new(Profile::Main, 1), Some("Early".into()));
         assert!(reports.is_empty());
 
-        reports.committed(TabId::new(1), Some("https://a.example/"), Some("A".into()));
+        reports.committed(
+            TabId::new(Profile::Main, 1),
+            Some("https://a.example/"),
+            Some("A".into()),
+        );
         let _ = reports.take();
-        reports.titled(TabId::new(1), Some("A".into()));
+        reports.titled(TabId::new(Profile::Main, 1), Some("A".into()));
 
         assert!(reports.is_empty());
     }
@@ -183,8 +211,12 @@ mod tests {
     fn unparsable_or_missing_urls_are_dropped() {
         let mut reports = Reports::default();
 
-        reports.committed(TabId::new(1), None, Some("A".into()));
-        reports.committed(TabId::new(1), Some("not a url"), Some("A".into()));
+        reports.committed(TabId::new(Profile::Main, 1), None, Some("A".into()));
+        reports.committed(
+            TabId::new(Profile::Main, 1),
+            Some("not a url"),
+            Some("A".into()),
+        );
 
         assert!(reports.is_empty());
     }
@@ -192,10 +224,14 @@ mod tests {
     #[test]
     fn a_forgotten_tab_reports_nothing_more() {
         let mut reports = Reports::default();
-        reports.committed(TabId::new(1), Some("https://a.example/"), None);
+        reports.committed(
+            TabId::new(Profile::Main, 1),
+            Some("https://a.example/"),
+            None,
+        );
 
-        reports.forget(TabId::new(1));
-        reports.titled(TabId::new(1), Some("Late".into()));
+        reports.forget(TabId::new(Profile::Main, 1));
+        reports.titled(TabId::new(Profile::Main, 1), Some("Late".into()));
 
         assert!(reports.is_empty());
         assert_eq!(reports.take(), []);
