@@ -1,6 +1,6 @@
 //! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
-//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`], [`ZoomRepo`] and
-//! [`ExtensionsRepo`]. The user's
+//! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`], [`ZoomRepo`],
+//! [`AppearanceRepo`] and [`ExtensionsRepo`]. The user's
 //! own `keybindings.json` is a [`KeymapRepo`] too, and the keymap editor's
 //! [`KeymapFile`](quickie_application::KeymapFile): [`KeybindingsFile`].
 //!
@@ -26,18 +26,18 @@ pub use write_behind::{PendingWrites, SETTLE, WriteBehindStore};
 use std::path::Path;
 
 use quickie_application::{
-    AgentRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo, LibrarySnapshot,
-    SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
+    AgentRepo, AppearanceRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo,
+    LibrarySnapshot, SessionRepo, ShieldsRepo, ShieldsSnapshot, StoreError, ZoomRepo,
 };
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::SessionSnapshot;
 use quickie_domain_library::{
     BookmarksSnapshot, DownloadsSnapshot, HistoryEntry, HistorySnapshot, SearchShortcutsSnapshot,
 };
-use quickie_domain_settings::{InstalledExtensionsSnapshot, SiteZoomsSnapshot};
+use quickie_domain_settings::{AppearanceSnapshot, InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
 use rusqlite::Connection;
-use settings::{agent, keymap, zoom};
+use settings::{agent, appearance, keymap, zoom};
 use url::Url;
 
 /// The SQLite store.
@@ -144,6 +144,16 @@ impl ZoomRepo for SqliteStore {
 
     fn save_site_zooms(&mut self, zooms: SiteZoomsSnapshot) -> Result<(), StoreError> {
         zoom::save(&mut self.db, &zooms)
+    }
+}
+
+impl AppearanceRepo for SqliteStore {
+    fn load_appearance(&self) -> Result<AppearanceSnapshot, StoreError> {
+        appearance::load(&self.db)
+    }
+
+    fn save_appearance(&mut self, snapshot: AppearanceSnapshot) -> Result<(), StoreError> {
+        appearance::save(&self.db, snapshot)
     }
 }
 
