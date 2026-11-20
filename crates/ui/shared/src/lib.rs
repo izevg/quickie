@@ -21,10 +21,11 @@ pub mod stories;
 pub mod tokens;
 
 pub use controls::{
-    KeycapStyle, Pill, StyledText, hint_bar, keycap_group, keycap_group_styled, symbol,
+    HintStrip, KeycapStyle, Pill, StyledText, hint_bar, hint_bar_active, keycap, keycap_group,
+    keycap_group_styled, symbol,
 };
 pub use form::{FormGroup, Plate, ToggleRow};
 pub use glass::{Elevation, GlassSurface, Scrim};
-pub use list::{ListRow, ListView};
+pub use list::{IconTint, ListRow, ListSection, ListView, RowIcon};
 pub use motion::{Motion, Trigger};
 pub use sheet::{Emphasis, Sheet, SheetAnswer, SheetContent, SheetLine, header};

@@ -38,6 +38,20 @@ pub mod radius {
     pub const OVERLAY: CGFloat = 22.0;
 }
 
+/// Sizes of the small controls: keycaps, row icons, list rows.
+pub mod control {
+    use objc2_core_foundation::CGFloat;
+
+    /// A keycap's height; a cap is at least as wide.
+    pub const KEYCAP_HEIGHT: CGFloat = 20.0;
+    /// A symbol before a one-line row's title.
+    pub const ICON: CGFloat = 16.0;
+    /// The tile a page row's favicon or glyph sits on.
+    pub const TILE: CGFloat = 24.0;
+    /// A one-line row: a command, a tag, a skill.
+    pub const ROW_HEIGHT: CGFloat = 40.0;
+}
+
 /// Overlay widths and placement from the mockups.
 pub mod overlay {
     use objc2_core_foundation::CGFloat;
@@ -180,6 +194,30 @@ pub mod color {
     #[must_use]
     pub fn accent_line() -> Retained<NSColor> {
         NSColor::controlAccentColor().colorWithAlphaComponent(LINE_ALPHA)
+    }
+
+    /// Behind a keycap: `#E8E8ED` on light, `#3A3A3C` on dark.
+    #[must_use]
+    pub fn keycap_fill() -> Retained<NSColor> {
+        NSColor::secondarySystemFillColor()
+    }
+
+    /// Behind a row's tile, a category tag, a footer strip: quieter than a keycap.
+    #[must_use]
+    pub fn subtle_fill() -> Retained<NSColor> {
+        NSColor::quaternarySystemFillColor()
+    }
+
+    /// Behind a filled accent badge: the slot a tab is pinned to.
+    #[must_use]
+    pub fn accent_fill() -> Retained<NSColor> {
+        NSColor::controlAccentColor()
+    }
+
+    /// Text on [`accent_fill`].
+    #[must_use]
+    pub fn on_accent() -> Retained<NSColor> {
+        NSColor::alternateSelectedControlTextColor()
     }
 }
 

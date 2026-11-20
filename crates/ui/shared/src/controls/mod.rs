@@ -13,8 +13,8 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSRange, NSString};
 
-pub use hint_bar::hint_bar;
-pub use keycap::{KeycapStyle, keycap_group, keycap_group_styled};
+pub use hint_bar::{HintStrip, hint_bar, hint_bar_active};
+pub use keycap::{KeycapStyle, keycap, keycap_group, keycap_group_styled};
 pub use pill::Pill;
 
 use crate::tokens::TextRole;

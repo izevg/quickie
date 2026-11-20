@@ -128,7 +128,7 @@ pub struct DownloadsPopover {
     clear: Retained<NSButton>,
     empty: Retained<NSTextField>,
     more: Retained<NSTextField>,
-    hints: Retained<NSTextField>,
+    hints: Retained<NSView>,
     rows: Vec<DownloadRow>,
     lines: Rc<RefCell<Vec<Line>>>,
     selected: Cell<Option<usize>>,

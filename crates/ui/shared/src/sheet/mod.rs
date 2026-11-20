@@ -315,7 +315,7 @@ impl Sheet {
             let bar = hint_bar(&hints, mtm);
             let height = bar.frame().size.height;
             placed.push((
-                bar.into_super().into_super(),
+                bar,
                 NSRect::new(NSPoint::new(padding, y), NSSize::new(inner, height)),
             ));
             y += height;

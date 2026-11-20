@@ -16,7 +16,7 @@ use quickie_domain_commands::{Catalog, Keymap};
 use quickie_domain_library::{Bookmarks, History, SearchShortcuts};
 
 pub use index::PaletteIndex;
-pub use item::{PaletteItem, Target};
+pub use item::{PageFacts, PaletteItem, Target};
 
 use crate::{Clock, ExtensionOffer};
 

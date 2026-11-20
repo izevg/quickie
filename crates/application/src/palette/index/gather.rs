@@ -12,7 +12,7 @@ use url::Url;
 
 use super::shelf::{Aim, Shelf};
 use crate::ExtensionOffer;
-use crate::palette::{Sources, Target};
+use crate::palette::{PageFacts, Sources, Target};
 
 /// The second line of an extension's row: where it comes from, as a category would say.
 const EXTENSION_DETAIL: &str = "Extension";
@@ -30,35 +30,42 @@ pub(super) fn go_to(sources: &Sources<'_>, now: Timestamp) -> Shelf {
         };
         for tab in tabs {
             let page = page(&tab.url);
-            shelf.push(
+            let facts = PageFacts {
+                slot: sources.session.slot_of(tab.id),
+                ..facts_of(history, &page)
+            };
+            shelf.push_page(
                 Aim::at(Target::Tab(tab.id)),
                 Kind::OpenTab,
                 &tab.title,
                 tab.url.as_str(),
                 frecency_of(history, &page, now),
+                facts,
             );
             shown.insert(page);
         }
     }
     for bookmark in sources.bookmarks.all() {
         if shown.insert(bookmark.url.clone()) {
-            shelf.push(
+            shelf.push_page(
                 Aim::Page,
                 Kind::Bookmark,
                 &bookmark.title,
                 bookmark.url.as_str(),
                 frecency_of(history, &bookmark.url, now),
+                facts_of(history, &bookmark.url),
             );
         }
     }
     for entry in history.entries() {
         if !shown.contains(&entry.url) {
-            shelf.push(
+            shelf.push_page(
                 Aim::Page,
                 Kind::History,
                 &entry.title,
                 entry.url.as_str(),
                 frecency(entry, now),
+                PageFacts::of(entry),
             );
         }
     }
@@ -164,6 +171,11 @@ fn page(url: &Url) -> Url {
 /// never visited.
 fn frecency_of(history: &History, url: &Url, now: Timestamp) -> u64 {
     history.get(url).map_or(0, |entry| frecency(entry, now))
+}
+
+/// What history knows of the page `url` names; nothing for a page never visited.
+fn facts_of(history: &History, url: &Url) -> PageFacts {
+    history.get(url).map_or_default(PageFacts::of)
 }
 
 fn frecency(entry: &HistoryEntry, now: Timestamp) -> u64 {

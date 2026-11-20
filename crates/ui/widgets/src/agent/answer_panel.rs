@@ -168,7 +168,7 @@ pub struct AgentAnswerPanel {
     sources: Retained<NSTextField>,
     chips: RefCell<Vec<Retained<NSButton>>>,
     empty: Empty,
-    hints: RefCell<Retained<NSTextField>>,
+    hints: RefCell<Retained<NSView>>,
     transcript: RefCell<Transcript>,
     phase: RefCell<Phase>,
     target: Retained<PanelTarget>,

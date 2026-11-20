@@ -14,9 +14,7 @@ use std::cell::{Cell, RefCell};
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{
-    NSAttributedStringNSStringDrawing, NSAutoresizingMaskOptions, NSTextField, NSView,
-};
+use objc2_app_kit::{NSAttributedStringNSStringDrawing, NSAutoresizingMaskOptions, NSView};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSAttributedString, NSCopying, NSPoint, NSRange, NSRect, NSSize};
 use objc2_quartz_core::{CALayer, CATextLayer, CATransaction, kCACornerCurveContinuous};
@@ -52,7 +50,7 @@ pub struct LinkHintsLayer {
     view: Retained<NSView>,
     root: Retained<CALayer>,
     pill: GlassSurface,
-    keys: Retained<NSTextField>,
+    keys: Retained<NSView>,
     badges: RefCell<Vec<Badge>>,
     labels: RefCell<Vec<String>>,
     typed: RefCell<String>,

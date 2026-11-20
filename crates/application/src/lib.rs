@@ -33,7 +33,7 @@ pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,
 };
 pub use library::{CorruptLibrary, Library};
-pub use palette::{Palette, PaletteIndex, PaletteItem, Sources, Target};
+pub use palette::{PageFacts, Palette, PaletteIndex, PaletteItem, Sources, Target};
 pub use ports::{
     AgentRepo, BlockerRules, ChatEvent, ChatRequest, Clock, ContentBlockerPort, Ended, EnginePort,
     Entropy, ExtensionsRepo, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, KeybindingText,

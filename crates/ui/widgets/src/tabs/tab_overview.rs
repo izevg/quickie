@@ -60,7 +60,7 @@ pub struct TabOverview {
     surface: GlassSurface,
     field: Retained<NSTextField>,
     count: Retained<NSTextField>,
-    hints: Retained<NSTextField>,
+    hints: Retained<NSView>,
     grid: Retained<NSView>,
     cards: RefCell<Vec<Card>>,
     /// Title and host of each card, for the filter.

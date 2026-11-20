@@ -3,11 +3,15 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use objc2_app_kit::NSImage;
+use objc2_foundation::NSString;
 use quickie_application::{PaletteItem, Target};
+use quickie_domain_browsing::{PinnedSlot, Timestamp};
 use quickie_ui_shared::stories::{Key, LIGHT, LIGHT_DARK, Scene, Story, Theme, WINDOW};
 use quickie_ui_widgets::{AddressOverlay, CommandPalette};
+use url::Url;
 
-use crate::fixtures::{LONG_TITLE, TABS, World};
+use crate::fixtures::{LONG_TITLE, NOW, TABS, World, url};
 
 const fn palette(state: &'static str, themes: &'static [Theme], scene: fn(&mut Scene)) -> Story {
     Story {
@@ -22,6 +26,7 @@ const fn palette(state: &'static str, themes: &'static [Theme], scene: fn(&mut S
 
 pub const STORIES: &[Story] = &[
     palette("go-to", LIGHT_DARK, go_to),
+    palette("sections", LIGHT_DARK, sections),
     palette("commands", &Theme::ALL, commands),
     palette("highlights", LIGHT_DARK, highlights),
     palette("empty", LIGHT_DARK, empty),
@@ -61,12 +66,24 @@ struct Host {
 
 impl Host {
     fn open(scene: &mut Scene, world: World, text: &str) -> Rc<Self> {
+        Self::open_with(scene, world, text, None::<fn(&Url) -> Option<Rc<[u8]>>>)
+    }
+
+    fn open_with(
+        scene: &mut Scene,
+        world: World,
+        text: &str,
+        favicon: Option<impl Fn(&Url) -> Option<Rc<[u8]>> + 'static>,
+    ) -> Rc<Self> {
         let host = Rc::new(Self {
             palette: CommandPalette::new(scene.mtm()),
             world,
             results: RefCell::new(Vec::new()),
             ran: RefCell::new(None),
         });
+        if let Some(favicon) = favicon {
+            host.palette.set_favicons(favicon);
+        }
         let weak = Rc::downgrade(&host);
         host.palette.on_change(move || {
             if let Some(host) = weak.upgrade() {
@@ -94,7 +111,7 @@ impl Host {
 
     fn requery(&self) {
         let items = self.world.answer(&self.palette.text());
-        self.palette.set_items(&items);
+        self.palette.set_items(&items, NOW);
         *self.results.borrow_mut() = items;
     }
 
@@ -120,12 +137,91 @@ impl Host {
     }
 }
 
+/// Open tabs, one pinned to `⌘3` and one with a kept favicon, then history visited before.
 fn go_to(scene: &mut Scene) {
-    let host = Host::open(scene, World::new(&TABS), "");
+    let mut world = World::new(&TABS);
+    if let (Some(&tab), Ok(slot)) = (world.tabs.get(1), PinnedSlot::try_from(3)) {
+        let _ = world.session.pin(tab, slot);
+    }
+    for (address, title, minutes_ago, times) in [
+        (TABS[3].0, TABS[3].1, 14, 1),
+        (
+            "https://google.github.io/eng-practices/review/",
+            "Reviewing Pull Requests: Best Practices",
+            26 * 60,
+            6,
+        ),
+        (
+            "https://webkit.org/blog/%D0%BE%D0%B1%D0%B7%D0%BE%D1%80",
+            "Обзор WebKit",
+            3 * 24 * 60,
+            18,
+        ),
+    ] {
+        for _ in 0..times {
+            world.history.record_visit(
+                &url(address),
+                title,
+                Timestamp::from_millis(
+                    NOW.millis_since(Timestamp::from_millis(0)) - minutes_ago * 60_000,
+                ),
+            );
+        }
+    }
+    let host = Host::open_with(scene, world, "", Some(favicon()));
     scene.check(
         host.titles().len() >= TABS.len(),
         "every open tab is offered",
     );
+    let pinned = host
+        .results
+        .borrow()
+        .iter()
+        .find_map(|item| item.facts.slot.map(PinnedSlot::get));
+    scene.check_eq(pinned, Some(3), "the pinned tab carries its slot");
+    let accessibility = scene.accessibility();
+    scene.check(
+        accessibility.contains("Open tabs, 6 tabs") && accessibility.contains("⌘3"),
+        "sections and slots are read out",
+    );
+}
+
+/// "rust" finds tabs, a bookmark, and a page from history: a section each, the tabs first.
+/// `↓` walks the rows across sections, past the headers.
+fn sections(scene: &mut Scene) {
+    let host = Host::open(scene, World::new(&TABS), "");
+    scene.type_text("rust");
+    let accessibility = scene.accessibility();
+    for header in ["Open tabs, 2 tabs", "Bookmarks, 1 page", "History, 1 page"] {
+        scene.check(accessibility.contains(header), header);
+    }
+    scene.press(Key::Down);
+    scene.press(Key::Down);
+    scene.check_eq(
+        host.palette.selected().and_then(|row| {
+            host.results
+                .borrow()
+                .get(row)
+                .map(|item| item.title.clone())
+        }),
+        Some("objc2 - Rust".to_owned()),
+        "↓ moves to the bookmark, past its header",
+    );
+}
+
+/// A picture for `github.com`: a symbol drawn into a TIFF, as a kept favicon would be bytes.
+fn favicon() -> impl Fn(&Url) -> Option<Rc<[u8]>> {
+    let bytes: Option<Rc<[u8]>> = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+        &NSString::from_str("swift"),
+        None,
+    )
+    .and_then(|image| image.TIFFRepresentation())
+    .map(|data| Rc::from(data.to_vec()));
+    move |page: &Url| {
+        (page.host_str() == Some("github.com"))
+            .then(|| bytes.clone())
+            .flatten()
+    }
 }
 
 fn commands(scene: &mut Scene) {

@@ -138,7 +138,7 @@ pub struct ShieldsPopover {
     no_lists: Retained<NSTextField>,
     list_rows: RefCell<Vec<FilterListRow>>,
     reload: Retained<NSButton>,
-    hints: RefCell<Retained<NSTextField>>,
+    hints: RefCell<Retained<NSView>>,
     target: Retained<ShieldsTarget>,
     summary: RefCell<Option<ShieldsSummary>>,
     open: Cell<bool>,
