@@ -63,6 +63,8 @@ pub mod overlay {
     /// The narrowest and widest a tab thumbnail is drawn in the overview.
     pub const THUMBNAIL_MIN_WIDTH: CGFloat = 200.0;
     pub const THUMBNAIL_MAX_WIDTH: CGFloat = 320.0;
+    /// A tab thumbnail's height for each point of its width: 16:10.
+    pub const THUMBNAIL_SHAPE: CGFloat = 10.0 / 16.0;
 }
 
 /// Semantic colors. They follow the accent color, appearance, and contrast settings by themselves.

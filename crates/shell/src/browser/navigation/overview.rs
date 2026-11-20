@@ -173,17 +173,11 @@ impl Browser {
     ///
     /// [`EngineEvent::Pictured`]: quickie_application::EngineEvent::Pictured
     pub(in crate::browser) fn thumbnail_ready(&self, tab: TabId) {
-        if !self.navigation.overview.is_open() {
-            return;
-        }
-        let Some(index) = self
-            .navigation
-            .overview_tabs
-            .borrow()
-            .1
-            .iter()
-            .position(|&id| id == tab)
-        else {
+        let Some(index) = card_of(
+            self.navigation.overview.is_open(),
+            &self.navigation.overview_tabs.borrow().1,
+            tab,
+        ) else {
             return;
         };
         let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
@@ -194,5 +188,39 @@ impl Browser {
         self.navigation
             .overview
             .set_thumbnail(index, image.as_deref());
+    }
+}
+
+/// The card a new picture of `tab` goes to: its position among the overview's `cards`, while
+/// the overview is open. A closed overview reads every picture afresh when it opens.
+fn card_of(open: bool, cards: &[TabId], tab: TabId) -> Option<usize> {
+    if !open {
+        return None;
+    }
+    cards.iter().position(|&card| card == tab)
+}
+
+#[cfg(test)]
+mod tests {
+    use quickie_domain_browsing::{Profile, TabId};
+
+    use super::card_of;
+
+    fn tab(serial: u64) -> TabId {
+        TabId::new(Profile::Main, serial)
+    }
+
+    #[test]
+    fn a_picture_reaches_its_tabs_card_while_the_overview_is_open() {
+        let cards = [tab(3), tab(1), tab(2)];
+        assert_eq!(card_of(true, &cards, tab(1)), Some(1));
+        assert_eq!(card_of(true, &cards, tab(2)), Some(2));
+    }
+
+    #[test]
+    fn a_picture_of_a_tab_without_a_card_or_for_a_closed_overview_goes_nowhere() {
+        let cards = [tab(3), tab(1)];
+        assert_eq!(card_of(true, &cards, tab(7)), None);
+        assert_eq!(card_of(false, &cards, tab(1)), None);
     }
 }

@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSSize};
+use quickie_ui_shared::tokens::overlay;
 
 /// What the grid is fitted into.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -39,7 +40,10 @@ pub enum Move {
 
 impl Room {
     fn card(&self, width: CGFloat) -> NSSize {
-        NSSize::new(width, (width * 10.0 / 16.0 + self.chrome).round())
+        NSSize::new(
+            width,
+            (width * overlay::THUMBNAIL_SHAPE + self.chrome).round(),
+        )
     }
 
     /// The widest card width `columns` cards fit at.
