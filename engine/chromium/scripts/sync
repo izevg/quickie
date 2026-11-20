@@ -1,11 +1,11 @@
 #!/bin/sh
 # Fetches everything the engine is built from into .build/ (never tracked), at the revisions in
-# engine/chromium.pin: depot_tools, the Chromium tag without history (gclient sync -D
+# engine/chromium/chromium.pin: depot_tools, the Chromium tag without history (gclient sync -D
 # --no-history), and the ungoogled-chromium series (core and macOS). Safe to re-run: a step whose
 # result is already in place is skipped.
 #
-#   engine/scripts/sync           fetch, or bring an unpatched checkout up to the pin
-#   engine/scripts/sync --reset   also discard what engine/scripts/apply changed (patches,
+#   engine/chromium/scripts/sync           fetch, or bring an unpatched checkout up to the pin
+#   engine/chromium/scripts/sync --reset   also discard what engine/chromium/scripts/apply changed (patches,
 #                                 pruning, domain substitution) and sync again
 #
 # Environment:
@@ -13,9 +13,9 @@
 #   QUICKIE_MIN_FREE_GB  refuse to run below this much free disk (default: 25)
 set -eu
 
-root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
-# shellcheck source=/dev/null # engine/chromium.pin: plain assignments, nothing to check
-. "$root/engine/chromium.pin"
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
+# shellcheck source=/dev/null # engine/chromium/chromium.pin: plain assignments, nothing to check
+. "$root/engine/chromium/chromium.pin"
 build=${QUICKIE_BUILD_DIR:-$root/.build}
 min_free_gb=${QUICKIE_MIN_FREE_GB:-25}
 
@@ -74,15 +74,15 @@ fetch_pinned "$build/ungoogled" "$UNGOOGLED_REPO" "refs/tags/$UNGOOGLED_TAG" "$U
 fetch_pinned "$build/ungoogled-macos" "$UNGOOGLED_MACOS_REPO" \
   "refs/tags/$UNGOOGLED_MACOS_TAG" "$UNGOOGLED_MACOS_COMMIT"
 
-# Chromium. The applied stamp (written by engine/scripts/apply) means the tree is patched;
+# Chromium. The applied stamp (written by engine/chromium/scripts/apply) means the tree is patched;
 # syncing over a patched tree would mix revisions, so that needs --reset.
 chromium=$build/chromium
 stamp=$chromium/src/.quickie-applied
 mkdir -p "$chromium"
 if { [ -f "$stamp" ] || [ -f "$chromium/src/.quickie-applying" ]; } && [ "$reset" = false ]; then
-  die "the checkout is patched; run 'engine/scripts/sync --reset' to discard that"
+  die "the checkout is patched; run 'engine/chromium/scripts/sync --reset' to discard that"
 fi
-sed "s/@CHROMIUM_VERSION@/$CHROMIUM_VERSION/" "$root/engine/gclient.template" >"$chromium/.gclient"
+sed "s/@CHROMIUM_VERSION@/$CHROMIUM_VERSION/" "$root/engine/chromium/gclient.template" >"$chromium/.gclient"
 
 cd "$chromium"
 if [ "$reset" = true ]; then

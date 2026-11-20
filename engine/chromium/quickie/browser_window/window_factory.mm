@@ -1,5 +1,5 @@
 // The strong definition of the hook that the BrowserWindow factory override asks first
-// (engine/overrides/chrome/browser/ui/views/frame/browser_window_factory.cc). It replaces the weak
+// (engine/chromium/overrides/chrome/browser/ui/views/frame/browser_window_factory.cc). It replaces the weak
 // default there when //quickie is linked, which only the product does.
 
 #include <memory>

@@ -1,0 +1,20 @@
+# The WebKit revision Quickie's engine is built from. One KEY=value per line, POSIX sh syntax:
+# engine/webkit/scripts/sync and .github/workflows/webkit.yml read this file, nothing else does.
+#
+# WEBKIT_REPO     our fork of WebKit/WebKit; our patches will be commits on a branch there
+# WEBKIT_BRANCH   the fork branch the commit is taken from (informational: sync fetches the commit
+#                 and prints where the branch is now, so a stale pin is visible)
+# WEBKIT_COMMIT   the exact commit that is fetched and built; the only value the build trusts
+# WEBKIT_CHECKED  when WEBKIT_COMMIT was read off WEBKIT_BRANCH (UTC date)
+#
+# Checked on 2026-11-20: `git ls-remote https://github.com/izevg/WebKit refs/heads/main` gave
+# a6331649 ("[Win] VM::updateStackLimits cache committed pages", committed 2026-11-20T02:47Z).
+# The fork's main tracks WebKit/WebKit main; there are no Quickie patches on it yet.
+#
+# To bump: put the new commit and date here, push, and let .github/workflows/webkit.yml build it
+# (engine/README.md, "Bumping the pin").
+
+WEBKIT_REPO=https://github.com/izevg/WebKit.git
+WEBKIT_BRANCH=main
+WEBKIT_COMMIT=a6331649580b67f2af8a827f0eb89f73422fea55
+WEBKIT_CHECKED=2026-11-20

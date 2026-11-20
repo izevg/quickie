@@ -1,5 +1,5 @@
 // Quickie's part of browser startup: a ChromeBrowserMainExtraParts that
-// engine/patches/startup/browser-main-parts.patch adds to ChromeBrowserMainParts.
+// engine/chromium/patches/startup/browser-main-parts.patch adds to ChromeBrowserMainParts.
 
 #ifndef QUICKIE_MAIN_PARTS_H_
 #define QUICKIE_MAIN_PARTS_H_

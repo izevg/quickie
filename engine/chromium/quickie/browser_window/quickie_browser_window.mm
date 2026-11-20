@@ -1,6 +1,6 @@
 // See quickie_browser_window.h. "Stub (P1)" marks a BrowserWindow method that does nothing useful
 // yet; each says what it should become. Several stubs return nullptr where Chromium may not expect
-// it; those are TODO(verify) and listed in engine/README.md.
+// it; those are TODO(verify) and listed in engine/chromium/README.md.
 
 #include "quickie/browser_window/quickie_browser_window.h"
 

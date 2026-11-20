@@ -1,5 +1,5 @@
 /target/
-# Chromium checkout, fetched patch series and vendored crates (engine/scripts) live here.
+# Engine checkouts (engine/*/scripts/sync), fetched patch series and vendored crates live here.
 /.build/
 .DS_Store
 .claude/settings.local.json
