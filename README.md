@@ -161,6 +161,24 @@ mise run pre-commit                            # the fast gates
 mise run pre-push                              # everything, mutation testing included
 ```
 
+Running the development app (on the `WebKit` engine until the Chromium build exists):
+
+```sh
+mise exec -- cargo run -p quickie                  # the bare binary; URLs or files may follow `--`
+mise run bundle                                    # target/debug/Quickie.app
+mise run bundle --release                          # target/release/Quickie.app
+open target/debug/Quickie.app
+open -a target/debug/Quickie.app https://example.com page.html
+```
+
+`mise run bundle` wraps `cargo xtask bundle`: it builds the shell, lays out `Quickie.app` with its
+`Info.plist` (bundle id `dev.quickie.Quickie`, `--bundle-id` for a throwaway build), and an icon
+made from `docs/assets/logo.png` at bundle time, and signs it ad hoc so WebKit's helper processes
+launch. As a bundle, Quickie opens the links and files other apps hand it, and the palette's
+**Set as Default Browser** asks macOS to make it the default browser (macOS confirms with you).
+The ad-hoc signature is for development only: the Developer ID signed and notarized build comes
+with the Chromium product build in P1.
+
 | Gate | Runs |
 |---|---|
 | pre-commit | rustfmt, taplo, typos, the rule of four, the layer map, shellcheck, actionlint, secret scan, clippy (pedantic, warnings are errors), tests |

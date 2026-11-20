@@ -184,10 +184,26 @@ impl WebPage {
         &self.view
     }
 
-    /// Navigates to `url`.
+    /// Navigates to `url`. A local file may read the files beside it, as a saved page needs
+    /// for its images and styles, and nothing else on disk.
     pub(crate) fn load(&self, url: &Url) -> Result<(), EngineError> {
-        let parsed = NSURL::URLWithString(&NSString::from_str(url.as_str()))
-            .ok_or_else(|| EngineError(format!("not a URL WebKit can load: {url}")))?;
+        let ns_url = |url: &Url| {
+            NSURL::URLWithString(&NSString::from_str(url.as_str()))
+                .ok_or_else(|| EngineError(format!("not a URL WebKit can load: {url}")))
+        };
+        let parsed = ns_url(url)?;
+        if url.scheme() == "file" {
+            let folder = url
+                .join(".")
+                .map_err(|error| EngineError(error.to_string()))?;
+            let folder = ns_url(&folder)?;
+            // SAFETY: both are absolute file URLs, the second the folder of the first.
+            let _navigation = unsafe {
+                self.view
+                    .loadFileURL_allowingReadAccessToURL(&parsed, &folder)
+            };
+            return Ok(());
+        }
         let request = NSURLRequest::requestWithURL(&parsed);
         // SAFETY: `request` is a valid request for an absolute URL.
         let _navigation = unsafe { self.view.loadRequest(&request) };
