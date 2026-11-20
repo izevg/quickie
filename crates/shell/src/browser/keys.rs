@@ -71,7 +71,12 @@ impl Browser {
             }
             Resolution::Unbound => {
                 if let Some(first) = pending {
-                    self.toast(&format!("{first} {stroke} is not bound"));
+                    let platform = self.keymap.platform();
+                    self.toast(&format!(
+                        "{} {} is not bound",
+                        first.glyphs(platform),
+                        stroke.glyphs(platform)
+                    ));
                     true
                 } else if is_quit(stroke) {
                     NSApplication::sharedApplication(self.mtm).terminate(None);

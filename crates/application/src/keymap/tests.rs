@@ -1,6 +1,6 @@
 use quickie_domain_commands::{
-    BindingError, Catalog, ChordError, CommandId, KeyStroke, Keymap, KeymapError, Resolution,
-    WhenContext,
+    BindingError, Catalog, ChordError, CommandId, KeyStroke, Keymap, KeymapError, Platform,
+    Resolution, WhenContext,
 };
 
 use super::{LoadedKeymap, RejectedEntry, Rejection, load_keymap};
@@ -15,12 +15,16 @@ fn entry(key: &str, command: &str) -> KeybindingText {
     }
 }
 
-fn load(entries: Vec<KeybindingText>) -> LoadedKeymap {
+fn load_on(platform: Platform, entries: Vec<KeybindingText>) -> LoadedKeymap {
     let repo = FakeKeymapRepo {
         entries,
         ..FakeKeymapRepo::default()
     };
-    load_keymap(&repo, &Catalog::builtin()).unwrap()
+    load_keymap(&repo, &Catalog::builtin(), platform).unwrap()
+}
+
+fn load(entries: Vec<KeybindingText>) -> LoadedKeymap {
+    load_on(Platform::MacOs, entries)
 }
 
 fn runs(keymap: &Keymap, key: &str) -> Resolution {
@@ -36,8 +40,32 @@ fn command(id: &str) -> Resolution {
 fn without_user_entries_the_defaults_apply() {
     let loaded = load(Vec::new());
 
-    assert_eq!(loaded.keymap, Keymap::default());
+    assert_eq!(loaded.keymap, Keymap::defaults(Platform::MacOs));
     assert_eq!(loaded.rejected, []);
+}
+
+#[test]
+fn on_linux_the_linux_defaults_apply() {
+    let loaded = load_on(Platform::Linux, Vec::new());
+
+    assert_eq!(loaded.keymap, Keymap::defaults(Platform::Linux));
+}
+
+#[test]
+fn a_user_entry_reads_mod_as_the_platform_primary() {
+    let linux = load_on(Platform::Linux, vec![entry("mod+e", "quickie.page.find")]);
+    let mac = load_on(Platform::MacOs, vec![entry("mod+e", "quickie.page.find")]);
+
+    assert_eq!(runs(&linux.keymap, "ctrl+e"), command("quickie.page.find"));
+    assert_eq!(runs(&mac.keymap, "cmd+e"), command("quickie.page.find"));
+}
+
+#[test]
+fn a_user_entry_on_a_linux_default_key_conflicts() {
+    let loaded = load_on(Platform::Linux, vec![entry("ctrl+t", "quickie.tab.close")]);
+
+    assert_eq!(loaded.rejected.len(), 1);
+    assert_eq!(runs(&loaded.keymap, "ctrl+t"), command("quickie.tab.new"));
 }
 
 #[test]
@@ -119,7 +147,7 @@ fn a_failed_read_is_an_error() {
         ..FakeKeymapRepo::default()
     };
 
-    let result = load_keymap(&repo, &Catalog::builtin());
+    let result = load_keymap(&repo, &Catalog::builtin(), Platform::MacOs);
 
     assert_eq!(result, Err(AppError::Store(StoreError("load".to_owned()))));
 }

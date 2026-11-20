@@ -3,7 +3,7 @@
 use quickie_domain_kernel::{CommandId, CommandIdError};
 
 use super::when::{WhenContext, WhenError, WhenExpr};
-use crate::key::{Chord, ChordError};
+use crate::key::{Chord, ChordError, Platform};
 
 /// A chord that runs a command, while its `when` clause holds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -17,14 +17,20 @@ pub struct KeyBinding {
 }
 
 impl KeyBinding {
-    /// Reads a binding from the fields of a `keybindings.json` entry.
+    /// Reads a binding from the fields of a `keybindings.json` entry, `mod` in its key meaning
+    /// the primary modifier of `platform`.
     ///
     /// # Errors
     ///
     /// [`BindingError`] names the field that does not parse.
-    pub fn parse(key: &str, command: &str, when: Option<&str>) -> Result<Self, BindingError> {
+    pub fn parse(
+        key: &str,
+        command: &str,
+        when: Option<&str>,
+        platform: Platform,
+    ) -> Result<Self, BindingError> {
         Ok(Self {
-            chord: Chord::try_from(key)?,
+            chord: Chord::parse(key, platform)?,
             command: CommandId::try_from(command)?,
             when: when.map(WhenExpr::try_from).transpose()?,
         })
@@ -69,27 +75,32 @@ pub enum KeymapEntry {
 }
 
 impl KeymapEntry {
-    /// Reads an entry from the fields of a `keybindings.json` entry; a command written `-<id>`
-    /// removes instead of adding.
+    /// Reads an entry from the fields of a `keybindings.json` entry on `platform`; a command
+    /// written `-<id>` removes instead of adding.
     ///
     /// # Errors
     ///
     /// [`BindingError`] names the field that does not parse.
-    pub fn parse(key: &str, command: &str, when: Option<&str>) -> Result<Self, BindingError> {
+    pub fn parse(
+        key: &str,
+        command: &str,
+        when: Option<&str>,
+        platform: Platform,
+    ) -> Result<Self, BindingError> {
         match command.strip_prefix('-') {
             Some(removed) => {
                 let KeyBinding {
                     chord,
                     command,
                     when,
-                } = KeyBinding::parse(key, removed, when)?;
+                } = KeyBinding::parse(key, removed, when, platform)?;
                 Ok(Self::Unbind(Unbinding {
                     chord,
                     command,
                     when,
                 }))
             }
-            None => KeyBinding::parse(key, command, when).map(Self::Bind),
+            None => KeyBinding::parse(key, command, when, platform).map(Self::Bind),
         }
     }
 

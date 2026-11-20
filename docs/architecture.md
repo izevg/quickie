@@ -148,6 +148,24 @@ ninth context means regrouping first.
 | `AgentGateway` | driving | `mcp` (rmcp on a Unix socket) |
 | UI intents | driving | `ui/features` call use cases |
 
+#### Portability
+
+Quickie ships on macOS; a Linux port (never Windows) must be an addition, not a rewrite, and must
+cost nothing at run time.
+
+- **The platform is chosen once, at the composition root.** The shell passes a plain value
+  (`quickie_domain_commands::Platform`) into the use cases that need it; nothing downstream asks
+  which platform it runs on, and there is no `cfg`, no dynamic dispatch, and no platform check on
+  a hot path.
+- **Domain, application, `store`, and `llm` are platform-free.** They take the platform as data
+  where conventions differ (the keymap) and never reach for platform APIs.
+- **Platform code lives in adapters, `ui`, and `shell` only.** A Linux port adds its own shell,
+  UI crates, and system adapters next to the macOS ones.
+- **Keys are written once.** Default bindings use `mod` for the primary modifier (`⌘` on macOS,
+  Ctrl on Linux), resolved when the keymap is built, so a key stroke is always concrete and the
+  lookup costs the same everywhere. Reserved strokes and conflicts follow from the resolved keys;
+  keycaps print per platform (`⇧⌘P`, `Ctrl+Shift+P`).
+
 ### 4.2 UI: Feature-Sliced Design as crates
 
 | FSD layer (`crates/ui/...`) | Contents | Depends on |

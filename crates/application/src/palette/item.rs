@@ -32,7 +32,8 @@ pub struct PaletteItem {
     pub title: String,
     /// The second line: a URL, a command's category, a tag's page count, a search template.
     pub detail: String,
-    /// The keys bound to a command, as macOS glyphs (`⇧⌘P`); empty for everything else.
+    /// The keys bound to a command, as the keymap's platform prints them (`⇧⌘P` on macOS,
+    /// `Ctrl+Shift+P` on Linux); empty for everything else.
     pub glyphs: Vec<String>,
     /// Character positions of `title` the query matched, ascending, for highlighting.
     pub title_matches: Vec<u32>,

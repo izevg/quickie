@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests;
 
-use quickie_domain_commands::{BindingError, Catalog, Keymap, KeymapEntry, KeymapError};
+use quickie_domain_commands::{BindingError, Catalog, Keymap, KeymapEntry, KeymapError, Platform};
 
 use crate::{AppError, KeybindingText, KeymapRepo};
 
@@ -42,16 +42,21 @@ pub enum Rejection {
     Invalid(#[from] KeymapError),
 }
 
-/// Loads the user's entries from `repo` and applies the valid ones to the default bindings.
+/// Loads the user's entries from `repo` and applies the valid ones to the default bindings of
+/// `platform`, reading `mod` in every entry as that platform's primary modifier.
 ///
 /// # Errors
 ///
 /// The store could not be read; the shell then runs on the defaults alone.
-pub fn load_keymap(repo: &impl KeymapRepo, catalog: &Catalog) -> Result<LoadedKeymap, AppError> {
-    let mut keymap = Keymap::default();
+pub fn load_keymap(
+    repo: &impl KeymapRepo,
+    catalog: &Catalog,
+    platform: Platform,
+) -> Result<LoadedKeymap, AppError> {
+    let mut keymap = Keymap::defaults(platform);
     let mut rejected = Vec::new();
     for (position, text) in repo.load_keybindings()?.into_iter().enumerate() {
-        let outcome = KeymapEntry::parse(&text.key, &text.command, text.when.as_deref())
+        let outcome = KeymapEntry::parse(&text.key, &text.command, text.when.as_deref(), platform)
             .map_err(Rejection::from)
             .and_then(|entry| {
                 let mut entries = keymap.user_entries().to_vec();
