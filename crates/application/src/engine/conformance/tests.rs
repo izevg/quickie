@@ -2,14 +2,17 @@ mod faults;
 mod rendering;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use quickie_domain_browsing::{Jar, Profile, TabId};
+use quickie_domain_browsing::{Jar, Profile, TabId, Timestamp};
+use quickie_domain_shields::{ContentHash, FilterListId};
 use url::Url;
 
 use super::{Driven, Group, Harness, MemoryEngine, Outcome, PageSource, Report, run};
 use crate::{
-    Answer, AskKind, BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, Flow,
-    HttpMethod, HttpPort, HttpRequest, PageAsks, PageRect, Permission, StopSignal,
+    ActiveRules, Answer, AskKind, BlockerRules, ContentBlockerPort, Engine, EngineEvent,
+    EnginePort, Flow, HttpMethod, HttpPort, HttpRequest, ListRules, PageAsks, PageRect, Permission,
+    RulesStatus, StopSignal,
 };
 
 /// The reference engine, driven as an adapter would drive its own.
@@ -139,6 +142,38 @@ fn the_memory_engine_s_network_reaches_nothing() {
     assert!(got.is_err());
     assert!(streamed.is_err());
     assert_eq!(heard, 0);
+}
+
+#[test]
+fn the_memory_engine_s_rules_are_active_once_installed() {
+    let mut blocker = Memory
+        .engine()
+        .content_blocker(Path::new("/rules"))
+        .unwrap();
+    let body: &[u8] = b"! a comment\nads.js\ntracker.js";
+    let rules = BlockerRules {
+        lists: vec![ListRules {
+            list: FilterListId::EasyList,
+            hash: ContentHash::of(body),
+            body: Arc::from(body),
+        }],
+        unshielded: Vec::new(),
+    };
+
+    let before = blocker.status();
+    blocker.install(&rules).unwrap();
+
+    assert_eq!(before, RulesStatus::Idle);
+    assert_eq!(
+        blocker.status(),
+        RulesStatus::Active(ActiveRules {
+            rules: 2,
+            lists: 1,
+            compiled: Timestamp::from_millis(0),
+        })
+    );
+    assert!(blocker.cosmetics_ready());
+    assert!(Memory.engine().web_extensions().is_none());
 }
 
 #[test]

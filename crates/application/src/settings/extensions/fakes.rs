@@ -83,6 +83,16 @@ impl FakeHost {
 }
 
 impl ExtensionHost for FakeHost {
+    type Popup = ();
+
+    fn set_waker(&mut self, _wake: Box<dyn Fn()>) {}
+
+    fn popup(&self) -> Option<()> {
+        None
+    }
+
+    fn close_popup(&self) {}
+
     fn read(&mut self, id: &ExtensionId, location: &str) -> Result<(), EngineError> {
         self.record(Call::Read(id.clone(), location.to_owned()))
     }

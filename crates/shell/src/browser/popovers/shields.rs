@@ -1,11 +1,8 @@
 //! The shields popover: the active page's site policy, its blocked count, and the enabled filter
 //! lists, from the shields use cases; its switches and buttons go back to them.
 
-use std::time::SystemTime;
-
-use quickie_application::{Clock, Engine, Navigation};
+use quickie_application::{Clock, ContentBlockerPort, Engine, Navigation, RulesStatus};
 use quickie_domain_shields::{Site, SitePolicy};
-use quickie_engine_webkit::BlockerStatus;
 use quickie_ui_shared::Trigger;
 use quickie_ui_shared::format::ago;
 use quickie_ui_widgets::{ShieldsRequest, ShieldsSummary, SiteToggle};
@@ -71,17 +68,13 @@ impl Browser {
             " · cosmetic filters loading…"
         };
         match blocker.status() {
-            BlockerStatus::Idle => String::new(),
-            BlockerStatus::Compiling => "Compiling rules…".to_owned(),
-            BlockerStatus::Installed(installed) if installed.lists == 0 => {
+            RulesStatus::Idle => String::new(),
+            RulesStatus::Compiling => "Compiling rules…".to_owned(),
+            RulesStatus::Active(installed) if installed.lists == 0 => {
                 "No rules active: no enabled list has arrived yet".to_owned()
             }
-            BlockerStatus::Installed(installed) => {
-                let since = SystemTime::now()
-                    .duration_since(installed.compiled)
-                    .map_or(0, |since| {
-                        u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-                    });
+            RulesStatus::Active(installed) => {
+                let since = SystemClock.now().millis_since(installed.compiled);
                 format!(
                     "Rules active: {} rules in {} {}, compiled {}{cosmetics}",
                     grouped(installed.rules),
@@ -94,7 +87,7 @@ impl Browser {
                     ago(since),
                 )
             }
-            BlockerStatus::Failed(reason) => format!("Failed: {reason}"),
+            RulesStatus::Failed(reason) => format!("Failed: {reason}"),
         }
     }
 
@@ -105,13 +98,13 @@ impl Browser {
         let status = self.shields.borrow_mut().blocker_mut().status();
         if self.rules_wanted.replace(false) {
             match status {
-                BlockerStatus::Installed(installed) if installed.lists > 0 => {
+                RulesStatus::Active(installed) if installed.lists > 0 => {
                     if let Some(tab) = self.current().and_then(|(window, _)| self.active(window)) {
                         self.popovers.reload_offered.set(Some(tab));
                     }
                     self.toast("Filter rules are active · reload open pages to apply them");
                 }
-                BlockerStatus::Failed(reason) => {
+                RulesStatus::Failed(reason) => {
                     self.toast(&format!("Filter rules failed: {reason}"));
                 }
                 _ => {}
@@ -211,11 +204,14 @@ impl Browser {
         let due = self.shields.borrow().due_fetches();
         self.fetch_lists(due);
         let settled = self.this.clone();
-        self.shields.borrow_mut().blocker_mut().on_settled(move || {
-            if let Some(browser) = settled.upgrade() {
-                browser.rules_settled();
-            }
-        });
+        self.shields
+            .borrow_mut()
+            .blocker_mut()
+            .on_settled(Box::new(move || {
+                if let Some(browser) = settled.upgrade() {
+                    browser.rules_settled();
+                }
+            }));
     }
 
     /// Marks that the user changed the lists: the rules they bring offer a reload once

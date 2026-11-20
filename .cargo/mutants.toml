@@ -8,3 +8,7 @@ output = "target"
 gitignore = true
 profile = "mutants"
 timeout_multiplier = 3
+exclude_re = [
+  # Uninhabited: no value of `NoExtensions` exists, so none of its methods can ever run.
+  "<impl ExtensionHost for NoExtensions<P>>",
+]

@@ -6,6 +6,16 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# The engine of the main profile's pages: exactly one. The composition root names it once
+# (`MainEngine` in src/main.rs); the rest of the shell reaches it through the engine ports, so
+# CI also checks the shell with `main-chromium` (`mise run engine-swap`).
+[features]
+default = ["main-webkit"]
+main-webkit = ["dep:quickie-engine-webkit"]
+# Without the engine's `chromium` feature: the bridge is compiled out and every engine call
+# fails as unavailable, which is enough to prove the shell names no WebKit type.
+main-chromium = ["dep:quickie-engine-chromium"]
+
 [dependencies]
 block2.workspace = true
 dispatch2.workspace = true
@@ -51,7 +61,8 @@ quickie-domain-commands.workspace = true
 quickie-domain-library.workspace = true
 quickie-domain-settings.workspace = true
 quickie-domain-shields.workspace = true
-quickie-engine-webkit.workspace = true
+quickie-engine-chromium = { workspace = true, optional = true }
+quickie-engine-webkit = { workspace = true, optional = true }
 quickie-llm.workspace = true
 quickie-store.workspace = true
 quickie-system.workspace = true

@@ -1,9 +1,10 @@
-//! Quickie, the composition root: wires the `WebKit` engine, the `SQLite` store, the Keychain,
+//! Quickie, the composition root: wires the main engine, the `SQLite` store, the Keychain,
 //! the LLM client, and the clock to the browsing, library, palette, shields, and agent use cases
 //! and the keymap, puts them on screen, and runs the app.
 //!
-//! For now this is the development app on the `engine-webkit` adapter (`docs/architecture.md`
-//! §3, P0). Run it from the repository root with:
+//! The main engine is a cargo feature: `main-webkit` (the default) or `main-chromium`, and this
+//! file is the only one that names it. For now this is the development app on the
+//! `engine-webkit` adapter (`docs/architecture.md` §3, P0). Run it from the repository root with:
 //!
 //! ```sh
 //! mise exec -- cargo run -p quickie [-- <url or file>…]
@@ -53,24 +54,34 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification, NSImage,
     NSView,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSSize};
+use objc2_foundation::{NSNotification, NSNotificationCenter};
 use quickie_application::{
     Agent, Browsing, Clock, Downloads, Engine, EnginePort, Extensions, Library, Shields, Zoom,
 };
 use quickie_domain_browsing::{Profile, Timestamp};
 use quickie_domain_commands::{Catalog, Platform};
-use quickie_engine_webkit::{WebKitEngine, WebKitExtensions};
 use quickie_store::{KeybindingsFile, PendingWrites, WriteBehindStore};
 use quickie_system::{ExtensionFiles, KeychainSecrets, SystemEntropy};
-use quickie_ui_shared::tokens::overlay;
 use url::Url;
 
 use browser::{Browser, Services, install_shortcuts, keymap_from, launch_urls};
 use delegate::AppDelegate;
 
-/// The engine of the main profile's pages, named here and nowhere else; the rest of the shell
-/// reaches it through the application's engine ports.
-pub type MainEngine = WebKitEngine;
+#[cfg(all(feature = "main-webkit", feature = "main-chromium"))]
+compile_error!("one main engine: the `main-webkit` feature or `main-chromium`, not both");
+
+#[cfg(not(any(feature = "main-webkit", feature = "main-chromium")))]
+compile_error!("no main engine: turn on the `main-webkit` feature or `main-chromium`");
+
+/// The engine of the main profile's pages, picked by a cargo feature, named here and nowhere
+/// else; the rest of the shell reaches it through the application's engine ports.
+#[cfg(feature = "main-webkit")]
+pub type MainEngine = quickie_engine_webkit::WebKitEngine;
+
+/// The engine of the main profile's pages, picked by a cargo feature, named here and nowhere
+/// else; the rest of the shell reaches it through the application's engine ports.
+#[cfg(all(feature = "main-chromium", not(feature = "main-webkit")))]
+pub type MainEngine = quickie_engine_chromium::ChromiumEngine;
 
 /// An engine the macOS shell can put on screen: its pages are `NSView`s and their pictures
 /// `NSImage`s. The shell's code that works on any engine is generic over this one bound.
@@ -107,13 +118,15 @@ pub type Agents = Agent<WriteBehindStore, KeychainSecrets, SystemEntropy>;
 pub type Zooms = Zoom<WriteBehindStore>;
 
 /// The web extension use cases as the app composes them: the main profile's extensions on the
-/// `WebKit` engine's controller, saved in the store.
-pub type Addons = Extensions<WriteBehindStore, WebKitExtensions, SystemClock>;
+/// main engine's host, saved in the store.
+pub type Addons = Extensions<WriteBehindStore, <MainEngine as Engine>::Extensions, SystemClock>;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
 
-/// The start page: no external resources, so launching opens no connection.
+/// The start page: no external resources, so launching opens no connection. Served from memory
+/// by an engine that can.
+#[cfg(feature = "main-webkit")]
 const START_PAGE: &str = r#"<!doctype html>
 <html><head><meta charset="utf-8"><title>Quickie</title>
 <meta name="color-scheme" content="light dark">
@@ -176,18 +189,10 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let home = Url::parse(HOME).map_err(|error| error.to_string())?;
     let store = WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let pending = store.pending();
-    let mut engine = MainEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
-    // Pictures for the overview at the size of its widest card, so none costs more than a card
-    // shows at the screen's scale.
-    let card = overlay::THUMBNAIL_MAX_WIDTH;
-    engine.set_thumbnail_size(NSSize::new(card, (card * overlay::THUMBNAIL_SHAPE).round()));
-    // Web extensions run in the main profile's pages, so the controller exists before the
-    // session restores its first page. Not on a macOS before 15.4.
-    let extension_host = if <MainEngine as Engine>::CAPS.web_extensions {
-        engine.web_extensions()
-    } else {
-        None
-    };
+    let mut engine = main_engine(&home, mtm);
+    // Web extensions run in the main profile's pages, so their host exists before the session
+    // restores its first page. None on an engine or a system without them.
+    let extension_host = engine.web_extensions();
     let mut browsing = Browsing::start(Profile::Main, engine, store, SystemClock, &home)
         .map_err(|error| error.to_string())?;
     // The library has a writer, and a connection, of its own.
@@ -266,6 +271,27 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         extension_files: ExtensionFiles::new(support_dir()?.join("Extensions")),
     };
     Ok((Browser::new(services, home, mtm), writes))
+}
+
+/// The `WebKit` engine, serving the start page from memory and drawing the overview's pictures at
+/// the size of its widest card, so none costs more than a card shows at the screen's scale.
+#[cfg(feature = "main-webkit")]
+fn main_engine(home: &Url, mtm: MainThreadMarker) -> MainEngine {
+    use objc2_foundation::NSSize;
+    use quickie_ui_shared::tokens::overlay;
+
+    let mut engine = MainEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
+    let card = overlay::THUMBNAIL_MAX_WIDTH;
+    engine.set_thumbnail_size(NSSize::new(card, (card * overlay::THUMBNAIL_SHAPE).round()));
+    engine
+}
+
+/// The Chromium engine. Its bridge serves no page from memory and draws no pictures yet. The
+/// shell's key monitor sees every key before the page does, so a key the bridge offers is the
+/// page's.
+#[cfg(all(feature = "main-chromium", not(feature = "main-webkit")))]
+fn main_engine(_home: &Url, _mtm: MainThreadMarker) -> MainEngine {
+    MainEngine::new(|_key| false)
 }
 
 /// Writes the pending saves before the app exits: `terminate:` ends the process without

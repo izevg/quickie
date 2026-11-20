@@ -11,7 +11,7 @@ use std::rc::Rc;
 use quickie_application::{
     Answer, BlockerRules, ContentBlockerPort, DownloadToken, Downloads, Engine, EngineError,
     EngineEvent, EnginePort, FindStep, HttpPort, Inspector, Navigation, PageAsks, PageContent,
-    PageSurface, PageZoom, ReplyToken,
+    PageSurface, PageZoom, ReplyToken, RulesStatus,
 };
 use quickie_domain_browsing::{Focus, Jar, JarId, Profile, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -802,8 +802,11 @@ fn the_browsers_own_requests_and_the_blocker_refuse_without_calling_chromium() {
     let fetched = engine.http().get(&url("https://lists.test/easylist.txt"));
     let blocker = engine.content_blocker(&PathBuf::from("/rules"));
     let installed = super::ChromiumContentBlocker.install(&BlockerRules::default());
+    let extensions = engine.web_extensions();
 
     assert!(fetched.is_err());
+    assert!(extensions.is_none());
+    assert_eq!(super::ChromiumContentBlocker.status(), RulesStatus::Idle);
     assert_eq!(
         blocker.err(),
         Some(EngineError(

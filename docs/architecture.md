@@ -149,11 +149,11 @@ ninth context means regrouping first.
 |---|---|---|
 | `Engine` bundle: `EnginePort` (tab lifecycle) + capability ports `PageSurface`, `PageContent`, `PageZoom`, `PageAsks`, `Downloads`, and for the agent profile `Automation`, `RequestGate`; one `EngineEvent` stream | driven | `engine-webkit`, `engine-cef` (agent profile), `engine-chromium` (post-MVP fork); see "Engines" below |
 | `HttpPort` | driven | supplied by the engine (`Engine::Http`): Chromium or CEF network stack, `NSURLSession` on WebKit; the shell never builds one |
-| `ExtensionHost` (capability), `ExtensionPackages` | driven | `engine-webkit` (`WKWebExtensionController`, main profile only); `system` checks CRX3 signatures with Security.framework and keeps packages |
+| `ExtensionHost` (capability), `ExtensionPackages` | driven | supplied by the engine (`Engine::Extensions`; `NoExtensions` on one without them): `engine-webkit` (`WKWebExtensionController`, main profile only); `system` checks CRX3 signatures with Security.framework and keeps packages |
 | `ExtensionsRepo` | driven | `store` |
 | `LlmPort` | driven | `llm`: OpenAI-compatible client on top of `HttpPort` |
 | `SessionRepo`, `LibraryRepo`, `KeymapRepo`, `ShieldsRepo`, `AuditLog` | driven | `store` (rusqlite; saves go to a write-behind thread off the main thread) |
-| `ContentBlockerPort` | driven | engine: `adblock` in the network service (product), `WKContentRuleList` (development) |
+| `ContentBlockerPort` | driven | supplied by the engine (`Engine::Blocker`): `adblock` in the network service (product), `WKContentRuleList` (development); reports a `RulesStatus` (idle, compiling, active, failed) and wakes the shell when rules settle |
 | `SecretStore`, `Entropy`, `Updater` | driven | `system` (Keychain, `SecRandom`), `updater` (Sparkle) |
 | Clipboard, reveal in Finder, default browser, global hotkey, keyboard layout | — | Not ports until a use case calls them: today only the shell does, and a Linux shell writes its own glue |
 | `AgentGateway` | driving | `mcp` (rmcp on a Unix socket) |
@@ -172,6 +172,8 @@ cost nothing at run time.
   where conventions differ (the keymap) and never reach for platform APIs.
 - **Platform code lives in adapters, `ui`, and `shell` only.** A Linux port adds its own shell,
   UI crates, and system adapters next to the macOS ones.
+- **The engine is chosen the same way.** A cargo feature of the shell picks it, and one alias at
+  the root names it; the shell is generic over the engine ports only (see "Engines" below).
 - **Keys are written once.** Default bindings use `mod` for the primary modifier (`⌘` on macOS,
   Ctrl on Linux), resolved when the keymap is built, so a key stroke is always concrete and the
   lookup costs the same everywhere. Reserved strokes and conflicts follow from the resolved keys;
@@ -210,8 +212,8 @@ browser's own traffic bypassed the engine's network stack.
   on the main thread after a waker. Nothing calls back into a use case from inside an engine
   call.
 - **The engine is a bundle.** `trait Engine` names the associated types the shell embeds or
-  forwards (`View`, `Picture`, `Page`), supplies the network stack (`Http`) and the content
-  blocker, and declares `CAPS`, a `const` of what the UI may offer (programmatic inspector, blocked
+  forwards (`View`, `Picture`, `Page`), supplies the network stack (`Http`), the content
+  blocker (`Blocker`), and the web extension host (`Extensions`), and declares `CAPS`, a `const` of what the UI may offer (programmatic inspector, blocked
   counts, ...). A capability a use case cannot work without is a trait bound, so a missing one is
   a compile error; a capability the UI merely degrades without is checked against `CAPS`, also at
   compile time. Nothing is decided at run time.
@@ -240,9 +242,15 @@ browser's own traffic bypassed the engine's network stack.
   before the DOM action (form submit, a destructive button) and says that it cannot see the
   request. Both follow the shape of Playwright's WebKit protocol (`Input`, `Network` interception,
   `Page`), so the system-WebKit stopgap and the fork expose the same port.
-- **Engine choice is a cargo feature at the composition root**: one alias per profile. CI also
-  type-checks the shell against a second engine, so a call that only one engine supports breaks
-  the build instead of a release.
+- **Engine choice is a cargo feature at the composition root**: one alias per profile. The shell's
+  `main-webkit` (default) and `main-chromium` features pick `MainEngine` in
+  `crates/shell/src/main.rs`, and `compile_error!` refuses both or neither; no `cfg` exists
+  below the root. Use cases hand their adapters out only through ports (`Browsing::engine` is
+  `impl PortsOf<E>`, `Shields::blocker_mut` and `Extensions::host` likewise), so an adapter's own
+  methods are out of the shell's reach. CI lints the shell with `main-chromium` too
+  (`mise run engine-swap`; the parked engine compiles without its bridge and refuses every
+  call), so a WebKit name or a call only one engine supports breaks the build instead of a
+  release.
 - **One conformance suite.** `application` ships behavioral tests (feature `conformance`) that
   every engine adapter runs, with the fake as the reference: navigation, opened pages, dialogs,
   find, link hints, jars, downloads, the content blocker, and on the fork automation and renderer
@@ -380,11 +388,21 @@ pub trait EnginePort {
 
 pub trait Engine: EnginePort + PageSurface + PageContent + PageZoom + PageAsks + Downloads {
     type Http: HttpPort + Clone + Send + 'static;
-    type Blocker: ContentBlockerPort;
+    type Blocker: ContentBlockerPort;                         // status(), on_settled(waker)
+    type Extensions: ExtensionHost;                           // NoExtensions<_> where none
     const CAPS: Capabilities;
     fn http(&self) -> Self::Http;
+    fn web_extensions(&mut self) -> Option<Self::Extensions>;
+    fn content_blocker(&mut self, directory: &Path) -> Result<Self::Blocker, EngineError>;
+    fn set_waker(&mut self, wake: Box<dyn Fn()>);
     fn drain(&mut self, into: &mut Vec<EngineEvent<Self::Page>>);
 }
+
+// crates/shell/src/main.rs: the only place an engine is named
+#[cfg(feature = "main-webkit")]
+pub type MainEngine = quickie_engine_webkit::WebKitEngine;
+#[cfg(all(feature = "main-chromium", not(feature = "main-webkit")))]
+pub type MainEngine = quickie_engine_chromium::ChromiumEngine;
 
 pub trait Automation { /* DOM and accessibility snapshots, trusted input, navigate */ }
 pub trait RequestGate { /* hold, inspect, continue or fail a request: DevTools engines only */ }

@@ -26,6 +26,7 @@ instead of skipping it.
 | Shell scripts | shellcheck | `shell` | yes | yes | Git and agent hooks |
 | Secrets | gitleaks (staged) | `secrets` | yes | yes | Keys and tokens never enter history |
 | Lint | clippy `-D warnings`, pedantic + restrictions | `lint` | yes | yes | Bugs, panics, unstated exceptions |
+| Engine swap | clippy on the shell with `main-chromium` | `engine-swap` | — | yes | No engine's own name or call below the composition root ([architecture.md](architecture.md#engines-ports-capabilities-profiles)) |
 | Tests | cargo test | `test` | yes | yes | Behavior, including the UI stories' plays ([UI tests](#ui-tests)) |
 | UI stories | `cargo xtask ui check` | `ui` | — | — | Widget looks against reference images; strict in CI ([UI tests](#ui-tests)) |
 | UI diff | `cargo xtask ui diff` | `ui-diff` | — | yes, where the references come from another macOS | A visual change reaching CI with a stale reference ([UI tests](#ui-tests)) |

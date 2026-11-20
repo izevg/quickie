@@ -81,6 +81,10 @@ git-cliff --config .github/cliff.toml --unreleased --strip all
 description = "Clippy, warnings are errors"
 run = "cargo clippy --workspace --all-targets -- -D warnings"
 
+[tasks.engine-swap]
+description = "The shell on the other main engine (Chromium, parked): any WebKit name in it fails"
+run = "cargo clippy -p quickie --no-default-features --features main-chromium --all-targets -- -D warnings"
+
 [tasks.test]
 description = "All tests"
 run = "cargo test --workspace --no-fail-fast --quiet"
@@ -145,7 +149,7 @@ depends = [
 
 [tasks.pre-push]
 description = "Full gates, run by .githooks/pre-push"
-depends = ["pre-commit", "deny", "machete", "links", "mutants", "ui-diff"]
+depends = ["pre-commit", "engine-swap", "deny", "machete", "links", "mutants", "ui-diff"]
 
 [tasks.ci]
 description = "The CI gates (.github/workflows/ci.yml); mutation runs as its own CI job"
@@ -159,6 +163,7 @@ depends = [
   "actions",
   "secrets-history",
   "lint",
+  "engine-swap",
   "test",
   "deny",
   "machete",

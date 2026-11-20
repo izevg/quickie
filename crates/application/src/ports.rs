@@ -567,6 +567,30 @@ pub struct BlockerRules {
     pub unshielded: Vec<Site>,
 }
 
+/// Rules every page blocks with, as the content blocker compiled them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActiveRules {
+    /// How many rules, over all lists.
+    pub rules: usize,
+    /// How many compiled rule lists hold them; none means nothing to block.
+    pub lists: usize,
+    /// When they were compiled: now, or on an earlier launch that compiled the same rules.
+    pub compiled: Timestamp,
+}
+
+/// What the content blocker made of the latest rules it was given: measured, never assumed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RulesStatus {
+    /// It was never given any.
+    Idle,
+    /// Compiling them; pages load with the previous rules meanwhile.
+    Compiling,
+    /// Pages load with them.
+    Active(ActiveRules),
+    /// They could not be compiled, and why; pages keep the previous rules.
+    Failed(String),
+}
+
 /// The engine's request blocker: `adblock` in Chromium's network service in the product, a
 /// `WKContentRuleList` in development.
 pub trait ContentBlockerPort {
@@ -576,8 +600,19 @@ pub trait ContentBlockerPort {
     ///
     /// # Errors
     ///
-    /// The blocker could not start; a failure while compiling is the adapter's to report.
+    /// The blocker could not start; a failure while compiling is reported by [`Self::status`].
     fn install(&mut self, rules: &BlockerRules) -> Result<(), BlockerError>;
+
+    /// What became of the latest rules for requests.
+    fn status(&self) -> RulesStatus;
+
+    /// Whether the cosmetic filters (hidden elements, scriptlets) of the latest lists are
+    /// ready: pages load without them until they are.
+    fn cosmetics_ready(&self) -> bool;
+
+    /// Sets what runs, later on the main loop and never inside a call to the blocker, each time
+    /// the latest rules become active or fail. Set once, at start.
+    fn on_settled(&mut self, settled: Box<dyn Fn()>);
 }
 
 #[cfg(test)]

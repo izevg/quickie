@@ -39,7 +39,7 @@
 //! its inspector is [`Inspector::FromContextMenu`]. Page zoom ([`PageZoom`]) and printing
 //! ([`PageSurface::print`]) are the view's own.
 //!
-//! Web extensions ([`WebKitExtensions`], from [`WebKitEngine::web_extensions`]) run in the
+//! Web extensions ([`WebKitExtensions`], from [`Engine::web_extensions`]) run in the
 //! main jar's pages through one `WKWebExtensionController`, on macOS 15.4 and later; never in
 //! a throwaway jar's.
 
@@ -86,8 +86,8 @@ use inbox::{Event, Inbox, Owner};
 pub use network::UrlSessionHttp;
 use page::WebPage;
 use scheme::InternalPages;
+pub use shields::WebKitContentBlocker;
 use shields::cosmetic::Cosmetics;
-pub use shields::{BlockerStatus, Installed, WebKitContentBlocker};
 
 /// The size, in points, of the tab overview's pictures until the shell sets its own
 /// ([`WebKitEngine::set_thumbnail_size`]): the overview's widest card, 16:10.
@@ -174,26 +174,6 @@ impl WebKitEngine {
             thumbnail_size: THUMBNAIL_SIZE,
             extensions: None,
         }
-    }
-
-    /// The main jar's web extensions, made once: pages created from now on run them. Call it
-    /// before the first page exists. `None` on a macOS without `WKWebExtension` (before 15.4)
-    /// and on a second call.
-    pub fn web_extensions(&mut self) -> Option<WebKitExtensions> {
-        if self.extensions.is_some() {
-            return None;
-        }
-        let shared = extensions::Shared::new(&user_agent::safari_tail(), self.mtm)?;
-        for (&tab, page) in &self.pages {
-            if self.inbox.jar_of(tab) == Jar::Main {
-                shared
-                    .views
-                    .borrow_mut()
-                    .insert(tab, page.web_view().retain());
-            }
-        }
-        self.extensions = Some(Rc::clone(&shared));
-        Some(WebKitExtensions::new(shared, self.mtm))
     }
 
     /// Lets extensions reach a tab's page, when it is in the main jar.
@@ -586,6 +566,7 @@ impl PageSurface for WebKitEngine {
 impl Engine for WebKitEngine {
     type Http = UrlSessionHttp;
     type Blocker = WebKitContentBlocker;
+    type Extensions = WebKitExtensions;
 
     const CAPS: Capabilities = Capabilities {
         web_extensions: true,
@@ -595,6 +576,26 @@ impl Engine for WebKitEngine {
 
     fn http(&self) -> UrlSessionHttp {
         UrlSessionHttp::new()
+    }
+
+    /// The main jar's web extensions, made once: pages created from now on run them, and those
+    /// that exist already too. `None` on a macOS without `WKWebExtension` (before 15.4) and on
+    /// a second call.
+    fn web_extensions(&mut self) -> Option<WebKitExtensions> {
+        if self.extensions.is_some() {
+            return None;
+        }
+        let shared = extensions::Shared::new(&user_agent::safari_tail(), self.mtm)?;
+        for (&tab, page) in &self.pages {
+            if self.inbox.jar_of(tab) == Jar::Main {
+                shared
+                    .views
+                    .borrow_mut()
+                    .insert(tab, page.web_view().retain());
+            }
+        }
+        self.extensions = Some(Rc::clone(&shared));
+        Some(WebKitExtensions::new(shared, self.mtm))
     }
 
     /// Rule lists compile into a `WKContentRuleListStore` in `directory`.

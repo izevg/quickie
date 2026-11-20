@@ -5,14 +5,14 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use quickie_domain_browsing::{TabId, WindowId};
+use quickie_domain_browsing::{TabId, Timestamp, WindowId};
 use url::Url;
 
-use super::{MemoryEngine, MemoryPage};
+use super::{MemoryEngine, MemoryPage, rules_in};
 use crate::{
-    BlockerError, BlockerRules, Capabilities, ContentBlockerPort, Ended, Engine, EngineError,
-    EngineEvent, Flow, HttpError, HttpEvent, HttpPort, HttpRequest, Inspector, PageSurface,
-    StopSignal,
+    ActiveRules, BlockerError, BlockerRules, Capabilities, ContentBlockerPort, Ended, Engine,
+    EngineError, EngineEvent, Flow, HttpError, HttpEvent, HttpPort, HttpRequest, Inspector,
+    NoExtensions, PageSurface, RulesStatus, StopSignal,
 };
 
 /// What a page of the memory engine is drawn in: nothing to look at, only there or not.
@@ -46,15 +46,52 @@ impl HttpPort for MemoryHttp {
 }
 
 /// The memory engine's content blocker: the rules it installs are the ones its pages load with
-/// from their next load on.
+/// from their next load on. Nothing compiles, so rules are active, cosmetic filters included,
+/// as soon as they are installed, and they never settle later.
 #[derive(Debug)]
-pub struct MemoryBlocker(Rc<RefCell<BlockerRules>>);
+pub struct MemoryBlocker {
+    rules: Rc<RefCell<BlockerRules>>,
+    installed: bool,
+}
+
+impl MemoryBlocker {
+    pub(super) fn new(rules: Rc<RefCell<BlockerRules>>) -> Self {
+        Self {
+            rules,
+            installed: false,
+        }
+    }
+}
 
 impl ContentBlockerPort for MemoryBlocker {
     fn install(&mut self, rules: &BlockerRules) -> Result<(), BlockerError> {
-        rules.clone_into(&mut self.0.borrow_mut());
+        rules.clone_into(&mut self.rules.borrow_mut());
+        self.installed = true;
         Ok(())
     }
+
+    /// Active once installed, compiled at the epoch: the memory engine keeps no time.
+    fn status(&self) -> RulesStatus {
+        if !self.installed {
+            return RulesStatus::Idle;
+        }
+        let rules = self.rules.borrow();
+        RulesStatus::Active(ActiveRules {
+            rules: rules
+                .lists
+                .iter()
+                .map(|list| rules_in(&list.body).len())
+                .sum(),
+            lists: rules.lists.len(),
+            compiled: Timestamp::from_millis(0),
+        })
+    }
+
+    fn cosmetics_ready(&self) -> bool {
+        true
+    }
+
+    fn on_settled(&mut self, _settled: Box<dyn Fn()>) {}
 }
 
 /// Nothing is drawn: a page has a view while it exists, is loading until its turn loads it,
@@ -107,6 +144,7 @@ impl PageSurface for MemoryEngine {
 impl Engine for MemoryEngine {
     type Http = MemoryHttp;
     type Blocker = MemoryBlocker;
+    type Extensions = NoExtensions<MemoryView>;
 
     const CAPS: Capabilities = Capabilities {
         web_extensions: false,
@@ -118,8 +156,12 @@ impl Engine for MemoryEngine {
         MemoryHttp
     }
 
+    fn web_extensions(&mut self) -> Option<NoExtensions<MemoryView>> {
+        None
+    }
+
     fn content_blocker(&mut self, _directory: &Path) -> Result<MemoryBlocker, EngineError> {
-        Ok(MemoryBlocker(Rc::clone(&self.rules)))
+        Ok(MemoryBlocker::new(Rc::clone(&self.rules)))
     }
 
     fn set_waker(&mut self, wake: Box<dyn Fn()>) {

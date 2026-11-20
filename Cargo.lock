@@ -853,6 +853,7 @@ dependencies = [
  "quickie-domain-library",
  "quickie-domain-settings",
  "quickie-domain-shields",
+ "quickie-engine-chromium",
  "quickie-engine-webkit",
  "quickie-llm",
  "quickie-store",

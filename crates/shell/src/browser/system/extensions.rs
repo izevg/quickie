@@ -93,11 +93,11 @@ impl Browser {
                 return;
             };
             let weak = self.this.clone();
-            extensions.host_mut().set_waker(move || {
+            extensions.host_mut().set_waker(Box::new(move || {
                 if let Some(browser) = weak.upgrade() {
                     browser.drain();
                 }
-            });
+            }));
             extensions.locations()
         };
         let files = self.extension_ui.files.clone();
@@ -741,6 +741,5 @@ impl Browser {
 
 /// The popup on its way, as the engine holds it.
 fn extensions_popup(extensions: &Addons) -> Option<Retained<objc2_app_kit::NSView>> {
-    let (_, view) = extensions.host().popup()?;
-    Some(Retained::into_super(view))
+    extensions.host().popup()
 }
