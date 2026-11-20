@@ -871,8 +871,11 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
+ "quickie-application",
+ "quickie-domain-commands",
  "quickie-domain-shields",
  "quickie-ui-shared",
+ "quickie-ui-widgets",
 ]
 
 [[package]]

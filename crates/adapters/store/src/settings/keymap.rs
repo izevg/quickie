@@ -1,12 +1,14 @@
 //! The user's key bindings: the `keybindings` table, and `keybindings.json`, the file the user
 //! edits, in VS Code's format: `[{ "key": "mod+k", "command": "quickie.palette.goto", "when":
 //! "pageFocused" }]`. Both hand over the entries as text; the keymap use case parses them, so an
-//! entry that does not parse is reported there, one entry at a time, not lost here.
+//! entry that does not parse is reported there, one entry at a time, not lost here. The keymap
+//! editor writes the file back, one entry per line; a field that was not a string comes back as
+//! the empty text it read as.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use quickie_application::{KeybindingText, KeymapRepo, StoreError};
+use quickie_application::{KeybindingText, KeymapFile, KeymapRepo, StoreError};
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -83,6 +85,42 @@ impl KeymapRepo for KeybindingsFile {
     }
 }
 
+impl KeymapFile for KeybindingsFile {
+    /// Writes the entries next to the file and renames them over it, so a crash halfway leaves
+    /// the old file whole.
+    fn save_keybindings(&self, entries: &[KeybindingText]) -> Result<(), StoreError> {
+        let mut staged = self.path.clone().into_os_string();
+        staged.push(".saving");
+        let staged = PathBuf::from(staged);
+        std::fs::write(&staged, write(entries))
+            .and_then(|()| std::fs::rename(&staged, &self.path))
+            .map_err(|error| self.error(&error))
+    }
+}
+
+/// `entries` as a `keybindings.json` text: one entry per line, a clause only where there is
+/// one.
+fn write(entries: &[KeybindingText]) -> String {
+    let lines: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            let mut fields = vec![
+                format!("\"key\": {}", Value::from(entry.key.as_str())),
+                format!("\"command\": {}", Value::from(entry.command.as_str())),
+            ];
+            if let Some(when) = &entry.when {
+                fields.push(format!("\"when\": {}", Value::from(when.as_str())));
+            }
+            format!("  {{ {} }}", fields.join(", "))
+        })
+        .collect();
+    if lines.is_empty() {
+        "[\n]\n".to_owned()
+    } else {
+        format!("[\n{}\n]\n", lines.join(",\n"))
+    }
+}
+
 /// The entries of a `keybindings.json` text. A field that is missing or not a string reads as
 /// empty, so the keymap rejects that entry alone and says which field is wrong.
 fn parse(text: &str) -> Result<Vec<KeybindingText>, String> {
@@ -105,9 +143,9 @@ fn parse(text: &str) -> Result<Vec<KeybindingText>, String> {
 
 #[cfg(test)]
 mod tests {
-    use quickie_application::{KeybindingText, KeymapRepo};
+    use quickie_application::{KeybindingText, KeymapFile, KeymapRepo};
 
-    use super::{KeybindingsFile, parse};
+    use super::{KeybindingsFile, parse, write};
 
     fn entry(key: &str, command: &str, when: Option<&str>) -> KeybindingText {
         KeybindingText {
@@ -179,6 +217,44 @@ mod tests {
             file.load_keybindings().unwrap(),
             [entry("mod+k", "quickie.tab.new", None)]
         );
+    }
+
+    #[test]
+    fn saved_entries_read_back_as_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = KeybindingsFile::new(dir.path().join("keybindings.json"));
+        let entries = [
+            entry("cmd+r", "-quickie.tab.reload", None),
+            entry("g", "quickie.hints.toggle", Some("pageFocused && \"x\"")),
+        ];
+
+        file.save_keybindings(&entries).unwrap();
+
+        assert_eq!(file.load_keybindings().unwrap(), entries);
+        assert!(!dir.path().join("keybindings.json.saving").exists());
+    }
+
+    #[test]
+    fn the_file_lists_one_entry_per_line() {
+        assert_eq!(write(&[]), "[\n]\n");
+        assert_eq!(
+            write(&[
+                entry("cmd+e", "quickie.page.find", None),
+                entry("f", "-quickie.hints.toggle", Some("pageFocused")),
+            ]),
+            "[\n  { \"key\": \"cmd+e\", \"command\": \"quickie.page.find\" },\n  { \"key\": \
+             \"f\", \"command\": \"-quickie.hints.toggle\", \"when\": \"pageFocused\" }\n]\n"
+        );
+    }
+
+    #[test]
+    fn a_failed_save_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = KeybindingsFile::new(dir.path().join("missing").join("keybindings.json"));
+
+        let error = file.save_keybindings(&[]).unwrap_err();
+
+        assert!(error.0.contains("keybindings.json"), "{error}");
     }
 
     #[test]

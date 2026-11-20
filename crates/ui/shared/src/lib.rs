@@ -18,8 +18,10 @@ pub mod motion;
 pub mod sheet;
 pub mod tokens;
 
-pub use controls::{Pill, StyledText, hint_bar, keycap_group, symbol};
-pub use form::ToggleRow;
+pub use controls::{
+    KeycapStyle, Pill, StyledText, hint_bar, keycap_group, keycap_group_styled, symbol,
+};
+pub use form::{FormGroup, Plate, ToggleRow};
 pub use glass::{Elevation, GlassSurface, Scrim};
 pub use list::{ListRow, ListView};
 pub use motion::{Motion, Trigger};

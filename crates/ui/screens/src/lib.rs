@@ -3,12 +3,13 @@
 
 #![expect(
     unsafe_code,
-    reason = "AppKit through objc2: the Settings window, its panes' flipped views, and its \
-              buttons' click target"
+    reason = "AppKit through objc2: the Settings window, its flipped views, its tables' data \
+              sources and key handling, its rows' drawing, and its buttons' click target"
 )]
 
 pub mod settings;
 
 pub use settings::{
-    GeneralState, KeysState, ListState, Pane, SettingsAction, SettingsScreen, ShieldsState,
+    GeneralState, KeyPress, KeysState, ListState, Pane, Recorded, SettingsAction, SettingsScreen,
+    ShieldsState,
 };

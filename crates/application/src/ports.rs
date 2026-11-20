@@ -110,7 +110,7 @@ pub struct KeybindingText {
     pub when: Option<String>,
 }
 
-/// Where the user's key bindings persist. Saving arrives with the keymap editor.
+/// Where the user's key bindings persist.
 pub trait KeymapRepo {
     /// The user's entries, in the order they were written.
     ///
@@ -118,6 +118,17 @@ pub trait KeymapRepo {
     ///
     /// The store could not be read.
     fn load_keybindings(&self) -> Result<Vec<KeybindingText>, StoreError>;
+}
+
+/// The user's own key bindings file (`keybindings.json`), which the keymap editor writes as
+/// well as reads.
+pub trait KeymapFile: KeymapRepo {
+    /// Replaces the user's entries with `entries`, in order, all at once.
+    ///
+    /// # Errors
+    ///
+    /// The store could not be written; the entries it held are unchanged.
+    fn save_keybindings(&self, entries: &[KeybindingText]) -> Result<(), StoreError>;
 }
 
 /// Where each site's page zoom persists (`shell.sqlite` in the product). Only the main jar's:
