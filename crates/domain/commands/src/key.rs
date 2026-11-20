@@ -1,5 +1,6 @@
 //! Key strokes and chords, parsed from `keybindings.json` (`mod+shift+p`) and shown as the
-//! platform writes them (`⇧⌘P` on macOS, `Ctrl+Shift+P` on Linux).
+//! platform writes them (`⇧⌘P` on macOS, `Ctrl+Shift+P` on Linux), and the rule that keeps a
+//! shortcut off the keys that type.
 
 mod code;
 mod modifiers;
@@ -63,6 +64,14 @@ impl KeyStroke {
             Platform::MacOs => parts.concat(),
             Platform::Linux => parts.join("+"),
         }
+    }
+
+    /// Whether the stroke types a character into a text field: a typing key held with no `⌘`,
+    /// `⌥` or `⌃`, `⇧` or not. Such a stroke belongs to the page and its fields, never to a
+    /// shortcut: a page's word on whether a field has focus is not reliable enough to share it.
+    #[must_use]
+    pub const fn types_text(self) -> bool {
+        self.key.types_text() && !self.modifiers.makes_shortcut()
     }
 
     /// Reads a stroke whose `mod` means `primary`; without one, `mod` is no modifier at all.
@@ -149,7 +158,6 @@ impl Chord {
     pub fn parse(text: &str, platform: Platform) -> Result<Self, ChordError> {
         Self::read(text, |stroke| KeyStroke::parse(stroke, platform))
     }
-
     /// The chord of the strokes `cmd+k cmd+s` as `keybindings.json` writes it.
     #[must_use]
     pub fn keybinding_text(&self) -> String {
@@ -173,6 +181,21 @@ impl Chord {
                 second.glyphs(platform)
             ),
             None => self.first.glyphs(platform),
+        }
+    }
+
+    /// Whether the chord can be a shortcut: its first stroke types nothing, so the browser can
+    /// take it from the page. The second stroke of a chord may type: once the first is the
+    /// browser's, so is the next key.
+    ///
+    /// # Errors
+    ///
+    /// [`TypingStroke`] when the first stroke types a character.
+    pub const fn check_shortcut(&self) -> Result<(), TypingStroke> {
+        if self.first.types_text() {
+            Err(TypingStroke(self.first))
+        } else {
+            Ok(())
         }
     }
 
@@ -210,6 +233,15 @@ impl TryFrom<&str> for Chord {
         Self::read(text, |stroke: &str| KeyStroke::try_from(stroke))
     }
 }
+
+/// A chord whose first stroke types a character, so it cannot be a shortcut: a shortcut holds
+/// `cmd`, `alt` or `ctrl` on its first stroke, or starts with a key that types nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, thiserror::Error)]
+#[error(
+    "a shortcut needs cmd, alt or ctrl: `{}` would type into text fields",
+    .0.keybinding_text()
+)]
+pub struct TypingStroke(pub KeyStroke);
 
 /// Text that is not a chord.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

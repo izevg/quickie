@@ -15,7 +15,7 @@ pub use binding::{BindingError, KeyBinding, KeymapEntry, Unbinding};
 pub use when::{ContextFlag, FocusedView, WhenContext, WhenError, WhenExpr};
 
 use crate::command::Catalog;
-use crate::key::{Chord, KeyStroke, Platform};
+use crate::key::{Chord, KeyStroke, Platform, TypingStroke};
 
 /// Every key binding in effect: the defaults, minus those the user removed, then the user's own.
 ///
@@ -57,8 +57,9 @@ impl Keymap {
     /// # Errors
     ///
     /// [`KeymapError::UnknownCommand`] when a binding or entry names a command the catalog does
-    /// not have; [`KeymapError::Conflict`] when two bindings in effect share a chord and a `when`
-    /// clause but run different commands.
+    /// not have; [`KeymapError::Typing`] when a binding in effect starts with a stroke that types;
+    /// [`KeymapError::Conflict`] when two bindings in effect share a chord and a `when` clause
+    /// but run different commands.
     pub fn new(
         catalog: &Catalog,
         platform: Platform,
@@ -197,6 +198,7 @@ impl Keymap {
         }
         let mut seen: HashMap<(&Chord, Option<&WhenExpr>), &CommandId> = HashMap::new();
         for binding in &self.effective {
+            binding.chord.check_shortcut()?;
             let key = (&binding.chord, binding.when.as_ref());
             if let Some(first) = seen.insert(key, &binding.command)
                 && *first != binding.command
@@ -222,6 +224,9 @@ pub enum KeymapError {
     /// Two bindings in effect share a chord and a `when` clause but run different commands.
     #[error(transparent)]
     Conflict(Box<Conflict>),
+    /// A binding in effect starts with a stroke that types a character.
+    #[error(transparent)]
+    Typing(#[from] TypingStroke),
 }
 
 /// Two bindings in effect that share a chord and a `when` clause but run different commands; the
