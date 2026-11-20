@@ -7,10 +7,9 @@ use std::path::PathBuf;
 
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSArray, NSString, NSURL};
-use quickie_application::AppError;
+use quickie_application::{AppError, DownloadEvent, DownloadToken};
 use quickie_domain_browsing::{Jar, TabId};
 use quickie_domain_library::{DownloadError, DownloadId};
-use quickie_engine_webkit::{DownloadKey, DownloadReport};
 use quickie_ui_shared::Trigger;
 use quickie_ui_widgets::DownloadsRequest;
 
@@ -51,13 +50,13 @@ impl Browser {
         self.refresh_downloads();
     }
 
-    fn download_report(&self, report: DownloadReport) {
-        let key = report.key();
+    fn download_report(&self, report: DownloadEvent) {
+        let key = report.token();
         let id = self.popovers.links.borrow().ids.get(&key).copied();
         let mut library = self.library.borrow_mut();
         let outcome = match (report, id) {
             (
-                DownloadReport::Started {
+                DownloadEvent::Started {
                     tab,
                     jar,
                     url,
@@ -70,11 +69,11 @@ impl Browser {
                 drop(library);
                 return self.download_started(key, tab, jar, url, name);
             }
-            (DownloadReport::Refused { reason, .. }, _) => {
+            (DownloadEvent::Refused { reason, .. }, _) => {
                 drop(library);
                 return self.toast(&format!("Couldn't download: {reason}"));
             }
-            (DownloadReport::Saved { jar, url, file, .. }, _) => {
+            (DownloadEvent::Saved { jar, url, file, .. }, _) => {
                 let name = file_name(&file);
                 let toast = format!("Saved {name} to Downloads");
                 let listed = library
@@ -88,15 +87,15 @@ impl Browser {
             }
             (_, None) => return,
             (
-                DownloadReport::Progress {
+                DownloadEvent::Progress {
                     received, total, ..
                 },
                 Some(id),
             ) => library.download_progressed(id, received, total),
-            (DownloadReport::Finished { .. }, Some(id)) => library
+            (DownloadEvent::Finished { .. }, Some(id)) => library
                 .download_finished(id)
                 .map(|()| self.ended(&library, id, "Downloaded")),
-            (DownloadReport::Failed { reason, .. }, Some(id)) => library
+            (DownloadEvent::Failed { reason, .. }, Some(id)) => library
                 .download_failed(id, reason)
                 .map(|()| self.ended(&library, id, "Download failed:")),
         };
@@ -110,7 +109,7 @@ impl Browser {
 
     fn download_started(
         &self,
-        key: DownloadKey,
+        key: DownloadToken,
         tab: TabId,
         jar: Jar,
         url: url::Url,

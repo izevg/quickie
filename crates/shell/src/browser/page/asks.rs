@@ -12,10 +12,11 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use objc2::MainThreadMarker;
-use quickie_application::{DialogGate, PermissionAnswer, PermissionGate, Prompts};
+use quickie_application::{
+    Answer, Ask, AskKind, Dialog, DialogGate, PermissionAnswer, PermissionGate, Prompts, ReplyToken,
+};
 use quickie_domain_browsing::{TabId, WindowId};
 use quickie_domain_commands::KeyStroke;
-use quickie_engine_webkit::{Answer, Ask, AskId, AskKind, Dialog};
 use quickie_ui_widgets::{DialogChoice, DialogKind, DialogRequest, DialogSheet, PermissionSheet};
 
 use super::super::Browser;
@@ -32,7 +33,7 @@ struct Queued {
 struct WindowSheets {
     dialog: DialogSheet,
     permission: PermissionSheet,
-    shown: Option<AskId>,
+    shown: Option<ReplyToken>,
 }
 
 /// The asks waiting for the user and the sheets that show them.
@@ -81,7 +82,7 @@ impl Browser {
                 AskKind::Dialog(_) => match prompts.dialog(ask.tab) {
                     DialogGate::Cancel => {
                         drop(prompts);
-                        self.reply(ask.id, &Answer::Decline);
+                        self.reply(ask.token, &Answer::Decline);
                         continue;
                     }
                     DialogGate::Show { offer_block } => offer_block,
@@ -89,7 +90,7 @@ impl Browser {
                 AskKind::Permission(permission) => {
                     if prompts.permission(&ask.origin, *permission) == PermissionGate::Allow {
                         drop(prompts);
-                        self.reply(ask.id, &Answer::Accept(None));
+                        self.reply(ask.token, &Answer::Accept(None));
                         continue;
                     }
                     false
@@ -209,13 +210,13 @@ impl Browser {
         })
     }
 
-    fn offers_block(&self, id: AskId) -> bool {
+    fn offers_block(&self, id: ReplyToken) -> bool {
         self.page
             .asks
             .queue
             .borrow()
             .iter()
-            .any(|queued| queued.ask.id == id && queued.offer_block)
+            .any(|queued| queued.ask.token == id && queued.offer_block)
     }
 
     fn present(&self, window: WindowId, ask: Option<(Ask, bool)>) {
@@ -226,7 +227,7 @@ impl Browser {
             .borrow()
             .get(&window)
             .and_then(|sheets| sheets.shown);
-        let wanted = ask.as_ref().map(|(ask, _)| ask.id);
+        let wanted = ask.as_ref().map(|(ask, _)| ask.token);
         if shown == wanted {
             return;
         }
@@ -255,7 +256,7 @@ impl Browser {
         self.close_overlays();
         self.hide_find();
         self.hide_navigation();
-        let id = ask.id;
+        let id = ask.token;
         let windows = self.page.asks.windows.borrow();
         let Some(sheets) = windows.get(&window) else {
             return;
@@ -297,7 +298,7 @@ impl Browser {
     }
 
     /// Takes the ask `id` off the queue if `window` still shows it.
-    fn take_shown(&self, window: WindowId, id: AskId) -> Option<Ask> {
+    fn take_shown(&self, window: WindowId, id: ReplyToken) -> Option<Ask> {
         let shown = self
             .page
             .asks
@@ -309,11 +310,11 @@ impl Browser {
             return None;
         }
         let mut queue = self.page.asks.queue.borrow_mut();
-        let index = queue.iter().position(|queued| queued.ask.id == id)?;
+        let index = queue.iter().position(|queued| queued.ask.token == id)?;
         Some(queue.remove(index).ask)
     }
 
-    fn answer_dialog(&self, window: WindowId, id: AskId, choice: DialogChoice) {
+    fn answer_dialog(&self, window: WindowId, id: ReplyToken, choice: DialogChoice) {
         let Some(ask) = self.take_shown(window, id) else {
             return;
         };
@@ -337,7 +338,7 @@ impl Browser {
         self.settle(window);
     }
 
-    fn answer_permission(&self, window: WindowId, id: AskId, answer: PermissionAnswer) {
+    fn answer_permission(&self, window: WindowId, id: ReplyToken, answer: PermissionAnswer) {
         let Some(ask) = self.take_shown(window, id) else {
             return;
         };
@@ -360,7 +361,7 @@ impl Browser {
     }
 
     /// Sends an answer to the page that waits on `id`.
-    fn reply(&self, id: AskId, answer: &Answer) {
+    fn reply(&self, id: ReplyToken, answer: &Answer) {
         if let Ok(mut browsing) = self.browsing.try_borrow_mut() {
             browsing.engine_mut().answer(id, answer);
         }

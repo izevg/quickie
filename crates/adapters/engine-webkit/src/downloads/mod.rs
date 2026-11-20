@@ -1,7 +1,7 @@
 //! Downloads on `WKDownload`. A page hands over a navigation that became a download (a
 //! response `WebKit` cannot show, an attachment, a link with `download`); the center becomes
 //! its delegate, picks the file it goes to, watches its progress, and reports
-//! [`DownloadReport`]s for the shell to drain.
+//! [`DownloadEvent`]s for the shell to drain.
 //!
 //! **Never overwrite.** A download goes to the Downloads folder under its suggested name made
 //! safe ([`name::safe_name`]); when that name is taken on disk, or by a download still running,
@@ -32,6 +32,7 @@ use objc2::runtime::ProtocolObject;
 use objc2::{MainThreadMarker, Message};
 use objc2_foundation::{NSData, NSProgressReporting, NSString, NSTimer, NSURL, NSURLRequest};
 use objc2_web_kit::{WKDownload, WKWebView};
+use quickie_application::{DownloadEvent, DownloadToken};
 use quickie_domain_browsing::{Jar, TabId};
 use url::Url;
 
@@ -41,68 +42,9 @@ pub(crate) use name::{pdf_name, wants_download};
 /// How often a running download's progress is read, in seconds.
 const POLL_INTERVAL: f64 = 0.25;
 
-/// The engine's handle on one download, for as long as Quickie runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DownloadKey(u64);
-
-/// What a download did since the shell last asked.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DownloadReport {
-    /// It has a file and is fetching into it.
-    Started {
-        key: DownloadKey,
-        /// The tab whose page started it, and that page's jar.
-        tab: TabId,
-        jar: Jar,
-        /// Where the bytes come from.
-        url: Url,
-        /// The file it is saved to; it did not exist before.
-        file: PathBuf,
-    },
-    /// Bytes arrived; `total` is the size the server announced, if it did.
-    Progress {
-        key: DownloadKey,
-        received: u64,
-        total: Option<u64>,
-    },
-    /// Every byte is in the file.
-    Finished { key: DownloadKey },
-    /// It stopped, for `reason`.
-    Failed { key: DownloadKey, reason: String },
-    /// It never started: no file could be picked for it, for `reason`.
-    Refused { key: DownloadKey, reason: String },
-    /// A file Quickie made from a page, such as a PDF of it, is written whole: it starts and
-    /// ends at once.
-    Saved {
-        key: DownloadKey,
-        /// The tab whose page it was made from, and that page's jar.
-        tab: TabId,
-        jar: Jar,
-        /// The page.
-        url: Url,
-        /// The file; it did not exist before.
-        file: PathBuf,
-    },
-}
-
-impl DownloadReport {
-    /// The download it is about.
-    #[must_use]
-    pub fn key(&self) -> DownloadKey {
-        match self {
-            Self::Started { key, .. }
-            | Self::Progress { key, .. }
-            | Self::Finished { key }
-            | Self::Failed { key, .. }
-            | Self::Refused { key, .. }
-            | Self::Saved { key, .. } => *key,
-        }
-    }
-}
-
 /// A download `WebKit` is running.
 struct Live {
-    key: DownloadKey,
+    token: DownloadToken,
     download: Retained<WKDownload>,
     tab: TabId,
     jar: Jar,
@@ -121,7 +63,7 @@ pub(crate) struct DownloadCenter {
     reserved: Arc<Mutex<HashSet<PathBuf>>>,
     live: RefCell<Vec<Live>>,
     next: Cell<u64>,
-    reports: RefCell<Vec<DownloadReport>>,
+    reports: RefCell<Vec<DownloadEvent>>,
     timer: RefCell<Option<Retained<NSTimer>>>,
     /// Tells the engine's inbox that reports wait.
     notify: Box<dyn Fn()>,
@@ -154,6 +96,13 @@ impl DownloadCenter {
         })
     }
 
+    /// The next download's token.
+    fn mint(&self) -> DownloadToken {
+        let raw = self.next.get();
+        self.next.set(raw + 1);
+        DownloadToken::new(raw)
+    }
+
     /// Where downloads are saved from now on; created when the first one arrives.
     pub(crate) fn set_directory(&self, directory: PathBuf) {
         *self.directory.borrow_mut() = Some(directory);
@@ -161,14 +110,13 @@ impl DownloadCenter {
 
     /// Takes over a download a page started: the center becomes its delegate.
     pub(crate) fn adopt(&self, tab: TabId, jar: Jar, download: &WKDownload) {
-        let key = DownloadKey(self.next.get());
-        self.next.set(key.0 + 1);
+        let token = self.mint();
         // SAFETY: the delegate is weak; the center keeps it alive for as long as it lives, and
         // a download that outlives the center calls a delegate whose center is gone, which
         // ignores it.
         unsafe { download.setDelegate(Some(ProtocolObject::from_ref(&*self.delegate))) };
         self.live.borrow_mut().push(Live {
-            key,
+            token,
             download: download.retain(),
             tab,
             jar,
@@ -197,7 +145,7 @@ impl DownloadCenter {
 
     /// Writes `made`, the bytes of a file made from `tab`'s page at `url`, into the folder
     /// under `name` or its next free number, on a worker thread; reports it
-    /// [`DownloadReport::Saved`] on the main thread, or [`DownloadReport::Refused`] with why it
+    /// [`DownloadEvent::Saved`] on the main thread, or [`DownloadEvent::Refused`] with why it
     /// was not made or written.
     pub(crate) fn save(
         this: &Rc<Self>,
@@ -207,15 +155,14 @@ impl DownloadCenter {
         name: &str,
         made: Result<Vec<u8>, String>,
     ) {
-        let key = DownloadKey(this.next.get());
-        this.next.set(key.0 + 1);
+        let token = this.mint();
         let directory = this.directory.borrow().clone();
         let (bytes, directory) = match (made, directory) {
             (Ok(bytes), Some(directory)) => (bytes, directory),
-            (Err(reason), _) => return this.report(DownloadReport::Refused { key, reason }),
+            (Err(reason), _) => return this.report(DownloadEvent::Refused { token, reason }),
             (Ok(_), None) => {
                 let reason = "there is no downloads folder".to_owned();
-                return this.report(DownloadReport::Refused { key, reason });
+                return this.report(DownloadEvent::Refused { token, reason });
             }
         };
         let name = name::safe_name(name);
@@ -233,20 +180,20 @@ impl DownloadCenter {
                         return;
                     };
                     center.report(match written {
-                        Ok(file) => DownloadReport::Saved {
-                            key,
+                        Ok(file) => DownloadEvent::Saved {
+                            token,
                             tab,
                             jar,
                             url,
                             file,
                         },
-                        Err(reason) => DownloadReport::Refused { key, reason },
+                        Err(reason) => DownloadEvent::Refused { token, reason },
                     });
                 });
             });
         if spawned.is_err() {
-            this.report(DownloadReport::Refused {
-                key,
+            this.report(DownloadEvent::Refused {
+                token,
                 reason: "Quickie could not start a thread to write the file".to_owned(),
             });
         }
@@ -254,8 +201,8 @@ impl DownloadCenter {
 
     /// Stops a running download and deletes the part of the file it wrote; nothing more is
     /// reported for it.
-    pub(crate) fn cancel(&self, key: DownloadKey) {
-        let Some(live) = self.take(|live| live.key == key) else {
+    pub(crate) fn cancel(&self, token: DownloadToken) {
+        let Some(live) = self.take(|live| live.token == token) else {
             return;
         };
         let reserved = Arc::clone(&self.reserved);
@@ -271,7 +218,7 @@ impl DownloadCenter {
     }
 
     /// The reports since the last call, oldest first.
-    pub(crate) fn take_reports(&self) -> Vec<DownloadReport> {
+    pub(crate) fn take_reports(&self) -> Vec<DownloadEvent> {
         std::mem::take(&mut *self.reports.borrow_mut())
     }
 
@@ -284,11 +231,11 @@ impl DownloadCenter {
                 decide,
             } => self.choose_file(&download, url, &suggested, decide),
             DelegateEvent::Finished(download) => {
-                self.end(&download, false, |key| DownloadReport::Finished { key });
+                self.end(&download, false, |token| DownloadEvent::Finished { token });
             }
             DelegateEvent::Failed(download, reason) => {
-                self.end(&download, true, |key| DownloadReport::Failed {
-                    key,
+                self.end(&download, true, |token| DownloadEvent::Failed {
+                    token,
                     reason,
                 });
             }
@@ -304,13 +251,13 @@ impl DownloadCenter {
         suggested: &str,
         decide: RcBlock<dyn Fn(*mut NSURL)>,
     ) {
-        let key = self
+        let token = self
             .live
             .borrow()
             .iter()
             .find(|live| *live.download == *download)
-            .map(|live| live.key);
-        let (Some(key), Some(directory)) = (key, self.directory.borrow().clone()) else {
+            .map(|live| live.token);
+        let (Some(token), Some(directory)) = (token, self.directory.borrow().clone()) else {
             decide.call((std::ptr::null_mut(),));
             return;
         };
@@ -331,37 +278,39 @@ impl DownloadCenter {
                     let (center, decide) = answer.into_inner(mtm);
                     match (center.upgrade(), file, url) {
                         (Some(center), Ok(file), Some(url)) => {
-                            Self::started(&center, key, url, file, &decide);
+                            Self::started(&center, token, url, file, &decide);
                         }
                         (center, file, _) => {
                             decide.call((std::ptr::null_mut(),));
                             if let Some(center) = center {
                                 let reason = file.err().unwrap_or_default();
-                                center.refused(key, &reason);
+                                center.refused(token, &reason);
                             }
                         }
                     }
                 });
             });
         if spawned.is_err() {
-            self.refused(key, "Quickie could not start a thread to name the file");
+            self.refused(token, "Quickie could not start a thread to name the file");
         }
     }
 
     /// The file is picked: `WebKit` writes there from now on.
     fn started(
         this: &Rc<Self>,
-        key: DownloadKey,
+        token: DownloadToken,
         url: Url,
         file: PathBuf,
         decide: &RcBlock<dyn Fn(*mut NSURL)>,
     ) {
         let started = {
             let mut live = this.live.borrow_mut();
-            live.iter_mut().find(|live| live.key == key).map(|live| {
-                live.file = Some(file.clone());
-                (live.tab, live.jar)
-            })
+            live.iter_mut()
+                .find(|live| live.token == token)
+                .map(|live| {
+                    live.file = Some(file.clone());
+                    (live.tab, live.jar)
+                })
         };
         let Some((tab, jar)) = started else {
             // Cancelled while the name was being picked.
@@ -372,8 +321,8 @@ impl DownloadCenter {
         let target =
             NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&file.to_string_lossy()), false);
         decide.call((Retained::as_ptr(&target).cast_mut(),));
-        this.report(DownloadReport::Started {
-            key,
+        this.report(DownloadEvent::Started {
+            token,
             tab,
             jar,
             url,
@@ -383,12 +332,12 @@ impl DownloadCenter {
     }
 
     /// No file could be picked: the download stops before it started.
-    fn refused(&self, key: DownloadKey, reason: &str) {
-        if let Some(live) = self.take(|live| live.key == key) {
+    fn refused(&self, token: DownloadToken, reason: &str) {
+        if let Some(live) = self.take(|live| live.token == token) {
             // SAFETY: cancelling has no preconditions.
             unsafe { live.download.cancel(None) };
-            self.report(DownloadReport::Refused {
-                key,
+            self.report(DownloadEvent::Refused {
+                token,
                 reason: reason.to_owned(),
             });
         }
@@ -399,7 +348,7 @@ impl DownloadCenter {
         &self,
         download: &WKDownload,
         failed: bool,
-        report: impl FnOnce(DownloadKey) -> DownloadReport,
+        report: impl FnOnce(DownloadToken) -> DownloadEvent,
     ) {
         let Some(live) = self.take(|live| *live.download == *download) else {
             return;
@@ -412,7 +361,7 @@ impl DownloadCenter {
         } else {
             self.unreserve(&file);
         }
-        self.report(report(live.key));
+        self.report(report(live.token));
     }
 
     /// Removes the running download `which` matches. Its file name stays reserved until the
@@ -430,7 +379,7 @@ impl DownloadCenter {
             .remove(file);
     }
 
-    fn report(&self, report: DownloadReport) {
+    fn report(&self, report: DownloadEvent) {
         self.reports.borrow_mut().push(report);
         (self.notify)();
     }
@@ -438,7 +387,7 @@ impl DownloadCenter {
     /// Reads every running download's progress, reporting what moved; stops the timer once
     /// nothing runs.
     fn poll(&self) {
-        let moved: Vec<DownloadReport> = self
+        let moved: Vec<DownloadEvent> = self
             .live
             .borrow_mut()
             .iter_mut()
@@ -450,8 +399,8 @@ impl DownloadCenter {
                 let now = (received, total);
                 (now != live.reported).then(|| {
                     live.reported = now;
-                    DownloadReport::Progress {
-                        key: live.key,
+                    DownloadEvent::Progress {
+                        token: live.token,
                         received,
                         total,
                     }
