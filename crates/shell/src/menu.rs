@@ -100,18 +100,7 @@ pub fn install(app: &NSApplication, target: &AnyObject, catalog: &Catalog, mtm: 
         target,
         catalog,
     );
-    let window = menu(
-        mtm,
-        "Window",
-        &[
-            standard("Minimize", sel!(performMiniaturize:), "m"),
-            standard("Zoom", sel!(performZoom:), ""),
-            Entry::Separator,
-            standard("Bring All to Front", sel!(arrangeInFront:), ""),
-        ],
-        target,
-        catalog,
-    );
+    let window = window_menu(target, catalog, mtm);
     let help = menu(
         mtm,
         "Help",
@@ -134,6 +123,30 @@ pub fn install(app: &NSApplication, target: &AnyObject, catalog: &Catalog, mtm: 
     app.setServicesMenu(Some(&services));
     app.setWindowsMenu(Some(&window));
     app.setHelpMenu(Some(&help));
+}
+
+/// Window: minimize, zoom, and full screen. The window's own buttons are hidden (content
+/// first), so full screen lives here, on macOS's standard ⌃⌘F; `AppKit` retitles the item
+/// "Exit Full Screen" while it applies.
+fn window_menu(target: &AnyObject, catalog: &Catalog, mtm: MainThreadMarker) -> Retained<NSMenu> {
+    menu(
+        mtm,
+        "Window",
+        &[
+            standard("Minimize", sel!(performMiniaturize:), "m"),
+            standard("Zoom", sel!(performZoom:), ""),
+            Entry::Standard {
+                title: "Enter Full Screen",
+                action: sel!(toggleFullScreen:),
+                key: "f",
+                modifiers: NSEventModifierFlags::Command.union(NSEventModifierFlags::Control),
+            },
+            Entry::Separator,
+            standard("Bring All to Front", sel!(arrangeInFront:), ""),
+        ],
+        target,
+        catalog,
+    )
 }
 
 fn menu(

@@ -86,6 +86,15 @@ impl WebPage {
         // SAFETY: a valid controller; the copy keeps the same controller, so rule lists
         // installed later reach this page too.
         unsafe { configuration.setUserContentController(content) };
+        // Sites sniff for Safari's `Version/… Safari/…` tail and serve a degraded page without
+        // it (Outlook on the web falls back to its 2007 "light" version). Matching the installed
+        // Safari exactly also blends us into Safari's crowd instead of a rare user agent.
+        // SAFETY: a plain string setter; the configuration copies it.
+        unsafe {
+            configuration.setApplicationNameForUserAgent(Some(&NSString::from_str(
+                &crate::user_agent::safari_tail(),
+            )));
+        }
         for scheme in internal.schemes() {
             // SAFETY: the built-in schemes are custom (WebKit throws for its own, such as
             // `https`), and the configuration retains the handler.
