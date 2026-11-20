@@ -375,6 +375,31 @@ fn layout_shadow(view: &NSView, shadow: Shadow, size: NSSize, corner: CGFloat) {
     unsafe { layer.setMask(Some(&mask)) };
 }
 
+/// Gives `view`'s own layer the shadow of `elevation` under a rounded rectangle of its bounds
+/// with corners of radius `corner`: for opaque content that floats over the page without
+/// glass (the mini player's video). Nothing for an elevation without a shadow.
+pub fn cast_shadow(view: &NSView, elevation: Elevation, corner: CGFloat) {
+    view.setWantsLayer(true);
+    let (Some(layer), Some(shadow)) = (view.layer(), elevation.shadow()) else {
+        return;
+    };
+    let size = view.bounds().size;
+    let inset = -shadow.spread;
+    let casting = NSRect::new(
+        NSPoint::new(inset, inset),
+        NSSize::new(
+            (size.width - inset * 2.0).max(0.0),
+            (size.height - inset * 2.0).max(0.0),
+        ),
+    );
+    layer.setShadowPath(Some(&rounded(casting, (corner - inset).max(0.0))));
+    layer.setShadowColor(Some(&tokens::black(1.0).CGColor()));
+    layer.setShadowOpacity(shadow.opacity);
+    layer.setShadowRadius(shadow.blur / 2.0);
+    // Layers of unflipped views are y-up: a shadow below the surface has a negative offset.
+    layer.setShadowOffset(NSSize::new(0.0, -shadow.offset_y));
+}
+
 fn rounded(rect: NSRect, corner: CGFloat) -> objc2_core_foundation::CFRetained<CGPath> {
     // SAFETY: a null transform means identity; the radius fits the rect (clamped by callers).
     unsafe { CGPath::with_rounded_rect(rect, corner, corner, std::ptr::null()) }

@@ -26,7 +26,7 @@ use url::Url;
 
 use crate::downloads::DownloadCenter;
 use crate::page::asks::Reply;
-use crate::page::{Hooks, PageEvent, Reports, WebPage};
+use crate::page::{Hooks, OnReport, PageEvent, Report, Reports, WebPage};
 use crate::shields::cosmetic::Cosmetics;
 
 /// The tab a page reports for; `None` while a page the engine opened waits to be adopted.
@@ -80,6 +80,9 @@ pub(crate) struct Inbox {
     /// The jar of each page, for the downloads it starts.
     pub(crate) jars: RefCell<HashMap<TabId, Jar>>,
     pub(crate) links: RefCell<Vec<Link>>,
+    /// What pages' video scripts reported, by the key of each page's view; each becomes an
+    /// event for the page's tab when the shell drains.
+    pub(crate) videos: RefCell<Vec<(usize, Report)>>,
     /// Asks of pages that wait to be adopted; they join the queue with their tab.
     waiting: RefCell<Vec<Waiting>>,
     replies: RefCell<HashMap<ReplyToken, (Owner, Reply)>>,
@@ -313,7 +316,20 @@ impl Inbox {
 
     /// True when nothing waits for the shell.
     fn is_quiet(&self) -> bool {
-        self.events.borrow().is_empty() && self.links.borrow().is_empty()
+        self.events.borrow().is_empty()
+            && self.links.borrow().is_empty()
+            && self.videos.borrow().is_empty()
+    }
+
+    /// Where the video scripts' reports go: kept here, the shell woken for them.
+    pub(crate) fn video_reports(inbox: &Rc<Self>) -> OnReport {
+        let inbox = Rc::downgrade(inbox);
+        Box::new(move |view, report| {
+            if let Some(inbox) = inbox.upgrade() {
+                inbox.videos.borrow_mut().push((view, report));
+                Self::schedule(&inbox);
+            }
+        })
     }
 
     /// Wakes the shell on a later turn of the main run loop, once per batch of reports. A shell

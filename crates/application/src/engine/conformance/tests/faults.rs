@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_browsing::{Jar, JarId, TabId, Video, WindowId};
 use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
@@ -17,8 +17,8 @@ use crate::conformance::{
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Capabilities, Dialog, DownloadEvent, DownloadToken,
     Downloads, Engine, EngineError, EngineEvent, EnginePort, FindStep, Followed, Fullscreen,
-    LinkTarget, Navigation, NoExtensions, PageAsks, PageContent, PageRect, PageSurface, PageZoom,
-    ReplyToken, Ticket,
+    LinkTarget, Navigation, NoExtensions, PageAsks, PageContent, PageRect, PageSurface, PageVideo,
+    PageZoom, ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -64,6 +64,8 @@ enum Fault {
     KeepsFullscreen,
     /// A page refused full screen says it went full screen all the same.
     FullscreenUnasked,
+    /// Playing or pausing a video does nothing.
+    IgnoresPlay,
 }
 
 /// The reference engine with a fault.
@@ -134,6 +136,23 @@ impl PageZoom for Broken {
                 self.engine.set_zoom(tab, level);
             }
             _ => self.engine.set_zoom(tab, level),
+        }
+    }
+}
+
+impl PageVideo for Broken {
+    fn float_video(&mut self, tab: TabId, slot: &MemoryView) -> Result<(), EngineError> {
+        self.engine.float_video(tab, slot)
+    }
+
+    fn dock_video(&mut self, tab: TabId) {
+        self.engine.dock_video(tab);
+    }
+
+    fn play_video(&mut self, tab: TabId, play: bool) -> Result<(), EngineError> {
+        match self.fault {
+            Fault::IgnoresPlay => Ok(()),
+            _ => self.engine.play_video(tab, play),
         }
     }
 }
@@ -778,6 +797,58 @@ fn a_page_loaded_past_the_end_fails() {
             "a_page_is_loading_until_it_has_loaded"
         ]
     );
+}
+
+/// What a video that does not do as it says fails.
+const VIDEO: [&str; 1] = ["a_video_says_it_plays_pauses_and_leaves"];
+
+#[test]
+fn a_video_that_cannot_be_paused_fails() {
+    let report = run(&mut Faulty(Fault::IgnoresPlay));
+
+    assert_eq!(failed(&report), VIDEO);
+}
+
+#[test]
+fn a_video_that_outlives_its_page_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Video { tab, video: None } => EngineEvent::Video {
+            tab,
+            video: Some(Video::Paused),
+        },
+        other => other,
+    })));
+
+    assert_eq!(failed(&report), VIDEO);
+}
+
+#[test]
+fn a_video_reported_for_another_tab_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Video { tab, video } => EngineEvent::Video {
+            tab: TabId::new(tab.profile(), tab.get() + 100),
+            video,
+        },
+        other => other,
+    })));
+
+    assert_eq!(failed(&report), VIDEO);
+}
+
+#[test]
+fn a_video_heard_as_audible_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Video {
+            tab,
+            video: Some(Video::Playing { .. }),
+        } => EngineEvent::Video {
+            tab,
+            video: Some(Video::Playing { audible: true }),
+        },
+        other => other,
+    })));
+
+    assert_eq!(failed(&report), VIDEO);
 }
 
 #[test]

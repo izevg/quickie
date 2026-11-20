@@ -4,6 +4,7 @@
 mod destination;
 mod find;
 mod origin;
+mod playback;
 
 use quickie_domain_kernel::TabId;
 use url::Url;
@@ -11,6 +12,7 @@ use url::Url;
 pub use destination::{Destination, SEARCH_ENGINE};
 pub use find::FindMatches;
 pub use origin::{Origin, Transport, is_cross_origin, registrable_domain};
+pub use playback::{MiniPlayer, PlayerChange, Video};
 
 /// Identifies a throwaway jar: an ephemeral cookie and storage partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

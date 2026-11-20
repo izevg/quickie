@@ -5,10 +5,13 @@
 //! The engine follows after the commit. An engine failure is reported, but the session keeps
 //! the change and the engine catches up: pages are created lazily whenever a tab is shown.
 
+mod playback;
 #[cfg(test)]
 mod tests;
 
 use std::collections::HashSet;
+
+pub use playback::Playback;
 
 use quickie_domain_browsing::{
     BrowsingError, Closed, ClosedWindow, CorruptSession, Direction, Focus, JarChoice, JarId,

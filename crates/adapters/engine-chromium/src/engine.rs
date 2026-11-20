@@ -17,8 +17,8 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSImage, NSView};
 use quickie_application::{
     Answer, Capabilities, DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort,
-    FindStep, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageZoom, ReplyToken,
-    Ticket,
+    FindStep, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageVideo, PageZoom,
+    ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -311,6 +311,20 @@ impl PageAsks for ChromiumEngine {
 /// The bridge cannot zoom pages yet: every page stays at actual size.
 impl PageZoom for ChromiumEngine {
     fn set_zoom(&mut self, _tab: TabId, _level: ZoomLevel) {}
+}
+
+/// The bridge reports no videos and cannot move a page out of its window yet: floating and
+/// playing fail without calling Chromium, so nothing ever floats to dock.
+impl PageVideo for ChromiumEngine {
+    fn float_video(&mut self, tab: TabId, _slot: &NSView) -> Result<(), EngineError> {
+        self.unsupported(tab, "float the video of")
+    }
+
+    fn dock_video(&mut self, _tab: TabId) {}
+
+    fn play_video(&mut self, tab: TabId, _play: bool) -> Result<(), EngineError> {
+        self.unsupported(tab, "play the video of")
+    }
 }
 
 /// Chromium draws each page into its window's host view itself; the bridge hands the shell no

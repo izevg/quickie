@@ -4,22 +4,24 @@
 //!
 //! - [`overview`]: opening, the grid's keys, switching and closing tabs from it, thumbnails.
 //! - [`hints`]: asking the page for its targets, the typed labels, following one.
+//! - [`player`]: the mini player that floats the video of a tab the user left.
 //!
 //! Swipe back and forward is not here: the page view does it natively (`engine-webkit`).
 
 mod hints;
 mod overview;
+mod player;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSEvent, NSEventPhase};
-use quickie_application::Ticket;
+use quickie_application::{Playback, Ticket};
 use quickie_domain_browsing::{TabId, WindowId};
 use quickie_domain_commands::KeyStroke;
 use quickie_ui_shared::Trigger;
-use quickie_ui_widgets::{LinkHintsLayer, PinchStep, TabOverview};
+use quickie_ui_widgets::{LinkHintsLayer, MiniPlayer, PinchStep, TabOverview};
 
 use super::Browser;
 
@@ -36,6 +38,9 @@ pub struct NavigationOverlays {
     targets_asked: Cell<Option<(Ticket, WindowId, bool)>>,
     /// The hint being followed: the ticket of the page's answer and its window.
     following: Cell<Option<(Ticket, WindowId)>>,
+    /// The mini player, and whose video it shows.
+    player: Rc<MiniPlayer>,
+    playback: RefCell<Playback>,
 }
 
 impl NavigationOverlays {
@@ -48,6 +53,8 @@ impl NavigationOverlays {
             hinted: Cell::new(None),
             targets_asked: Cell::new(None),
             following: Cell::new(None),
+            player: MiniPlayer::new(mtm),
+            playback: RefCell::new(Playback::new()),
         }
     }
 
@@ -64,8 +71,10 @@ impl NavigationOverlays {
 }
 
 impl Browser {
-    /// Hands the overview's clicks to the browser: on a card, and on its close button.
+    /// Hands the overview's clicks to the browser: on a card, and on its close button; and the
+    /// mini player's buttons.
     pub(super) fn wire_navigation(&self) {
+        self.wire_player();
         let this = self.this.clone();
         self.navigation.overview.on_activate(move |index| {
             if let Some(browser) = this.upgrade() {
