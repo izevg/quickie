@@ -225,16 +225,7 @@ impl Browser {
         // lists fresh: nothing on a fresh profile.
         let due = browser.shields.borrow().due_fetches();
         browser.fetch_lists(due);
-        let settled = Rc::downgrade(&browser);
-        browser
-            .shields
-            .borrow_mut()
-            .blocker_mut()
-            .on_settled(move || {
-                if let Some(browser) = settled.upgrade() {
-                    browser.rules_settled();
-                }
-            });
+        browser.wire_shields();
         let weak = Rc::downgrade(&browser);
         browser
             .browsing

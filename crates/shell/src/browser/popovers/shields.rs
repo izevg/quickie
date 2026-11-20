@@ -201,6 +201,16 @@ impl Browser {
         }
     }
 
+    /// The content blocker tells the browser each time the latest rules are installed or fail.
+    pub(in crate::browser) fn wire_shields(&self) {
+        let settled = self.this.clone();
+        self.shields.borrow_mut().blocker_mut().on_settled(move || {
+            if let Some(browser) = settled.upgrade() {
+                browser.rules_settled();
+            }
+        });
+    }
+
     /// Marks that the user changed the lists: the rules they bring offer a reload once
     /// compiled.
     pub(in crate::browser) fn lists_changed_by_user(&self) {
