@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use quickie_domain_browsing::{Jar, TabId};
+use quickie_domain_browsing::{Jar, Profile, TabId};
 use url::Url;
 
 use super::{DownloadEvent, DownloadToken, ReplyToken};
@@ -13,7 +13,7 @@ fn every_download_event_names_its_download() {
     let events = [
         DownloadEvent::Started {
             token,
-            tab: TabId::new(1),
+            tab: TabId::new(Profile::Main, 1),
             jar: Jar::Main,
             url: url.clone(),
             file: file.clone(),
@@ -34,7 +34,7 @@ fn every_download_event_names_its_download() {
         },
         DownloadEvent::Saved {
             token,
-            tab: TabId::new(1),
+            tab: TabId::new(Profile::Main, 1),
             jar: Jar::Main,
             url,
             file,

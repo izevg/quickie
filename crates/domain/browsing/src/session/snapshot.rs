@@ -1,9 +1,14 @@
 //! The session as plain data: the only door between the store and the aggregate.
+//!
+//! Only the main profile has this door. The agent leaves an audit log, not tabs: its session
+//! starts empty on every launch and is never saved, so [`Session::snapshot`] gives it no
+//! snapshot and [`Session::restore`] rebuilds only a main session. No code path, by mistake or
+//! otherwise, can hand an agent tab to the store.
 
 use std::collections::HashSet;
 
 use indexmap::IndexMap;
-use quickie_domain_kernel::{TabId, WindowId};
+use quickie_domain_kernel::{Profile, TabId, WindowId};
 
 use super::{ClosedTab, MruStack, Session, Trash};
 use crate::{Jar, JarId, PinnedSlot, Tab};
@@ -19,7 +24,8 @@ pub struct NextIds {
     pub jar: u64,
 }
 
-/// A whole session as plain data, for the store to write and read back.
+/// The main profile's whole session as plain data, for the store to write and read back. Every
+/// id in it is of [`Profile::Main`]; there is no agent snapshot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionSnapshot {
     /// Live tabs in opening order.
@@ -37,6 +43,13 @@ pub struct SessionSnapshot {
 /// A snapshot that breaks an invariant: a corrupt file or a broken migration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CorruptSession {
+    /// A tab, live or in the trash, of a profile other than main: only the main profile is
+    /// ever saved.
+    #[error("{0} is not of the main profile")]
+    ForeignTab(TabId),
+    /// A window of a profile other than main.
+    #[error("{0} is not of the main profile")]
+    ForeignWindow(WindowId),
     /// Two tabs, live or in the trash, share an id.
     #[error("{0} appears twice")]
     DuplicateTab(TabId),
@@ -67,7 +80,8 @@ pub enum CorruptSession {
 }
 
 impl Session {
-    /// Rebuilds a session from a snapshot, checking every invariant once, here.
+    /// Rebuilds the main profile's session from a snapshot, checking every invariant once,
+    /// here.
     ///
     /// # Errors
     ///
@@ -85,6 +99,7 @@ impl Session {
         check_windows(&tabs, &windows)?;
         check_slots(&tabs, &slots)?;
         Ok(Self {
+            profile: Profile::Main,
             tabs,
             windows: windows
                 .into_iter()
@@ -96,19 +111,24 @@ impl Session {
         })
     }
 
-    /// The session as plain data; `restore(snapshot())` gives back an equal session.
+    /// The main profile's session as plain data; `restore(snapshot())` gives back an equal
+    /// session. `None` for the agent's session, which is never saved.
     #[must_use]
-    pub fn snapshot(&self) -> SessionSnapshot {
-        SessionSnapshot {
-            tabs: self.tabs.values().cloned().collect(),
-            windows: self
-                .windows
-                .iter()
-                .map(|(&id, mru)| (id, mru.as_slice().to_vec()))
-                .collect(),
-            slots: self.slots,
-            trash: self.trash.iter().cloned().collect(),
-            next: self.next,
+    pub fn snapshot(&self) -> Option<SessionSnapshot> {
+        match self.profile {
+            Profile::Main => Some(SessionSnapshot {
+                tabs: self.tabs.values().cloned().collect(),
+                windows: self
+                    .windows
+                    .iter()
+                    .map(|(&id, mru)| (id, mru.as_slice().to_vec()))
+                    .collect(),
+                slots: self.slots,
+                trash: self.trash.iter().cloned().collect(),
+                next: self.next,
+            }),
+            // The agent leaves an audit log, not tabs: its session ends with the process.
+            Profile::Agent => None,
         }
     }
 }
@@ -121,6 +141,9 @@ fn check_ids(
 ) -> Result<(), CorruptSession> {
     let mut seen = HashSet::new();
     for tab in tabs.iter().chain(trash.iter().map(|closed| &closed.tab)) {
+        if tab.id.profile() != Profile::Main {
+            return Err(CorruptSession::ForeignTab(tab.id));
+        }
         if !seen.insert(tab.id) {
             return Err(CorruptSession::DuplicateTab(tab.id));
         }
@@ -135,6 +158,9 @@ fn check_ids(
     }
     let mut seen = HashSet::new();
     for &(window, _) in windows {
+        if window.profile() != Profile::Main {
+            return Err(CorruptSession::ForeignWindow(window));
+        }
         if !seen.insert(window) {
             return Err(CorruptSession::DuplicateWindow(window));
         }

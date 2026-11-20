@@ -12,7 +12,7 @@ use std::collections::HashSet;
 
 use quickie_domain_browsing::{
     BrowsingError, Closed, ClosedWindow, CorruptSession, Direction, Focus, JarChoice, JarId,
-    PinnedSlot, Session, TabCycle, TabId, WindowId,
+    PinnedSlot, Profile, Session, TabCycle, TabId, WindowId,
 };
 use url::Url;
 
@@ -31,20 +31,32 @@ pub struct Browsing<E, R, C> {
 }
 
 impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
-    /// Restores the saved session, or starts a fresh one with a window on `home`. A corrupt
-    /// save is replaced by a fresh session and reported by [`Self::corrupt_on_start`]. Every
-    /// window ends up with a tab, and each window's active tab is shown.
+    /// Starts a profile's browsing. The main profile restores its saved session, or starts a
+    /// fresh one with a window on `home`; a corrupt save is replaced by a fresh session and
+    /// reported by [`Self::corrupt_on_start`]. The agent profile always starts fresh and never
+    /// touches `repo`: its tabs are not saved, so there is nothing to restore. Every window ends
+    /// up with a tab, and each window's active tab is shown.
     ///
     /// # Errors
     ///
     /// The store could not be read or written, or the engine could not show a tab.
-    pub fn start(engine: E, mut repo: R, clock: C, home: &Url) -> Result<Self, AppError> {
-        let (mut session, corrupt_on_start) = match repo.load()? {
-            None => (Session::new(), None),
-            Some(snapshot) => match Session::restore(snapshot) {
-                Ok(session) => (session, None),
-                Err(corrupt) => (Session::new(), Some(corrupt)),
+    pub fn start(
+        profile: Profile,
+        engine: E,
+        mut repo: R,
+        clock: C,
+        home: &Url,
+    ) -> Result<Self, AppError> {
+        let (mut session, corrupt_on_start) = match profile {
+            Profile::Main => match repo.load()? {
+                None => (Session::new(profile), None),
+                Some(snapshot) => match Session::restore(snapshot) {
+                    Ok(session) => (session, None),
+                    Err(corrupt) => (Session::new(profile), Some(corrupt)),
+                },
             },
+            // The agent leaves an audit log, not tabs: every launch starts it empty.
+            Profile::Agent => (Session::new(profile), None),
         };
         if session.windows().next().is_none() {
             session.open_window();
@@ -56,7 +68,9 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
         for window in empty {
             session.open(window, home.clone(), JarChoice::Main, Focus::Foreground)?;
         }
-        repo.save(&session.snapshot())?;
+        if let Some(snapshot) = session.snapshot() {
+            repo.save(&snapshot)?;
+        }
         let mut browsing = Self {
             session,
             pages: HashSet::new(),
@@ -291,7 +305,10 @@ impl<E: EnginePort, R: SessionRepo, C: Clock> Browsing<E, R, C> {
     ) -> Result<T, AppError> {
         let mut next = self.session.clone();
         let outcome = change(&mut next)?;
-        self.repo.save(&next.snapshot())?;
+        // Only the main profile has a snapshot; the agent's commits stay in memory.
+        if let Some(snapshot) = next.snapshot() {
+            self.repo.save(&snapshot)?;
+        }
         self.session = next;
         Ok(outcome)
     }

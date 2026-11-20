@@ -53,12 +53,12 @@ impl Trash {
 #[cfg(test)]
 mod tests {
     use super::{ClosedTab, RETENTION_MS, Trash};
-    use crate::{Jar, Tab, TabId, Timestamp};
+    use crate::{Jar, Profile, Tab, TabId, Timestamp};
 
     fn closed(id: u64, at: u64) -> ClosedTab {
         ClosedTab {
             tab: Tab {
-                id: TabId::new(id),
+                id: TabId::new(Profile::Main, id),
                 url: "https://example.test/".parse().unwrap(),
                 title: String::new(),
                 jar: Jar::Main,

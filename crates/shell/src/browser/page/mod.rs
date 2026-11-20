@@ -166,7 +166,7 @@ impl Browser {
 
 #[cfg(test)]
 mod tests {
-    use quickie_domain_browsing::TabId;
+    use quickie_domain_browsing::{Profile, TabId};
     use url::Url;
 
     use super::{Change, change};
@@ -179,23 +179,35 @@ mod tests {
     fn a_new_window_or_another_tab_is_a_tab_switch() {
         let a = url("https://a.example/");
 
-        assert_eq!(change(None, TabId::new(1), &a), Change::Tab);
+        assert_eq!(change(None, TabId::new(Profile::Main, 1), &a), Change::Tab);
         assert_eq!(
-            change(Some(&(TabId::new(1), a.clone())), TabId::new(2), &a),
+            change(
+                Some(&(TabId::new(Profile::Main, 1), a.clone())),
+                TabId::new(Profile::Main, 2),
+                &a
+            ),
             Change::Tab
         );
     }
 
     #[test]
     fn the_same_tab_on_another_origin_changes_the_origin() {
-        let before = (TabId::new(1), url("https://a.example/one"));
+        let before = (TabId::new(Profile::Main, 1), url("https://a.example/one"));
 
         assert_eq!(
-            change(Some(&before), TabId::new(1), &url("https://b.example/")),
+            change(
+                Some(&before),
+                TabId::new(Profile::Main, 1),
+                &url("https://b.example/")
+            ),
             Change::Origin
         );
         assert_eq!(
-            change(Some(&before), TabId::new(1), &url("https://a.example/two")),
+            change(
+                Some(&before),
+                TabId::new(Profile::Main, 1),
+                &url("https://a.example/two")
+            ),
             Change::Nothing
         );
     }

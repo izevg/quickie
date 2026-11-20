@@ -85,14 +85,18 @@ impl CycleHold {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use quickie_domain_browsing::{Direction, TabCycle, TabId, WindowId};
+    use quickie_domain_browsing::{Direction, Profile, TabCycle, TabId, WindowId};
 
     use super::{CycleHold, REVEAL_AFTER};
 
     fn hold(at: Instant) -> CycleHold {
-        let order = [TabId::new(3), TabId::new(1), TabId::new(2)];
+        let order = [
+            TabId::new(Profile::Main, 3),
+            TabId::new(Profile::Main, 1),
+            TabId::new(Profile::Main, 2),
+        ];
         let cycle = TabCycle::begin(&order, Direction::Forward).unwrap();
-        CycleHold::new(cycle, WindowId::new(7), at)
+        CycleHold::new(cycle, WindowId::new(Profile::Main, 7), at)
     }
 
     #[test]
@@ -143,12 +147,12 @@ mod tests {
         let mut hold = hold(Instant::now());
 
         assert_eq!(hold.selected_index(), 1);
-        assert_eq!(hold.cycle().selected(), TabId::new(1));
+        assert_eq!(hold.cycle().selected(), TabId::new(Profile::Main, 1));
         hold.step(Direction::Forward);
         assert_eq!(hold.selected_index(), 2);
         hold.step(Direction::Backward);
         hold.step(Direction::Backward);
         assert_eq!(hold.selected_index(), 0);
-        assert_eq!(hold.window(), WindowId::new(7));
+        assert_eq!(hold.window(), WindowId::new(Profile::Main, 7));
     }
 }

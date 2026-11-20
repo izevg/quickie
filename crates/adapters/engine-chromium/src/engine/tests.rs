@@ -8,7 +8,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{EngineError, EnginePort, Navigation};
-use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
+use quickie_domain_browsing::{Jar, JarId, Profile, TabId, WindowId};
 use url::Url;
 
 use super::{ChromiumEngine, Navigated, OpenedPage, PageHandle};
@@ -126,11 +126,11 @@ fn url(text: &str) -> Url {
 }
 
 fn tab(raw: u64) -> TabId {
-    TabId::new(raw)
+    TabId::new(Profile::Main, raw)
 }
 
 fn window(raw: u64) -> WindowId {
-    WindowId::new(raw)
+    WindowId::new(Profile::Main, raw)
 }
 
 fn host(address: usize) -> NonNull<c_void> {
@@ -220,7 +220,7 @@ fn a_tab_gets_one_page_only() {
 
     assert_eq!(
         again,
-        Err(EngineError("tab#7 already has a page".to_owned()))
+        Err(EngineError("main tab#7 already has a page".to_owned()))
     );
     assert_eq!(fake.calls(), []);
 }
@@ -233,8 +233,8 @@ fn a_page_chromium_refused_does_not_exist() {
     let created = engine.create(tab(7), &url("https://a.test/"), Jar::Main);
     let shown = engine.show(window(1), tab(7));
 
-    assert_eq!(created, rejected("create the page for tab#7"));
-    assert_eq!(shown, Err(EngineError("no page for tab#7".to_owned())));
+    assert_eq!(created, rejected("create the page for main tab#7"));
+    assert_eq!(shown, Err(EngineError("no page for main tab#7".to_owned())));
 }
 
 // ---- show ----------------------------------------------------------------------------------
@@ -352,7 +352,7 @@ fn a_window_keeps_its_first_host_view() {
     assert_eq!(
         other,
         Err(EngineError(
-            "window#2 already has another host view".to_owned()
+            "main window#2 already has another host view".to_owned()
         ))
     );
     assert_eq!(
@@ -372,7 +372,7 @@ fn showing_a_tab_without_a_page_fails_without_calling_chromium() {
 
     let shown = engine.show(window(2), tab(7));
 
-    assert_eq!(shown, Err(EngineError("no page for tab#7".to_owned())));
+    assert_eq!(shown, Err(EngineError("no page for main tab#7".to_owned())));
     assert_eq!(fake.calls(), []);
 }
 
@@ -384,7 +384,7 @@ fn a_failed_show_names_the_tab_and_the_window() {
 
     let shown = engine.show(window(2), tab(7));
 
-    assert_eq!(shown, rejected("show tab#7 in window#2"));
+    assert_eq!(shown, rejected("show main tab#7 in main window#2"));
 }
 
 #[test]
@@ -395,7 +395,7 @@ fn a_failed_waiting_show_is_reported_by_attaching() {
 
     let attached = attach(&mut engine, 2, 0x100);
 
-    assert_eq!(attached, rejected("show tab#7 in window#2"));
+    assert_eq!(attached, rejected("show main tab#7 in main window#2"));
 }
 
 // ---- navigate ------------------------------------------------------------------------------
@@ -458,12 +458,12 @@ fn a_failed_navigation_says_what_was_asked() {
     assert_eq!(
         results,
         [
-            rejected("load https://c.test/ in tab#7"),
-            rejected("go back in tab#7"),
-            rejected("go forward in tab#7"),
-            rejected("reload in tab#7"),
-            rejected("reload past the cache in tab#7"),
-            rejected("stop loading in tab#7"),
+            rejected("load https://c.test/ in main tab#7"),
+            rejected("go back in main tab#7"),
+            rejected("go forward in main tab#7"),
+            rejected("reload in main tab#7"),
+            rejected("reload past the cache in main tab#7"),
+            rejected("stop loading in main tab#7"),
         ]
     );
 }
@@ -474,7 +474,10 @@ fn navigating_a_tab_without_a_page_fails_without_calling_chromium() {
 
     let navigated = engine.navigate(tab(7), &Navigation::Reload);
 
-    assert_eq!(navigated, Err(EngineError("no page for tab#7".to_owned())));
+    assert_eq!(
+        navigated,
+        Err(EngineError("no page for main tab#7".to_owned()))
+    );
     assert_eq!(fake.calls(), []);
 }
 
@@ -498,8 +501,8 @@ fn a_closed_tab_has_no_page_even_when_chromium_failed() {
     let closed = engine.close(tab(7));
     let again = engine.close(tab(7));
 
-    assert_eq!(closed, rejected("close the page of tab#7"));
-    assert_eq!(again, Err(EngineError("no page for tab#7".to_owned())));
+    assert_eq!(closed, rejected("close the page of main tab#7"));
+    assert_eq!(again, Err(EngineError("no page for main tab#7".to_owned())));
     assert_eq!(fake.calls(), [Call::Close(7)]);
 }
 
@@ -878,7 +881,7 @@ fn a_page_is_not_adopted_by_a_tab_that_has_one() {
 
     assert_eq!(
         adopted,
-        Err(EngineError("tab#12 already has a page".to_owned()))
+        Err(EngineError("main tab#12 already has a page".to_owned()))
     );
     assert_eq!(fake.calls(), []);
 }
@@ -891,8 +894,11 @@ fn a_failed_adoption_leaves_the_tab_without_a_page() {
     let adopted = engine.adopt(PageHandle(90), tab(12));
     let closed = engine.close(tab(12));
 
-    assert_eq!(adopted, rejected("adopt opened page 90 as tab#12"));
-    assert_eq!(closed, Err(EngineError("no page for tab#12".to_owned())));
+    assert_eq!(adopted, rejected("adopt opened page 90 as main tab#12"));
+    assert_eq!(
+        closed,
+        Err(EngineError("no page for main tab#12".to_owned()))
+    );
 }
 
 // ---- waking the shell ----------------------------------------------------------------------
@@ -1052,7 +1058,8 @@ fn debug_output_summarizes_the_bookkeeping() {
 
     assert_eq!(
         text,
-        "ChromiumEngine { pages: 1, hosts: 0, deferred: {WindowId(2): TabId(7)}, jars: 0, .. }"
+        "ChromiumEngine { pages: 1, hosts: 0, deferred: {WindowId { profile: Main, serial: 2 }: \
+         TabId { profile: Main, serial: 7 }}, jars: 0, .. }"
     );
 }
 
@@ -1066,7 +1073,7 @@ fn without_chromium_the_engine_is_unavailable() {
     assert_eq!(
         created,
         Err(EngineError(
-            "create the page for tab#7: built without the Chromium engine (the `chromium` feature)"
+            "create the page for main tab#7: built without the Chromium engine (the `chromium` feature)"
                 .to_owned()
         ))
     );
