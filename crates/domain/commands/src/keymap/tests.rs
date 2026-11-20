@@ -6,7 +6,10 @@ use super::{
     WhenContext, WhenError, WhenExpr,
 };
 use crate::command::Catalog;
-use crate::key::{Chord, ChordError, KeyStroke, KeyStrokeError};
+use crate::key::{Chord, ChordError, KeyStroke, KeyStrokeError, Platform};
+
+const MAC: Platform = Platform::MacOs;
+const LINUX: Platform = Platform::Linux;
 
 fn stroke(text: &str) -> KeyStroke {
     KeyStroke::try_from(text).unwrap()
@@ -17,19 +20,27 @@ fn id(text: &str) -> CommandId {
 }
 
 fn bind(key: &str, command: &str) -> KeyBinding {
-    KeyBinding::parse(key, command, None).unwrap()
+    KeyBinding::parse(key, command, None, MAC).unwrap()
 }
 
 fn bind_when(key: &str, command: &str, when: &str) -> KeyBinding {
-    KeyBinding::parse(key, command, Some(when)).unwrap()
+    KeyBinding::parse(key, command, Some(when), MAC).unwrap()
 }
 
 fn entry(key: &str, command: &str, when: Option<&str>) -> KeymapEntry {
-    KeymapEntry::parse(key, command, when).unwrap()
+    KeymapEntry::parse(key, command, when, MAC).unwrap()
 }
 
 fn keymap(defaults: Vec<KeyBinding>, entries: Vec<KeymapEntry>) -> Keymap {
-    Keymap::new(&Catalog::builtin(), defaults, entries).unwrap()
+    Keymap::new(&Catalog::builtin(), MAC, defaults, entries).unwrap()
+}
+
+fn glyphs(keymap: &Keymap, command: &str) -> Vec<String> {
+    let command = id(command);
+    keymap
+        .bindings_for(&command)
+        .map(|binding| binding.chord.glyphs(keymap.platform()))
+        .collect()
 }
 
 fn resolve(keymap: &Keymap, key: &str, context: &WhenContext) -> Resolution {
@@ -47,31 +58,173 @@ const HINTS: &str = "quickie.hints.toggle";
 
 // ---- defaults ----------------------------------------------------------------------------------
 
-#[test]
-fn every_default_row_parses() {
-    let bindings = defaults::bindings();
+/// The macOS defaults as they were written before `mod` existed, row for row: the keymap of
+/// `mod` must stay exactly this on macOS.
+const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 46] = [
+    ("cmd+shift+p", "quickie.palette.openCommands", None),
+    ("cmd+k", "quickie.palette.openCommands", None),
+    ("cmd+p", "quickie.palette.goto", None),
+    ("cmd+l", "quickie.address.open", None),
+    ("cmd+t", "quickie.tab.new", None),
+    ("cmd+shift+n", "quickie.tab.newThrowaway", None),
+    ("cmd+w", "quickie.tab.close", None),
+    ("cmd+n", "quickie.window.new", None),
+    ("cmd+shift+w", "quickie.window.close", None),
+    ("cmd+shift+t", "quickie.tab.reopenClosed", None),
+    ("ctrl+tab", "quickie.tab.nextRecent", None),
+    ("ctrl+shift+tab", "quickie.tab.previousRecent", None),
+    ("cmd+1", "quickie.tab.goToSlot1", None),
+    ("cmd+2", "quickie.tab.goToSlot2", None),
+    ("cmd+3", "quickie.tab.goToSlot3", None),
+    ("cmd+4", "quickie.tab.goToSlot4", None),
+    ("cmd+5", "quickie.tab.goToSlot5", None),
+    ("cmd+6", "quickie.tab.goToSlot6", None),
+    ("cmd+7", "quickie.tab.goToSlot7", None),
+    ("cmd+8", "quickie.tab.goToSlot8", None),
+    ("cmd+9", "quickie.tab.goToSlot9", None),
+    ("alt+cmd+1", "quickie.tab.pinToSlot1", None),
+    ("alt+cmd+2", "quickie.tab.pinToSlot2", None),
+    ("alt+cmd+3", "quickie.tab.pinToSlot3", None),
+    ("alt+cmd+4", "quickie.tab.pinToSlot4", None),
+    ("alt+cmd+5", "quickie.tab.pinToSlot5", None),
+    ("alt+cmd+6", "quickie.tab.pinToSlot6", None),
+    ("alt+cmd+7", "quickie.tab.pinToSlot7", None),
+    ("alt+cmd+8", "quickie.tab.pinToSlot8", None),
+    ("alt+cmd+9", "quickie.tab.pinToSlot9", None),
+    ("cmd+r", "quickie.tab.reload", None),
+    ("cmd+[", "quickie.navigation.back", None),
+    ("cmd+]", "quickie.navigation.forward", None),
+    ("cmd+f", "quickie.page.find", None),
+    ("cmd+g", "quickie.page.findNext", None),
+    ("cmd+shift+g", "quickie.page.findPrevious", None),
+    (
+        "f",
+        "quickie.hints.toggle",
+        Some("pageFocused && !inputFocused"),
+    ),
+    (
+        "shift+f",
+        "quickie.hints.openInBackground",
+        Some("pageFocused && !inputFocused"),
+    ),
+    ("cmd+shift+\\", "quickie.tab.overview", None),
+    ("cmd+shift+c", "quickie.page.copyUrl", None),
+    ("alt+cmd+c", "quickie.page.copyAsMarkdownLink", None),
+    ("cmd+d", "quickie.page.bookmark", None),
+    ("cmd+j", "quickie.downloads.show", None),
+    ("alt+cmd+s", "quickie.shields.open", None),
+    ("alt+cmd+i", "quickie.devtools.toggle", None),
+    ("alt+cmd+j", "quickie.devtools.console", None),
+];
 
-    assert_eq!(bindings.len(), BINDINGS.len());
+#[test]
+fn the_macos_defaults_are_the_same_strokes_as_before_mod() {
+    let before: Vec<KeyBinding> = MACOS_BEFORE_MOD
+        .into_iter()
+        .map(|(key, command, when)| KeyBinding {
+            chord: Chord::try_from(key).unwrap(),
+            command: id(command),
+            when: when.map(|when| WhenExpr::try_from(when).unwrap()),
+        })
+        .collect();
+
+    let after: Vec<KeyBinding> = Keymap::defaults(MAC).bindings().cloned().collect();
+
+    assert_eq!(after, before);
+}
+
+#[test]
+fn every_default_row_parses_on_every_platform() {
+    for platform in [MAC, LINUX] {
+        let bindings = defaults::bindings(platform);
+
+        assert_eq!(bindings.len(), BINDINGS.len(), "{platform:?}");
+    }
+}
+
+#[test]
+fn every_reserved_row_parses_on_every_platform() {
+    for platform in [MAC, LINUX] {
+        let reserved = defaults::reserved(platform);
+
+        assert_eq!(reserved.len(), defaults::RESERVED.len(), "{platform:?}");
+    }
 }
 
 #[test]
 fn the_defaults_make_a_valid_keymap() {
-    let validated = Keymap::new(&Catalog::builtin(), defaults::bindings(), Vec::new());
+    let validated = Keymap::new(
+        &Catalog::builtin(),
+        MAC,
+        defaults::bindings(MAC),
+        Vec::new(),
+    );
 
-    assert_eq!(validated, Ok(Keymap::default()));
+    assert_eq!(validated, Ok(Keymap::defaults(MAC)));
+}
+
+#[test]
+fn the_linux_defaults_make_a_valid_keymap() {
+    let validated = Keymap::new(
+        &Catalog::builtin(),
+        LINUX,
+        defaults::bindings(LINUX),
+        Vec::new(),
+    );
+
+    assert_eq!(validated, Ok(Keymap::defaults(LINUX)));
+}
+
+#[test]
+fn a_keymap_keeps_the_platform_it_was_made_for() {
+    let mac = Keymap::defaults(MAC);
+    let linux = Keymap::defaults(LINUX);
+
+    assert_eq!(mac.platform(), MAC);
+    assert_eq!(linux.platform(), LINUX);
 }
 
 #[test]
 fn the_default_keymap_has_no_user_entries() {
-    let keymap = Keymap::default();
+    let keymap = Keymap::defaults(MAC);
 
     assert_eq!(keymap.user_entries(), []);
     assert_eq!(keymap.bindings().count(), BINDINGS.len());
 }
 
 #[test]
+fn the_linux_defaults_use_ctrl_where_macos_uses_command() {
+    let keymap = Keymap::defaults(LINUX);
+    let context = WhenContext::new().with_flag("pageFocused");
+    let table = [
+        ("ctrl+shift+p", PALETTE),
+        ("ctrl+t", "quickie.tab.new"),
+        ("ctrl+w", CLOSE),
+        ("ctrl+tab", "quickie.tab.nextRecent"),
+        ("ctrl+shift+tab", "quickie.tab.previousRecent"),
+        ("ctrl+1", "quickie.tab.goToSlot1"),
+        ("alt+ctrl+1", "quickie.tab.pinToSlot1"),
+        ("alt+ctrl+i", "quickie.devtools.toggle"),
+        ("f", HINTS),
+    ];
+
+    for (key, expected) in table {
+        assert_eq!(resolve(&keymap, key, &context), command(expected), "{key}");
+    }
+}
+
+#[test]
+fn the_linux_defaults_leave_super_to_the_page() {
+    let keymap = Keymap::defaults(LINUX);
+
+    let resolution = resolve(&keymap, "super+t", &WhenContext::new());
+
+    assert_eq!(resolution, Resolution::Unbound);
+}
+
+#[test]
 fn the_default_keymap_binds_the_readme_keys() {
-    let keymap = Keymap::default();
+    let keymap = Keymap::defaults(MAC);
     let context = WhenContext::new().with_flag("pageFocused");
     let table = [
         ("cmd+shift+p", PALETTE),
@@ -110,7 +263,7 @@ fn the_default_keymap_binds_the_readme_keys() {
 
 #[test]
 fn link_hints_stay_away_from_text_fields() {
-    let keymap = Keymap::default();
+    let keymap = Keymap::defaults(MAC);
     let typing = WhenContext::new()
         .with_flag("pageFocused")
         .with_flag("inputFocused");
@@ -124,6 +277,8 @@ fn link_hints_stay_away_from_text_fields() {
 
 #[test]
 fn the_browser_keys_are_reserved() {
+    let keymap = Keymap::defaults(MAC);
+
     for key in [
         "cmd+q",
         "cmd+w",
@@ -133,12 +288,13 @@ fn the_browser_keys_are_reserved() {
         "cmd+p",
         "ctrl+tab",
     ] {
-        assert!(Keymap::is_reserved(stroke(key)), "{key}");
+        assert!(keymap.is_reserved(stroke(key)), "{key}");
     }
 }
 
 #[test]
 fn other_keys_are_not_reserved() {
+    let keymap = Keymap::defaults(MAC);
     let keys = [
         "cmd+a",
         "cmd+shift+q",
@@ -152,7 +308,33 @@ fn other_keys_are_not_reserved() {
     ];
 
     for key in keys {
-        assert!(!Keymap::is_reserved(stroke(key)), "{key}");
+        assert!(!keymap.is_reserved(stroke(key)), "{key}");
+    }
+}
+
+#[test]
+fn the_browser_keys_are_reserved_with_ctrl_on_linux() {
+    let keymap = Keymap::defaults(LINUX);
+
+    for key in [
+        "ctrl+q",
+        "ctrl+w",
+        "ctrl+t",
+        "ctrl+l",
+        "ctrl+shift+p",
+        "ctrl+p",
+        "ctrl+tab",
+    ] {
+        assert!(keymap.is_reserved(stroke(key)), "{key}");
+    }
+}
+
+#[test]
+fn the_command_keys_are_not_reserved_on_linux() {
+    let keymap = Keymap::defaults(LINUX);
+
+    for key in ["cmd+q", "cmd+w", "cmd+t", "cmd+shift+p", "ctrl+shift+tab"] {
+        assert!(!keymap.is_reserved(stroke(key)), "{key}");
     }
 }
 
@@ -333,10 +515,7 @@ fn a_removal_names_the_chord_it_removes() {
         vec![entry("cmd+k", &format!("-{PALETTE}"), None)],
     );
 
-    let left: Vec<String> = keymap
-        .bindings()
-        .map(|binding| binding.chord.to_string())
-        .collect();
+    let left = glyphs(&keymap, PALETTE);
 
     assert_eq!(left, ["⇧⌘P"]);
 }
@@ -444,15 +623,46 @@ fn replaced_user_entries_are_validated() {
 
 #[test]
 fn the_bindings_of_a_command_are_listed_for_the_palette() {
-    let keymap = Keymap::default();
-    let palette = id(PALETTE);
+    let keymap = Keymap::defaults(MAC);
 
-    let keys: Vec<String> = keymap
-        .bindings_for(&palette)
-        .map(|binding| binding.chord.to_string())
-        .collect();
+    let keys = glyphs(&keymap, PALETTE);
 
     assert_eq!(keys, ["⇧⌘P", "⌘K"]);
+}
+
+#[test]
+fn the_palette_keys_read_as_linux_writes_them() {
+    let keymap = Keymap::defaults(LINUX);
+
+    let keys = glyphs(&keymap, PALETTE);
+
+    assert_eq!(keys, ["Ctrl+Shift+P", "Ctrl+K"]);
+}
+
+#[test]
+fn a_user_entry_reads_mod_as_the_platform_does() {
+    let parsed = KeymapEntry::parse("mod+e", FIND, None, LINUX).unwrap();
+
+    assert_eq!(parsed, entry("ctrl+e", FIND, None));
+}
+
+#[test]
+fn a_user_removal_reads_mod_as_the_platform_does() {
+    let parsed = KeymapEntry::parse("mod+w", &format!("-{CLOSE}"), None, LINUX).unwrap();
+
+    assert_eq!(parsed, entry("ctrl+w", &format!("-{CLOSE}"), None));
+}
+
+#[test]
+fn replaced_user_entries_keep_the_platform() {
+    let linux = Keymap::defaults(LINUX);
+
+    let replaced = linux
+        .with_user_entries(&Catalog::builtin(), vec![entry("ctrl+e", FIND, None)])
+        .unwrap();
+
+    assert_eq!(replaced.platform(), LINUX);
+    assert!(replaced.is_reserved(stroke("ctrl+q")));
 }
 
 #[test]
@@ -488,6 +698,7 @@ fn a_minus_entry_parses_as_an_unbinding() {
 fn a_default_bound_to_an_unknown_command_is_rejected() {
     let error = Keymap::new(
         &Catalog::builtin(),
+        MAC,
         vec![bind("cmd+e", "quickie.tab.explode")],
         Vec::new(),
     )
@@ -503,6 +714,7 @@ fn a_default_bound_to_an_unknown_command_is_rejected() {
 fn a_user_binding_to_an_unknown_command_is_rejected() {
     let error = Keymap::new(
         &Catalog::builtin(),
+        MAC,
         Vec::new(),
         vec![entry("cmd+e", "quickie.tab.explode", None)],
     )
@@ -518,6 +730,7 @@ fn a_user_binding_to_an_unknown_command_is_rejected() {
 fn removing_an_unknown_command_is_rejected() {
     let error = Keymap::new(
         &Catalog::builtin(),
+        MAC,
         Vec::new(),
         vec![entry("cmd+e", "-quickie.tab.explode", None)],
     )
@@ -533,6 +746,7 @@ fn removing_an_unknown_command_is_rejected() {
 fn two_commands_on_one_chord_and_clause_conflict() {
     let error = Keymap::new(
         &Catalog::builtin(),
+        MAC,
         vec![bind_when("cmd+e", CLOSE, "a&&b")],
         vec![entry("cmd+e", FIND, Some("a && b"))],
     )
@@ -553,6 +767,7 @@ fn two_commands_on_one_chord_and_clause_conflict() {
 fn two_unconditional_commands_on_one_chord_conflict() {
     let error = Keymap::new(
         &Catalog::builtin(),
+        MAC,
         vec![bind("cmd+e", CLOSE), bind("cmd+e", FIND)],
         Vec::new(),
     )
@@ -565,6 +780,7 @@ fn two_unconditional_commands_on_one_chord_conflict() {
 fn the_same_binding_twice_is_no_conflict() {
     let keymap = Keymap::new(
         &Catalog::builtin(),
+        MAC,
         vec![bind("cmd+e", CLOSE)],
         vec![entry("cmd+e", CLOSE, None)],
     );
@@ -576,6 +792,7 @@ fn the_same_binding_twice_is_no_conflict() {
 fn one_chord_under_different_clauses_is_no_conflict() {
     let keymap = Keymap::new(
         &Catalog::builtin(),
+        MAC,
         vec![
             bind("cmd+e", CLOSE),
             bind_when("cmd+e", FIND, "pageFocused"),
@@ -587,7 +804,7 @@ fn one_chord_under_different_clauses_is_no_conflict() {
 }
 
 #[test]
-fn a_conflict_reads_as_glyphs_and_ids() {
+fn a_conflict_reads_as_keybinding_text_and_ids() {
     let error = KeymapError::Conflict(Box::new(Conflict {
         chord: Chord::try_from("cmd+shift+t").unwrap(),
         when: None,
@@ -597,15 +814,49 @@ fn a_conflict_reads_as_glyphs_and_ids() {
 
     assert_eq!(
         error.to_string(),
-        "⇧⌘T runs both quickie.tab.reopenClosed and quickie.page.find under the same condition"
+        "`shift+cmd+t` runs both quickie.tab.reopenClosed and quickie.page.find under the same \
+         condition"
     );
+}
+
+#[test]
+fn a_user_ctrl_key_conflicts_with_a_linux_default() {
+    let error = Keymap::new(
+        &Catalog::builtin(),
+        LINUX,
+        defaults::bindings(LINUX),
+        vec![KeymapEntry::parse("ctrl+t", FIND, None, LINUX).unwrap()],
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        KeymapError::Conflict(Box::new(Conflict {
+            chord: Chord::try_from("ctrl+t").unwrap(),
+            when: None,
+            first: id("quickie.tab.new"),
+            second: id(FIND),
+        }))
+    );
+}
+
+#[test]
+fn the_same_ctrl_key_is_free_on_macos() {
+    let keymap = Keymap::new(
+        &Catalog::builtin(),
+        MAC,
+        defaults::bindings(MAC),
+        vec![entry("ctrl+t", FIND, None)],
+    );
+
+    assert!(keymap.is_ok());
 }
 
 // ---- parsing entries ---------------------------------------------------------------------------
 
 #[test]
 fn a_bad_key_is_reported_as_the_key_field() {
-    let error = KeyBinding::parse("cmd+", CLOSE, None).unwrap_err();
+    let error = KeyBinding::parse("cmd+", CLOSE, None, MAC).unwrap_err();
 
     assert_eq!(
         error,
@@ -616,7 +867,7 @@ fn a_bad_key_is_reported_as_the_key_field() {
 
 #[test]
 fn a_bad_command_is_reported_as_the_command_field() {
-    let error = KeymapEntry::parse("cmd+e", "-tab.close", None).unwrap_err();
+    let error = KeymapEntry::parse("cmd+e", "-tab.close", None, MAC).unwrap_err();
 
     assert_eq!(
         error,
@@ -626,7 +877,7 @@ fn a_bad_command_is_reported_as_the_command_field() {
 
 #[test]
 fn a_bad_clause_is_reported_as_the_when_field() {
-    let error = KeymapEntry::parse("cmd+e", CLOSE, Some("a &&")).unwrap_err();
+    let error = KeymapEntry::parse("cmd+e", CLOSE, Some("a &&"), MAC).unwrap_err();
 
     assert_eq!(
         error,

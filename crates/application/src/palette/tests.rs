@@ -1,5 +1,5 @@
 use quickie_domain_browsing::{Focus, JarChoice, Session, TabId, Timestamp};
-use quickie_domain_commands::{Catalog, CommandId, Keymap, KeymapEntry};
+use quickie_domain_commands::{Catalog, CommandId, Keymap, KeymapEntry, Platform};
 use quickie_domain_library::{Bookmarks, History, Keyword, SearchShortcuts, Tag, UrlTemplate};
 use quickie_domain_palette::Kind;
 use url::Url;
@@ -39,7 +39,7 @@ impl World {
             history: History::new(),
             bookmarks: Bookmarks::new(),
             shortcuts: SearchShortcuts::defaults(),
-            keymap: Keymap::default(),
+            keymap: Keymap::defaults(Platform::MacOs),
         }
     }
 
@@ -318,6 +318,19 @@ mod commands {
     }
 
     #[test]
+    fn the_keys_read_as_the_platform_writes_them() {
+        let mut world = World::new();
+        world.keymap = Keymap::defaults(Platform::Linux);
+
+        let items = world.query(">show command palette", 10);
+
+        assert_eq!(
+            item(&items, "quickie.palette.openCommands").glyphs,
+            ["Ctrl+Shift+P", "Ctrl+K"]
+        );
+    }
+
+    #[test]
     fn a_command_without_a_key_shows_none() {
         let world = World::new();
 
@@ -332,7 +345,13 @@ mod commands {
     #[test]
     fn the_keys_follow_the_users_keymap() {
         let mut world = World::new();
-        let entry = KeymapEntry::parse("cmd+e", "quickie.devtools.inspectElement", None).unwrap();
+        let entry = KeymapEntry::parse(
+            "cmd+e",
+            "quickie.devtools.inspectElement",
+            None,
+            Platform::MacOs,
+        )
+        .unwrap();
         world.keymap = world
             .keymap
             .with_user_entries(&Catalog::builtin(), vec![entry])

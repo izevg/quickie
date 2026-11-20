@@ -1,6 +1,6 @@
 //! Keys as the ASCII-capable layout names them, independent of the active input language.
 
-use std::fmt;
+use super::Platform;
 
 /// A key on the keyboard, named as on a US layout whatever layout is active.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -141,29 +141,44 @@ impl Key {
         }
     }
 
-    /// What a keycap shows: `P`, `F5`, `⇥`, `[`.
+    /// What a keycap shows on `platform`: `P`, `F5`, `[` on both; `⇥` on macOS where Linux writes
+    /// `Tab`.
     #[must_use]
-    pub fn glyph(self) -> String {
+    pub fn glyph(self, platform: Platform) -> String {
         match self {
             Self::Letter(letter) => letter.as_char().to_ascii_uppercase().to_string(),
             Self::Digit(digit) => digit.as_char().to_string(),
             Self::Function(function) => format!("F{}", function.number()),
-            Self::Tab => "⇥".to_owned(),
-            Self::Enter => "↩".to_owned(),
-            Self::Escape => "⎋".to_owned(),
-            Self::Space => "Space".to_owned(),
-            Self::Backspace => "⌫".to_owned(),
-            Self::Delete => "⌦".to_owned(),
-            Self::Up => "↑".to_owned(),
-            Self::Down => "↓".to_owned(),
-            Self::Left => "←".to_owned(),
-            Self::Right => "→".to_owned(),
-            Self::Home => "↖".to_owned(),
-            Self::End => "↘".to_owned(),
-            Self::PageUp => "⇞".to_owned(),
-            Self::PageDown => "⇟".to_owned(),
-            other => other.symbol().to_string(),
+            other => other
+                .caption(platform)
+                .map_or_else(|| other.symbol().to_string(), str::to_owned),
         }
+    }
+
+    /// The keycap of a named key as `platform` prints it; `None` for punctuation, which prints
+    /// its own character everywhere.
+    fn caption(self, platform: Platform) -> Option<&'static str> {
+        let (mac, linux) = match self {
+            Self::Tab => ("⇥", "Tab"),
+            Self::Enter => ("↩", "Enter"),
+            Self::Escape => ("⎋", "Esc"),
+            Self::Space => ("Space", "Space"),
+            Self::Backspace => ("⌫", "Backspace"),
+            Self::Delete => ("⌦", "Delete"),
+            Self::Up => ("↑", "Up"),
+            Self::Down => ("↓", "Down"),
+            Self::Left => ("←", "Left"),
+            Self::Right => ("→", "Right"),
+            Self::Home => ("↖", "Home"),
+            Self::End => ("↘", "End"),
+            Self::PageUp => ("⇞", "Page Up"),
+            Self::PageDown => ("⇟", "Page Down"),
+            _ => return None,
+        };
+        Some(match platform {
+            Platform::MacOs => mac,
+            Platform::Linux => linux,
+        })
     }
 
     /// The printed character of a punctuation key, which is both its name and its glyph.
@@ -181,12 +196,6 @@ impl Key {
             Self::Quote => '\'',
             _ => '`',
         }
-    }
-}
-
-impl fmt::Display for Key {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.glyph())
     }
 }
 

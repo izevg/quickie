@@ -51,7 +51,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSNotification, NSNotificationCenter};
 use quickie_application::{Browsing, Clock, Library, LoadedKeymap, Shields, load_keymap};
 use quickie_domain_browsing::Timestamp;
-use quickie_domain_commands::{Catalog, Keymap};
+use quickie_domain_commands::{Catalog, Keymap, Platform};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use quickie_store::{PendingWrites, WriteBehindStore};
 use url::Url;
@@ -70,6 +70,9 @@ pub type Palette = quickie_application::Palette<SystemClock>;
 
 /// The shields use cases as the app composes them.
 pub type Guard = Shields<WriteBehindStore, SystemClock, WebKitContentBlocker>;
+
+/// The desktop whose key conventions the keymap follows, chosen here once for the whole app.
+pub const PLATFORM: Platform = Platform::MacOs;
 
 /// Where new tabs open: the start page, served by the engine from memory.
 const HOME: &str = "quickie://start/";
@@ -180,7 +183,7 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
 /// The defaults with the user's bindings applied, and what to tell the user about entries
 /// that were left out. A store that cannot be read leaves the defaults.
 fn keymap(store: &WriteBehindStore, catalog: &Catalog) -> (Keymap, Vec<String>) {
-    match load_keymap(store, catalog) {
+    match load_keymap(store, catalog, PLATFORM) {
         Ok(LoadedKeymap { keymap, rejected }) => {
             let notices = rejected
                 .iter()
@@ -189,7 +192,7 @@ fn keymap(store: &WriteBehindStore, catalog: &Catalog) -> (Keymap, Vec<String>) 
             (keymap, notices)
         }
         Err(error) => (
-            Keymap::default(),
+            Keymap::defaults(PLATFORM),
             vec![format!(
                 "Key bindings not loaded, using the defaults: {error}"
             )],

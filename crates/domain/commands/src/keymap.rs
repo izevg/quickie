@@ -15,14 +15,17 @@ pub use binding::{BindingError, KeyBinding, KeymapEntry, Unbinding};
 pub use when::{WhenContext, WhenError, WhenExpr};
 
 use crate::command::Catalog;
-use crate::key::{Chord, Key, KeyStroke, Modifiers};
+use crate::key::{Chord, KeyStroke, Platform};
 
 /// Every key binding in effect: the defaults, minus those the user removed, then the user's own.
 ///
 /// It is the aggregate of the keymap editor: a change replaces the user entries and is accepted
-/// only if the whole keymap stays valid.
+/// only if the whole keymap stays valid. It belongs to one [`Platform`], fixed when it is made:
+/// every `mod` is resolved by then, so a lookup only compares concrete strokes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Keymap {
+    platform: Platform,
+    reserved: Vec<KeyStroke>,
     defaults: Vec<KeyBinding>,
     user: Vec<KeymapEntry>,
     effective: Vec<KeyBinding>,
@@ -39,15 +42,14 @@ pub enum Resolution {
     Unbound,
 }
 
-impl Default for Keymap {
-    /// Quickie's default bindings and no user entries.
-    fn default() -> Self {
-        Self::assemble(defaults::bindings(), Vec::new())
-    }
-}
-
 impl Keymap {
-    /// A keymap of `defaults` with the user's `entries` applied in order.
+    /// Quickie's default bindings on `platform` and no user entries.
+    #[must_use]
+    pub fn defaults(platform: Platform) -> Self {
+        Self::assemble(platform, defaults::bindings(platform), Vec::new())
+    }
+
+    /// A keymap on `platform` of `defaults` with the user's `entries` applied in order.
     ///
     /// # Errors
     ///
@@ -56,12 +58,20 @@ impl Keymap {
     /// clause but run different commands.
     pub fn new(
         catalog: &Catalog,
+        platform: Platform,
         defaults: Vec<KeyBinding>,
         entries: Vec<KeymapEntry>,
     ) -> Result<Self, KeymapError> {
-        let keymap = Self::assemble(defaults, entries);
+        let keymap = Self::assemble(platform, defaults, entries);
         keymap.validate(catalog)?;
         Ok(keymap)
+    }
+
+    /// The platform whose conventions the keymap follows, for parsing the user's entries and for
+    /// printing keycaps.
+    #[must_use]
+    pub fn platform(&self) -> Platform {
+        self.platform
     }
 
     /// The same defaults with `entries` as the user's entries instead of the current ones.
@@ -74,24 +84,15 @@ impl Keymap {
         catalog: &Catalog,
         entries: Vec<KeymapEntry>,
     ) -> Result<Self, KeymapError> {
-        Self::new(catalog, self.defaults.clone(), entries)
+        Self::new(catalog, self.platform, self.defaults.clone(), entries)
     }
 
-    /// Whether the shell handles `stroke` before the page ever sees it: `⌘Q`, `⌘W`, `⌘T`, `⌘L`,
-    /// `⇧⌘P`, `⌘P`, and `⌃⇥`. A page cannot take these keys away from the browser.
+    /// Whether the shell handles `stroke` before the page ever sees it: the primary modifier
+    /// with `Q`, `W`, `T`, `L`, `P`, or `⇧P` (`⌘Q` on macOS, Ctrl+Q on Linux), and `⌃⇥` on
+    /// both. A page cannot take these keys away from the browser.
     #[must_use]
-    pub fn is_reserved(stroke: KeyStroke) -> bool {
-        let modifiers = stroke.modifiers;
-        match stroke.key {
-            Key::Letter(letter) if modifiers == Modifiers::COMMAND => {
-                matches!(letter.as_char(), 'q' | 'w' | 't' | 'l' | 'p')
-            }
-            Key::Letter(letter) if modifiers == Modifiers::COMMAND | Modifiers::SHIFT => {
-                letter.as_char() == 'p'
-            }
-            Key::Tab => modifiers == Modifiers::CONTROL,
-            _ => false,
-        }
+    pub fn is_reserved(&self, stroke: KeyStroke) -> bool {
+        self.reserved.contains(&stroke)
     }
 
     /// What `stroke` does in `context`. `pending` is the first stroke of a chord, from an earlier
@@ -147,7 +148,7 @@ impl Keymap {
         &self.user
     }
 
-    fn assemble(defaults: Vec<KeyBinding>, user: Vec<KeymapEntry>) -> Self {
+    fn assemble(platform: Platform, defaults: Vec<KeyBinding>, user: Vec<KeymapEntry>) -> Self {
         let removals: Vec<&Unbinding> = user
             .iter()
             .filter_map(|entry| match entry {
@@ -166,6 +167,8 @@ impl Keymap {
             .cloned()
             .collect();
         Self {
+            platform,
+            reserved: defaults::reserved(platform),
             defaults,
             user,
             effective,
@@ -215,7 +218,10 @@ pub enum KeymapError {
 /// Two bindings in effect that share a chord and a `when` clause but run different commands; the
 /// keymap editor marks the later one in red.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("{chord} runs both {first} and {second} under the same condition")]
+#[error(
+    "`{}` runs both {first} and {second} under the same condition",
+    chord.keybinding_text()
+)]
 pub struct Conflict {
     /// The shared chord.
     pub chord: Chord,

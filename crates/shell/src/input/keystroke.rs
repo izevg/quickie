@@ -205,6 +205,7 @@ mod tests {
     use quickie_domain_commands::{Key, KeyStroke, Keymap, Modifiers};
 
     use super::{OverlayKey, SheetKey, is_quit, key, overlay_key, sheet_key, stroke};
+    use crate::PLATFORM;
 
     fn parsed(text: &str) -> KeyStroke {
         KeyStroke::try_from(text).unwrap()
@@ -270,7 +271,7 @@ mod tests {
         let palette = stroke(0x23, Modifiers::COMMAND | Modifiers::SHIFT).unwrap();
 
         assert_eq!(palette, parsed("cmd+shift+p"));
-        assert!(Keymap::is_reserved(palette));
+        assert!(Keymap::defaults(PLATFORM).is_reserved(palette));
         assert_eq!(stroke(0x0A, Modifiers::COMMAND), None);
     }
 
