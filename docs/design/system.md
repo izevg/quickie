@@ -25,6 +25,12 @@ Contrast, and the Clear/Tinted glass setting without any work on our side.
 | `separator` | `#D2D2D7` / `#48484A` | `separatorColor` | Hairlines inside overlays |
 | `surface*` | `#F5F5F7` … `#3A3A3C` | none: glass materials (see Elevation) | — |
 | `selection-fill` | accent at 18 % behind the selected row | `controlAccentColor` at 18 % alpha, text `labelColor`, match highlights stay accent | Selected palette row: a subtle tint, never glass |
+| `group-fill` | white with a `#D2D2D7` border | `quaternarySystemFillColor`, `separator` border | Groups of rows in the Settings window, where there is no glass |
+| `*-fill` / `*-line` | `red-50` / `emerald-50` … | `destructive` or `success` at 12 % (fill) and 50 % (border); `accent` at 50 % (border) | Conflict rows and keycaps, the protection card, the recording box |
+
+Colors resolve when a layer is drawn (`updateLayer`), never once at creation, so a light/dark
+switch repaints them. With Increase Contrast on, borders that carry meaning are 2 pt and a
+conflict row gets a red outline.
 
 The `content-*` and `syntax-*` colors in the Stitch file describe the sample web pages, not the
 browser; they are not tokens.
@@ -39,6 +45,7 @@ Dynamic Type and optical sizes. No bundled fonts.
 |---|---|---|---|
 | `palette-input` | headline-md 18/24 600 | `.title3` (15 pt) at 1.2×, regular | Palette and address input |
 | `title` | headline-lg 24/32 600 | `.title2` | Sheet titles, empty states |
+| `headline` | headline-sm 14 700 | `.headline` (13 pt bold) | Settings pane titles, the protection card |
 | `row-title` | body-md 14/20 | `.body` (13 pt) | Rows in palette, switcher, popovers |
 | `row-detail` | label-lg 13/18 500 | `.subheadline` | Hosts, ages, counters |
 | `caption` | label-sm 11/14 500 | `.caption1` | Hint bars, footers, section headers |
@@ -63,8 +70,8 @@ Overlay widths from the mockups: address 640, command palette 720, answer panel 
 switcher sized by its thumbnails (6 × 16:10). Palettes sit at 15 % from the top (address at 20 %).
 The answer panel docks at the right and takes at most 40 % of the window (up to 760, at most 640
 tall), so the page it cites stays readable beside it. The agent settings are the Agent pane of the
-Settings window: a standard macOS window with a toolbar of panes, 540 wide, no glass (it floats
-above nothing).
+Settings window: a standard macOS window, 860 × 600, with a 220 sidebar of panes on the sidebar
+material and each pane's title in the titlebar's band, no glass (it floats above nothing).
 
 ## Elevation
 

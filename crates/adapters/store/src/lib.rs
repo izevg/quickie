@@ -1,6 +1,7 @@
 //! SQLite persistence (`shell.sqlite`): implements the application's [`SessionRepo`],
 //! [`LibraryRepo`], [`KeymapRepo`], [`ShieldsRepo`], [`AgentRepo`] and [`ZoomRepo`]. The user's
-//! own `keybindings.json` is a [`KeymapRepo`] too: [`KeybindingsFile`].
+//! own `keybindings.json` is a [`KeymapRepo`] too, and the keymap editor's
+//! [`KeymapFile`](quickie_application::KeymapFile): [`KeybindingsFile`].
 //!
 //! A save replaces one aggregate inside one transaction, so a crash mid-save leaves the previous
 //! version intact. Even with write-ahead logging a save takes milliseconds, more than a frame,
