@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 use quickie_application::conformance::{
     self, Driven, Event, Group, Harness, NotDriven, Outcome, PageSource,
 };
-use quickie_application::{
-    Answer, BlockerRules, DownloadToken, EngineError, FindStep, PageRect, ReplyToken, Ticket,
-};
+use quickie_application::{Answer, BlockerRules, DownloadToken, EngineError, PageRect, ReplyToken};
 use quickie_domain_browsing::TabId;
 use quickie_engine_chromium::ChromiumEngine;
 use url::Url;
@@ -72,28 +70,10 @@ impl Harness for Chromium {
         engine.drain(into);
     }
 
-    // The bridge has none of the page features yet.
+    // The bridge has none of the page features yet; its page content port fails each request.
 
     fn answer(&mut self, _: &mut ChromiumEngine, _: ReplyToken, _: &Answer) -> Driven<bool> {
         Err(NotDriven("answer"))
-    }
-
-    fn find(&mut self, _: &mut ChromiumEngine, _: TabId, _: &str, _: FindStep) -> Driven<()> {
-        Err(NotDriven("find"))
-    }
-
-    fn link_targets(&mut self, _: &mut ChromiumEngine, _: TabId) -> Driven<Option<Ticket>> {
-        Err(NotDriven("link_targets"))
-    }
-
-    fn follow_link(
-        &mut self,
-        _: &mut ChromiumEngine,
-        _: TabId,
-        _: usize,
-        _: bool,
-    ) -> Driven<Option<Ticket>> {
-        Err(NotDriven("follow_link"))
     }
 
     fn click(
@@ -104,10 +84,6 @@ impl Harness for Chromium {
         _: bool,
     ) -> Driven<Result<(), String>> {
         Err(NotDriven("click"))
-    }
-
-    fn page_text(&mut self, _: &mut ChromiumEngine, _: TabId) -> Driven<Option<Ticket>> {
-        Err(NotDriven("page_text"))
     }
 
     fn downloads_into(&mut self, _: &mut ChromiumEngine) -> Driven<Result<PathBuf, String>> {

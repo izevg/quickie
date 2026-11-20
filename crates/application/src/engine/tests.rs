@@ -3,7 +3,41 @@ use std::path::PathBuf;
 use quickie_domain_browsing::{Jar, Profile, TabId};
 use url::Url;
 
-use super::{DownloadEvent, DownloadToken, ReplyToken, Ticket};
+use super::{DownloadEvent, DownloadToken, FindStep, PageContent, ReplyToken, Ticket};
+use crate::EngineError;
+
+/// Page content that remembers the finds it was asked for and can do nothing else.
+#[derive(Default)]
+struct Finds(Vec<(TabId, String, FindStep)>);
+
+impl PageContent for Finds {
+    fn find(&mut self, tab: TabId, query: &str, step: FindStep) -> Result<(), EngineError> {
+        self.0.push((tab, query.to_owned(), step));
+        Ok(())
+    }
+
+    fn read_text(&mut self, _tab: TabId, _max_chars: usize) -> Result<Ticket, EngineError> {
+        Err(EngineError("no text".to_owned()))
+    }
+
+    fn link_targets(&mut self, _tab: TabId) -> Result<Ticket, EngineError> {
+        Err(EngineError("no targets".to_owned()))
+    }
+
+    fn follow_link(&mut self, _tab: TabId, _: usize, _: bool) -> Result<Ticket, EngineError> {
+        Err(EngineError("no targets".to_owned()))
+    }
+}
+
+#[test]
+fn clearing_a_find_is_a_find_of_nothing() {
+    let tab = TabId::new(Profile::Main, 3);
+    let mut finds = Finds::default();
+
+    finds.clear_find(tab).unwrap();
+
+    assert_eq!(finds.0, [(tab, String::new(), FindStep::Refine)]);
+}
 
 #[test]
 fn every_download_event_names_its_download() {

@@ -10,8 +10,8 @@ use quickie_domain_shields::{ContentHash, FilterListId, Site};
 use super::{Case, Checked, Run, ensure, same, tab};
 use crate::conformance::{Group, Harness, site};
 use crate::{
-    BlockerRules, DownloadEvent, DownloadToken, EngineEvent, EnginePort, FindStep, Followed, Found,
-    ListRules, Navigation, Ticket,
+    BlockerRules, DownloadEvent, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep,
+    Followed, Found, ListRules, Navigation, PageContent, Ticket,
 };
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
@@ -27,6 +27,7 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             "an_empty_query_or_no_match_finds_nothing",
             find_nothing,
         ),
+        case(Group::Find, "clearing_a_find_finds_nothing", find_cleared),
         case(
             Group::Hints,
             "the_targets_are_the_links_and_controls_in_order",
@@ -43,6 +44,11 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             following_a_button,
         ),
         case(Group::Text, "the_text_is_what_the_page_shows", page_text),
+        case(
+            Group::Text,
+            "the_text_is_cut_to_the_most_asked_for",
+            text_cut,
+        ),
         case(
             Group::Downloads,
             "an_attachment_downloads_into_the_folder",
@@ -83,8 +89,17 @@ fn find<H: Harness>(
     query: &str,
     step: FindStep,
 ) -> Result<FindMatches, String> {
+    matches(run, query, |engine| engine.find(tab(1), query, step))
+}
+
+/// Asks the engine for a find in tab 1 with `ask` and waits for the matches of `query`.
+fn matches<H: Harness>(
+    run: &mut Run<'_, H>,
+    query: &str,
+    ask: impl FnOnce(&mut H::Engine) -> Result<(), EngineError>,
+) -> Result<FindMatches, String> {
     let mark = run.events.len();
-    run.harness.find(&mut run.engine, tab(1), query, step)?;
+    ask(&mut run.engine).map_err(|error| format!("finding {query:?} failed: {error}"))?;
     let found = run.take(
         mark,
         &format!("the matches of {query:?}"),
@@ -143,6 +158,20 @@ fn find_nothing<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     same("the matches of nothing", &empty, &FindMatches::NONE)
 }
 
+fn find_cleared<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+    find(run, "alpha", FindStep::Refine)?;
+
+    let cleared = matches(run, "", |engine| engine.clear_find(tab(1)))?;
+
+    same("the matches once cleared", &cleared, &FindMatches::NONE)?;
+    let without = run.engine.clear_find(tab(9));
+    ensure(without.is_err(), || {
+        "a tab without a page cleared a find".to_owned()
+    })
+}
+
 /// Opens the opener page in tab 1.
 fn opener<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     run.create(1, "opener", Jar::Main)?;
@@ -158,9 +187,9 @@ fn follow<H: Harness>(
 ) -> Result<Followed, String> {
     run.targets(1)?;
     let ticket = run
-        .harness
-        .follow_link(&mut run.engine, tab(1), index, background)?
-        .ok_or("the page is gone")?;
+        .engine
+        .follow_link(tab(1), index, background)
+        .map_err(|error| format!("following target {index} failed: {error}"))?;
     let answer = run.take(0, "what following left to do", |event| {
         matches!(event, EngineEvent::Followed { ticket: answered, .. } if *answered == ticket)
     })?;
@@ -189,15 +218,14 @@ fn targets_in_order<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     ensure(sized && ordered, || {
         format!("the targets are not laid out top to bottom in the view: {targets:?}")
     })?;
-    let first = run.harness.link_targets(&mut run.engine, tab(1))?;
-    let second = run.harness.link_targets(&mut run.engine, tab(1))?;
+    let first = run.engine.link_targets(tab(1));
+    let second = run.engine.link_targets(tab(1));
     ensure(first != second, || {
         format!("two requests got one ticket: {first:?}")
     })?;
-    ensure(
-        run.harness.link_targets(&mut run.engine, tab(9))?.is_none(),
-        || "a tab without a page has link targets".to_owned(),
-    )
+    ensure(run.engine.link_targets(tab(9)).is_err(), || {
+        "a tab without a page has link targets".to_owned()
+    })
 }
 
 fn following_a_link<H: Harness>(run: &mut Run<'_, H>) -> Checked {
@@ -226,23 +254,20 @@ fn following_a_button<H: Harness>(run: &mut Run<'_, H>) -> Checked {
 
     same("following a button", &followed, &Followed::Done)?;
     run.wait_title(1, "Clicked")?;
-    ensure(
-        run.harness
-            .follow_link(&mut run.engine, tab(9), 0, false)?
-            .is_none(),
-        || "a tab without a page followed a link".to_owned(),
-    )
+    ensure(run.engine.follow_link(tab(9), 0, false).is_err(), || {
+        "a tab without a page followed a link".to_owned()
+    })
 }
 
-fn page_text<H: Harness>(run: &mut Run<'_, H>) -> Checked {
-    run.create(1, "plain", Jar::Main)?;
-    run.wait_visit(1, "plain", "Plain")?;
+/// The most text a check reads: far more than any of the suite's pages shows.
+const ALL_TEXT: usize = 10_000;
 
+/// Reads at most `max_chars` characters of tab 1's text and waits for them.
+fn read<H: Harness>(run: &mut Run<'_, H>, max_chars: usize) -> Result<String, String> {
     let ticket: Ticket = run
-        .harness
-        .page_text(&mut run.engine, tab(1))?
-        .ok_or("the page is gone")?;
-
+        .engine
+        .read_text(tab(1), max_chars)
+        .map_err(|error| format!("reading the text failed: {error}"))?;
     let answer = run.take(
         0,
         "the page's text",
@@ -255,12 +280,34 @@ fn page_text<H: Harness>(run: &mut Run<'_, H>) -> Checked {
         return Err(format!("{answer:?} is not page text"));
     };
     same("whose text", &about, &tab(1))?;
+    Ok(text)
+}
+
+fn page_text<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let text = read(run, ALL_TEXT)?;
+
     ensure(text.contains("alpha beta Alpha gamma alpha"), || {
         format!("the page's text is {text:?}")
     })?;
-    ensure(
-        run.harness.page_text(&mut run.engine, tab(9))?.is_none(),
-        || "a tab without a page has text".to_owned(),
+    ensure(run.engine.read_text(tab(9), ALL_TEXT).is_err(), || {
+        "a tab without a page has text".to_owned()
+    })
+}
+
+fn text_cut<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    let whole = read(run, ALL_TEXT)?;
+    let cut = read(run, 5)?;
+
+    same(
+        "the text cut to 5 characters",
+        &cut,
+        &whole.chars().take(5).collect(),
     )
 }
 
