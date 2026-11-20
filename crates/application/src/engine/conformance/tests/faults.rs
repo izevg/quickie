@@ -14,9 +14,9 @@ use crate::conformance::{
     Driven, Event, Group, Harness, MemoryEngine, MemoryPage, NotDriven, Outcome, PageSource, run,
 };
 use crate::{
-    Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, EngineError,
-    EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageAsks, PageContent,
-    PageRect, PageZoom, ReplyToken, Ticket,
+    Answer, Ask, AskKind, BlockerRules, Dialog, DownloadEvent, DownloadToken, Downloads,
+    EngineError, EngineEvent, EnginePort, FindStep, Followed, LinkTarget, Navigation, PageAsks,
+    PageContent, PageRect, PageZoom, ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -38,6 +38,8 @@ enum Fault {
     LateEnd,
     /// A cancelled download still reports progress.
     ReportsCancelled,
+    /// Saving a page as a PDF does nothing.
+    SavesNoPdf,
     /// The harness cannot click pages.
     CannotClick,
     /// Every answer is taken, whether a page waits for it or not.
@@ -67,6 +69,35 @@ struct Broken {
     next_turn: Vec<EngineEvent<MemoryPage>>,
     /// Zooms set for tabs without a page yet.
     ahead: Vec<(TabId, ZoomLevel)>,
+}
+
+impl Downloads for Broken {
+    fn set_directory(&mut self, directory: PathBuf) {
+        self.engine.set_directory(directory);
+    }
+
+    fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError> {
+        self.engine.download(tab, url)
+    }
+
+    fn cancel(&mut self, token: DownloadToken) {
+        if let Fault::ReportsCancelled = self.fault {
+            self.later
+                .push(EngineEvent::Download(DownloadEvent::Progress {
+                    token,
+                    received: 1,
+                    total: None,
+                }));
+        }
+        self.engine.cancel(token);
+    }
+
+    fn save_pdf(&mut self, tab: TabId) -> Result<(), EngineError> {
+        match self.fault {
+            Fault::SavesNoPdf => Ok(()),
+            _ => self.engine.save_pdf(tab),
+        }
+    }
 }
 
 impl PageAsks for Broken {
@@ -246,30 +277,8 @@ impl Harness for Faulty {
         }
     }
 
-    fn downloads_into(&mut self, engine: &mut Broken) -> Driven<Result<PathBuf, String>> {
-        Memory.downloads_into(&mut engine.engine)
-    }
-
-    fn download(
-        &mut self,
-        engine: &mut Broken,
-        tab: TabId,
-        url: &Url,
-    ) -> Driven<Result<(), EngineError>> {
-        Memory.download(&mut engine.engine, tab, url)
-    }
-
-    fn cancel_download(&mut self, engine: &mut Broken, token: DownloadToken) -> Driven<()> {
-        if let Fault::ReportsCancelled = self.0 {
-            engine
-                .later
-                .push(EngineEvent::Download(DownloadEvent::Progress {
-                    token,
-                    received: 1,
-                    total: None,
-                }));
-        }
-        Memory.cancel_download(&mut engine.engine, token)
+    fn new_folder(&mut self) -> Driven<Result<PathBuf, String>> {
+        Memory.new_folder()
     }
 
     fn downloaded(&self, engine: &Broken, file: &Path) -> Driven<Option<Vec<u8>>> {
@@ -415,6 +424,16 @@ fn a_cancelled_download_that_still_reports_fails() {
     let report = run(&mut Faulty(Fault::ReportsCancelled));
 
     assert_eq!(failed(&report), ["a_cancelled_download_leaves_no_file"]);
+}
+
+#[test]
+fn a_pdf_that_is_never_saved_fails() {
+    let report = run(&mut Faulty(Fault::SavesNoPdf));
+
+    assert_eq!(
+        failed(&report),
+        ["a_page_saved_as_a_pdf_is_a_file_in_the_folder"]
+    );
 }
 
 #[test]

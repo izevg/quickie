@@ -1,6 +1,11 @@
 //! Download use cases: the engine reports a download's start, progress and end, and the user
 //! cancels, retries and clears them.
 //!
+//! The library knows which listed download each of the engine's downloads is (the engine names
+//! them by [`DownloadToken`]), and the tab each came from, for as long as Quickie runs; through
+//! the engine's [`Downloads`](crate::Downloads) port it stops and fetches again what the user
+//! asks.
+//!
 //! The list saves when a download starts and when it ends, never on progress: progress arrives
 //! several times a second and is worth nothing after a restart, where an unfinished download
 //! has failed anyway.
@@ -13,17 +18,39 @@
 #[cfg(test)]
 mod tests;
 
-use quickie_domain_browsing::Jar;
+use std::path::Path;
+
+use quickie_domain_browsing::{Jar, TabId};
 use quickie_domain_library::{
     Download, DownloadError, DownloadId, DownloadState, Downloads, DownloadsSnapshot,
 };
 use url::Url;
 
 use super::Library;
-use crate::{AppError, Clock, LibraryRepo};
+use crate::{AppError, Clock, DownloadEvent, DownloadToken, LibraryRepo};
 
 /// Why a download listed as in progress at start failed.
 const INTERRUPTED: &str = "Quickie quit before it finished";
+
+/// What a download event changed, for the shell to tell the user.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DownloadMoved {
+    /// The engine started a download, now listed under `id`.
+    Started { id: DownloadId, file_name: String },
+    /// The engine refused a download before it started, for `reason`.
+    Refused { reason: String },
+    /// A file made from a page, such as a PDF of it, is written whole and listed under `id`.
+    Saved { id: DownloadId, file_name: String },
+    /// More of a download arrived.
+    Progressed(DownloadId),
+    /// Every byte of a download is in its file.
+    Finished(DownloadId),
+    /// A download stopped before it finished.
+    Failed(DownloadId),
+    /// Nothing listed changed: the download is not one the library lists any more, or it
+    /// ended first (the user cancelled it, and the engine's last word came after).
+    Unlisted,
+}
 
 /// Fails every download still in progress: at start, nothing is fetching any more.
 pub(super) fn interrupt(downloads: &mut Downloads) {
@@ -49,6 +76,68 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
     #[must_use]
     pub fn is_session_only(&self, id: DownloadId) -> bool {
         self.session_only.contains(&id)
+    }
+
+    /// A download moved on, as the engine reported it: a started one is listed, a file made
+    /// from a page is listed whole, and the others move the listed download they are. A start
+    /// that cannot be listed is cancelled through `engine`, so no file is fetched that the
+    /// list does not show.
+    ///
+    /// # Errors
+    ///
+    /// The store failed, or the listed download cannot move that way.
+    pub fn download_moved(
+        &mut self,
+        event: DownloadEvent,
+        engine: &mut impl crate::Downloads,
+    ) -> Result<DownloadMoved, AppError> {
+        let token = event.token();
+        match event {
+            DownloadEvent::Started {
+                tab,
+                jar,
+                url,
+                file,
+                ..
+            } => {
+                let file_name = file_name(&file);
+                match self.download_started(url, file_name.clone(), jar) {
+                    Ok(id) => {
+                        self.listed.insert(token, id);
+                        self.fetched.insert(id, (token, tab));
+                        Ok(DownloadMoved::Started { id, file_name })
+                    }
+                    Err(error) => {
+                        engine.cancel(token);
+                        Err(error)
+                    }
+                }
+            }
+            DownloadEvent::Refused { reason, .. } => Ok(DownloadMoved::Refused { reason }),
+            DownloadEvent::Saved { jar, url, file, .. } => {
+                let file_name = file_name(&file);
+                let id = self.download_started(url, file_name.clone(), jar)?;
+                self.download_finished(id)?;
+                Ok(DownloadMoved::Saved { id, file_name })
+            }
+            DownloadEvent::Progress {
+                received, total, ..
+            } => self.move_listed(token, |library, id| {
+                library
+                    .download_progressed(id, received, total)
+                    .map(|()| DownloadMoved::Progressed(id))
+            }),
+            DownloadEvent::Finished { .. } => self.move_listed(token, |library, id| {
+                library
+                    .download_finished(id)
+                    .map(|()| DownloadMoved::Finished(id))
+            }),
+            DownloadEvent::Failed { reason, .. } => self.move_listed(token, |library, id| {
+                library
+                    .download_failed(id, reason)
+                    .map(|()| DownloadMoved::Failed(id))
+            }),
+        }
     }
 
     /// Lists a download the engine started into `file_name`, from a page in `jar`. A main-jar
@@ -106,27 +195,58 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
         self.end_download(|next| next.fail(id, reason))
     }
 
-    /// The user stopped a download; the shell stops the engine's.
+    /// The user stopped a download: it is listed as cancelled, and the engine's download, when
+    /// it fetches one this session, stops through `engine`.
     ///
     /// # Errors
     ///
-    /// The download is not listed or no longer in progress, or the store failed.
-    pub fn cancel_download(&mut self, id: DownloadId) -> Result<(), AppError> {
-        self.end_download(|next| next.cancel(id))
+    /// The download is not listed or no longer in progress, or the store failed; the engine's
+    /// download goes on.
+    pub fn cancel_download(
+        &mut self,
+        id: DownloadId,
+        engine: &mut impl crate::Downloads,
+    ) -> Result<(), AppError> {
+        self.end_download(|next| next.cancel(id))?;
+        if let Some(&(token, _)) = self.fetched.get(&id) {
+            engine.cancel(token);
+        }
+        Ok(())
     }
 
-    /// Takes an ended download off the list so it can be fetched again; returns it. The new
-    /// fetch is listed when the engine starts it.
+    /// Fetches an ended download again through `engine`: from the tab whose page started it
+    /// while that tab is `open`, else from the `current` tab. A throwaway jar's download is
+    /// fetched only from its own tab, so its cookies never reach another jar. The download
+    /// leaves the list; the new fetch is listed when the engine starts it. False when no tab
+    /// may fetch it, and nothing changed.
     ///
     /// # Errors
     ///
-    /// The download is not listed or still in progress, or the store failed.
-    pub fn retry_download(&mut self, id: DownloadId) -> Result<Download, AppError> {
-        let mut next = self.downloads.clone();
-        let removed = next.remove(id)?;
-        self.commit_downloads(next)?;
-        self.session_only.remove(&id);
-        Ok(removed)
+    /// The download is not listed or still in progress, or the store failed, and nothing
+    /// changed; or the engine could not fetch it, and it is off the list.
+    pub fn retry_download(
+        &mut self,
+        id: DownloadId,
+        engine: &mut impl crate::Downloads,
+        open: impl Fn(TabId) -> bool,
+        current: Option<TabId>,
+    ) -> Result<bool, AppError> {
+        let origin = self
+            .fetched
+            .get(&id)
+            .map(|&(_, tab)| tab)
+            .filter(|&tab| open(tab));
+        let tab = match origin {
+            Some(tab) => tab,
+            None if self.is_session_only(id) => return Ok(false),
+            None => match current {
+                Some(tab) => tab,
+                None => return Ok(false),
+            },
+        };
+        let download = self.forget_download(id)?;
+        engine.download(tab, &download.url)?;
+        Ok(true)
     }
 
     /// Clears every ended download from the list, not from the disk; returns them.
@@ -139,9 +259,42 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
         let cleared = next.clear_finished();
         self.commit_downloads(next)?;
         for download in &cleared {
-            self.session_only.remove(&download.id);
+            self.unlist(download.id);
         }
         Ok(cleared)
+    }
+
+    /// Takes an ended download off the list; returns it.
+    fn forget_download(&mut self, id: DownloadId) -> Result<Download, AppError> {
+        let mut next = self.downloads.clone();
+        let removed = next.remove(id)?;
+        self.commit_downloads(next)?;
+        self.unlist(id);
+        Ok(removed)
+    }
+
+    /// Forgets all the library knew of a download that left the list.
+    fn unlist(&mut self, id: DownloadId) {
+        self.session_only.remove(&id);
+        if let Some((token, _)) = self.fetched.remove(&id) {
+            self.listed.remove(&token);
+        }
+    }
+
+    /// Moves the listed download the engine's `token` is, as `step` says. A download not
+    /// listed, or one that ended first, moves nothing.
+    fn move_listed(
+        &mut self,
+        token: DownloadToken,
+        step: impl FnOnce(&mut Self, DownloadId) -> Result<DownloadMoved, AppError>,
+    ) -> Result<DownloadMoved, AppError> {
+        let Some(&id) = self.listed.get(&token) else {
+            return Ok(DownloadMoved::Unlisted);
+        };
+        match step(self, id) {
+            Err(AppError::Download(DownloadError::Ended(_))) => Ok(DownloadMoved::Unlisted),
+            moved => moved,
+        }
     }
 
     fn end_download(
@@ -171,4 +324,10 @@ impl<R: LibraryRepo, C: Clock> Library<R, C> {
             .retain(|download| !self.session_only.contains(&download.id));
         snapshot
     }
+}
+
+/// The name a download's file has in its folder.
+fn file_name(file: &Path) -> String {
+    file.file_name()
+        .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
 }

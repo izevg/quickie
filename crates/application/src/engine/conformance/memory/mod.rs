@@ -19,9 +19,9 @@ use super::site::resource;
 use super::{Act, Control, Resource};
 use crate::{
     Answer, Ask, AskKind, BlockerError, BlockerRules, ContentBlockerPort, Dialog, DownloadEvent,
-    DownloadToken, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed, Found,
-    LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageZoom, Permission, ReplyToken,
-    Ticket,
+    DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, EventQueue, FindStep, Followed,
+    Found, LinkTarget, Navigation, PageAsks, PageContent, PageRect, PageZoom, Permission,
+    ReplyToken, Ticket,
 };
 
 /// An engine whose pages live in memory, for the suite and the use cases' tests.
@@ -95,29 +95,6 @@ impl MemoryEngine {
             .and_then(|page| targets(page).iter().position(|target| target.frame == at));
         if let Some(index) = index {
             self.press(tab, index, command);
-        }
-    }
-
-    /// Saves downloads into `folder` from now on; until then, every download is refused.
-    pub fn set_download_directory(&mut self, folder: PathBuf) {
-        self.folder = Some(folder);
-    }
-
-    /// Downloads `url` from a tab's page, in its jar.
-    ///
-    /// # Errors
-    ///
-    /// The tab has no page.
-    pub fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError> {
-        let jar = self.page(tab)?.jar;
-        self.start(tab, jar, url.clone());
-        Ok(())
-    }
-
-    /// Stops a running download and deletes what it wrote; nothing more is reported for it.
-    pub fn cancel_download(&mut self, token: DownloadToken) {
-        if let Some(file) = self.running.remove(&token) {
-            self.files.remove(&file);
         }
     }
 
@@ -477,6 +454,59 @@ impl PageContent for MemoryEngine {
             followed,
         });
         Ok(ticket)
+    }
+}
+
+/// Downloads land in a folder that exists only in memory; a page saved as a PDF is a file named
+/// after its title that starts the way every PDF does.
+impl Downloads for MemoryEngine {
+    fn set_directory(&mut self, directory: PathBuf) {
+        self.folder = Some(directory);
+    }
+
+    fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError> {
+        let jar = self.page(tab)?.jar;
+        self.start(tab, jar, url.clone());
+        Ok(())
+    }
+
+    fn cancel(&mut self, token: DownloadToken) {
+        if let Some(file) = self.running.remove(&token) {
+            self.files.remove(&file);
+        }
+    }
+
+    fn save_pdf(&mut self, tab: TabId) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        let jar = page.jar;
+        let (url, shown) = page
+            .shown
+            .clone()
+            .ok_or_else(|| EngineError(format!("{tab} has no page to save yet")))?;
+        self.serial += 1;
+        let token = DownloadToken::new(self.serial);
+        let Some(folder) = self.folder.as_ref() else {
+            self.events
+                .push(EngineEvent::Download(DownloadEvent::Refused {
+                    token,
+                    reason: "no downloads folder".to_owned(),
+                }));
+            return Ok(());
+        };
+        let file = folder.join(format!("{}.pdf", shown.title));
+        self.files.insert(
+            file.clone(),
+            format!("%PDF-1.4 {}", shown.text).into_bytes(),
+        );
+        self.events
+            .push(EngineEvent::Download(DownloadEvent::Saved {
+                token,
+                tab,
+                jar,
+                url,
+                file,
+            }));
+        Ok(())
     }
 }
 

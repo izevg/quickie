@@ -4,12 +4,13 @@
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{
-    Answer, EngineError, EngineEvent, EnginePort, FindStep, Navigation, PageAsks, PageContent,
-    PageZoom, ReplyToken,
+    Answer, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort, FindStep, Navigation,
+    PageAsks, PageContent, PageZoom, ReplyToken,
 };
 use quickie_domain_browsing::{Focus, Jar, JarId, Profile, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -703,6 +704,36 @@ fn page_content_of_a_tab_without_a_page_fails_as_such() {
     let read = engine.read_text(tab(7), 100);
 
     assert_eq!(read, Err(EngineError("no page for main tab#7".to_owned())));
+}
+
+#[test]
+fn downloads_fail_without_calling_chromium() {
+    let (mut engine, fake) = with_pages(&[7]);
+
+    engine.set_directory(PathBuf::from("/downloads"));
+    let downloaded = engine.download(tab(7), &url("https://a.test/a.zip"));
+    let saved = engine.save_pdf(tab(7));
+    let without = engine.save_pdf(tab(8));
+    engine.cancel(DownloadToken::new(1));
+
+    assert_eq!(
+        downloaded,
+        Err(EngineError(
+            "download from the page of main tab#7: the Chromium bridge cannot yet".to_owned()
+        ))
+    );
+    assert_eq!(
+        saved,
+        Err(EngineError(
+            "save as a PDF the page of main tab#7: the Chromium bridge cannot yet".to_owned()
+        ))
+    );
+    assert_eq!(
+        without,
+        Err(EngineError("no page for main tab#8".to_owned()))
+    );
+    assert_eq!(fake.calls(), []);
+    assert_eq!(drained(&mut engine), []);
 }
 
 #[test]

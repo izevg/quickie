@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use quickie_application::conformance::{
     self, Driven, Event, Group, Harness, NotDriven, Outcome, PageSource,
 };
-use quickie_application::{BlockerRules, DownloadToken, EngineError, PageRect};
+use quickie_application::{BlockerRules, PageRect};
 use quickie_domain_browsing::TabId;
 use quickie_engine_chromium::ChromiumEngine;
 use url::Url;
@@ -83,21 +83,8 @@ impl Harness for Chromium {
         Err(NotDriven("click"))
     }
 
-    fn downloads_into(&mut self, _: &mut ChromiumEngine) -> Driven<Result<PathBuf, String>> {
-        Err(NotDriven("downloads_into"))
-    }
-
-    fn download(
-        &mut self,
-        _: &mut ChromiumEngine,
-        _: TabId,
-        _: &Url,
-    ) -> Driven<Result<(), EngineError>> {
-        Err(NotDriven("download"))
-    }
-
-    fn cancel_download(&mut self, _: &mut ChromiumEngine, _: DownloadToken) -> Driven<()> {
-        Err(NotDriven("cancel_download"))
+    fn new_folder(&mut self) -> Driven<Result<PathBuf, String>> {
+        Err(NotDriven("new_folder"))
     }
 
     fn downloaded(&self, _: &ChromiumEngine, _: &Path) -> Driven<Option<Vec<u8>>> {

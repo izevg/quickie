@@ -28,7 +28,7 @@ use objc2_foundation::{NSDate, NSObjectProtocol, NSPoint, NSRect, NSRunLoop, NSS
 use quickie_application::conformance::{
     self, Driven, Event, Group, Harness, PageSource, Resource, SITE, WINDOW,
 };
-use quickie_application::{BlockerRules, ContentBlockerPort, DownloadToken, EngineError, PageRect};
+use quickie_application::{BlockerRules, ContentBlockerPort, PageRect};
 use quickie_domain_browsing::TabId;
 use quickie_engine_webkit::{BlockerStatus, WebKitContentBlocker, WebKitEngine};
 use tempfile::TempDir;
@@ -233,24 +233,8 @@ impl Harness for WebKit {
         Ok(Ok(()))
     }
 
-    fn downloads_into(&mut self, engine: &mut WebKitEngine) -> Driven<Result<PathBuf, String>> {
-        Ok(self.folder().inspect(|folder| {
-            engine.set_download_directory(folder.clone());
-        }))
-    }
-
-    fn download(
-        &mut self,
-        engine: &mut WebKitEngine,
-        tab: TabId,
-        url: &Url,
-    ) -> Driven<Result<(), EngineError>> {
-        Ok(engine.download(tab, url))
-    }
-
-    fn cancel_download(&mut self, engine: &mut WebKitEngine, token: DownloadToken) -> Driven<()> {
-        engine.cancel_download(token);
-        Ok(())
+    fn new_folder(&mut self) -> Driven<Result<PathBuf, String>> {
+        Ok(self.folder())
     }
 
     fn downloaded(&self, _engine: &WebKitEngine, file: &Path) -> Driven<Option<Vec<u8>>> {

@@ -14,8 +14,11 @@ mod queue;
 #[cfg(test)]
 mod tests;
 
+use std::path::PathBuf;
+
 use quickie_domain_browsing::TabId;
 use quickie_domain_settings::ZoomLevel;
+use url::Url;
 
 pub use event::{
     Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, FindStep, Followed,
@@ -116,4 +119,34 @@ pub trait PageAsks {
     /// Hands `answer` to the page that waits on `token`, which goes on at once; false when no
     /// page waits on it any more (it was answered, or its tab closed).
     fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool;
+}
+
+/// Downloads, and files made from pages. Each moves on as [`EngineEvent::Download`], under the
+/// [`DownloadToken`] the engine gave it when it started; which download in the list a token is,
+/// and what the user sees of it, is the [`Library`](crate::Library) use case's business.
+pub trait Downloads {
+    /// Saves downloads into `directory` from now on, creating it when the first one comes.
+    /// Until it is set, every download is refused.
+    fn set_directory(&mut self, directory: PathBuf);
+
+    /// Downloads `url` from the tab's page, in its jar, as a retry does; it is reported like
+    /// any other download.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or the engine cannot download.
+    fn download(&mut self, tab: TabId, url: &Url) -> Result<(), EngineError>;
+
+    /// Stops a running download and deletes what it wrote; nothing more is reported for it. A
+    /// download that is not running is left alone.
+    fn cancel(&mut self, token: DownloadToken);
+
+    /// Saves the tab's page as a PDF in the downloads folder, under its title and a free name,
+    /// reported as [`DownloadEvent::Saved`], or [`DownloadEvent::Refused`] when it could not be
+    /// made or written.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, its page has not committed yet, or the engine cannot make PDFs.
+    fn save_pdf(&mut self, tab: TabId) -> Result<(), EngineError>;
 }

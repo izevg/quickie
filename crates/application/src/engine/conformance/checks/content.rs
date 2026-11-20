@@ -1,7 +1,7 @@
 //! What is on a page (find, hints, text), what it fetches (downloads, blocker), and its
 //! renderer dying (crash).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use quickie_domain_browsing::{FindMatches, Jar};
@@ -11,8 +11,8 @@ use quickie_domain_shields::{ContentHash, FilterListId, Site};
 use super::{Case, Checked, Run, ensure, same, tab};
 use crate::conformance::{Group, Harness, site};
 use crate::{
-    BlockerRules, DownloadEvent, DownloadToken, EngineError, EngineEvent, EnginePort, FindStep,
-    Followed, Found, ListRules, Navigation, PageContent, PageZoom, Ticket,
+    BlockerRules, DownloadEvent, DownloadToken, Downloads, EngineError, EngineEvent, EnginePort,
+    FindStep, Followed, Found, ListRules, Navigation, PageContent, PageZoom, Ticket,
 };
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
@@ -69,6 +69,11 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             Group::Downloads,
             "without_a_folder_a_download_is_refused",
             refused_download,
+        ),
+        case(
+            Group::Downloads,
+            "a_page_saved_as_a_pdf_is_a_file_in_the_folder",
+            saved_pdf,
         ),
         case(Group::Blocker, "a_blocked_script_never_runs", blocked),
         case(
@@ -380,8 +385,15 @@ fn finished<H: Harness>(
     same("the downloaded file", &file, &want)
 }
 
+/// Makes a new folder the engine's downloads folder.
+fn downloads_into<H: Harness>(run: &mut Run<'_, H>) -> Result<PathBuf, String> {
+    let folder = run.harness.new_folder()??;
+    run.engine.set_directory(folder.clone());
+    Ok(folder)
+}
+
 fn attachment_downloads<H: Harness>(run: &mut Run<'_, H>) -> Checked {
-    let folder = run.harness.downloads_into(&mut run.engine)??;
+    let folder = downloads_into(run)?;
     run.create(1, "plain", Jar::Main)?;
     run.wait_visit(1, "plain", "Plain")?;
 
@@ -396,34 +408,34 @@ fn attachment_downloads<H: Harness>(run: &mut Run<'_, H>) -> Checked {
 }
 
 fn asked_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
-    let folder = run.harness.downloads_into(&mut run.engine)??;
+    let folder = downloads_into(run)?;
     run.create(1, "plain", Jar::Main)?;
     run.wait_visit(1, "plain", "Plain")?;
 
     let attachment = run.url("report.bin");
-    run.harness
-        .download(&mut run.engine, tab(1), &attachment)?
+    run.engine
+        .download(tab(1), &attachment)
         .map_err(|error| format!("downloading failed: {error}"))?;
 
     let token = started(run, "report.bin", &folder)?;
     finished(run, token, "report.bin", &folder)?;
-    let without = run.harness.download(&mut run.engine, tab(9), &attachment)?;
+    let without = run.engine.download(tab(9), &attachment);
     ensure(without.is_err(), || {
         "a tab without a page downloaded".to_owned()
     })
 }
 
 fn cancelled_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
-    let folder = run.harness.downloads_into(&mut run.engine)??;
+    let folder = downloads_into(run)?;
     run.create(1, "plain", Jar::Main)?;
     run.wait_visit(1, "plain", "Plain")?;
     let stalled = run.url("stalled.bin");
-    run.harness
-        .download(&mut run.engine, tab(1), &stalled)?
+    run.engine
+        .download(tab(1), &stalled)
         .map_err(|error| format!("downloading failed: {error}"))?;
     let token = started(run, "stalled.bin", &folder)?;
 
-    run.harness.cancel_download(&mut run.engine, token)?;
+    run.engine.cancel(token);
     let mark = run.events.len();
     run.idle();
 
@@ -447,8 +459,8 @@ fn refused_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     run.engine
         .navigate(tab(1), &Navigation::Load(attachment.clone()))
         .map_err(|error| format!("loading the attachment failed: {error}"))?;
-    run.harness
-        .download(&mut run.engine, tab(1), &attachment)?
+    run.engine
+        .download(tab(1), &attachment)
         .map_err(|error| format!("downloading failed: {error}"))?;
 
     run.wait("both downloads to be refused", |events| {
@@ -459,6 +471,59 @@ fn refused_download<H: Harness>(run: &mut Run<'_, H>) -> Checked {
         matches!(tokens.as_slice(), [first, second] if first != second),
         || format!("two refused downloads have the tokens {tokens:?}"),
     )
+}
+
+fn saved_pdf<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    let folder = downloads_into(run)?;
+    run.create(1, "plain", Jar::Main)?;
+    run.wait_visit(1, "plain", "Plain")?;
+
+    run.engine
+        .save_pdf(tab(1))
+        .map_err(|error| format!("saving a PDF failed: {error}"))?;
+
+    run.wait("the PDF to be saved or refused", |events| {
+        downloads(events).any(|event| {
+            matches!(
+                event,
+                DownloadEvent::Saved { .. } | DownloadEvent::Refused { .. }
+            )
+        })
+    })?;
+    let saved = downloads(&run.events).find_map(|event| match event {
+        DownloadEvent::Saved {
+            tab,
+            jar,
+            url,
+            file,
+            ..
+        } => Some(((*tab, *jar, url.clone()), file.clone())),
+        _ => None,
+    });
+    let (page, file) = saved.ok_or_else(|| {
+        format!(
+            "the PDF was refused: {:?}",
+            downloads(&run.events).collect::<Vec<_>>()
+        )
+    })?;
+    same(
+        "the saved page",
+        &page,
+        &(tab(1), Jar::Main, run.url("plain")),
+    )?;
+    ensure(
+        file.parent() == Some(folder.as_path())
+            && file.extension().is_some_and(|extension| extension == "pdf"),
+        || format!("{} is no PDF in {}", file.display(), folder.display()),
+    )?;
+    let written = run.harness.downloaded(&run.engine, &file)?;
+    ensure(
+        written.is_some_and(|bytes| bytes.starts_with(b"%PDF")),
+        || format!("{} holds no PDF", file.display()),
+    )?;
+    ensure(run.engine.save_pdf(tab(9)).is_err(), || {
+        "a tab without a page was saved".to_owned()
+    })
 }
 
 /// The downloads refused so far.
