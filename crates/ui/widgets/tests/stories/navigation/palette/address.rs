@@ -33,11 +33,9 @@ pub const STORIES: &[Story] = &[
     story("inline-completion", LIGHT_DARK, inline_completion),
     story("mixed-kinds", LIGHT, mixed_kinds),
     story("url-typed", LIGHT, url_typed),
-    story("search-only", LIGHT, search_only),
     story("cyrillic", LIGHT, cyrillic),
     story("long-urls", LIGHT, long_urls),
     story("go-to-tab", LIGHT, go_to_tab),
-    story("revert", LIGHT, revert),
 ];
 
 /// How a row was chosen: its target, and the modifiers held with `⏎`.
@@ -112,14 +110,33 @@ impl Host {
     }
 }
 
+/// The page with its actions. Played: typing shows the field and suggestions, `⎋` brings the
+/// page back, `⎋` again closes; pictured open on the page again.
 fn current_url(scene: &mut Scene) {
     let host = Host::open(scene, World::new(&TABS), PAGE, None);
     scene.check(host.overlay.shows_page(), "the overlay shows the page");
     scene.check_eq(host.overlay.text(), PAGE.to_owned(), "the page's URL");
+    let copy_url = |target: Option<Target>| match target {
+        Some(Target::Command(id)) => id.as_str() == "quickie.page.copyUrl",
+        _ => false,
+    };
     scene.check(
-        matches!(host.overlay.chosen(), Some(Target::Command(id)) if id.as_str() == "quickie.page.copyUrl"),
+        copy_url(host.overlay.chosen()),
         "Copy URL is the first action",
     );
+    scene.type_text("news");
+    scene.check(!host.overlay.shows_page(), "typing shows the field");
+    scene.check(
+        !copy_url(host.overlay.chosen()),
+        "suggestions replace the actions",
+    );
+    scene.press(Key::Escape);
+    scene.check(host.overlay.shows_page(), "⎋ brings the page back");
+    scene.check_eq(host.overlay.text(), PAGE.to_owned(), "the page's URL again");
+    scene.check(copy_url(host.overlay.chosen()), "the actions are back");
+    scene.press(Key::Escape);
+    scene.check(!host.overlay.is_open(), "⎋ again closes");
+    host.overlay.show(scene.host(), scene.window(), PAGE, None);
 }
 
 /// A count from Shields, when it has one, sits on the right of the URL.
@@ -162,20 +179,18 @@ fn url_typed(scene: &mut Scene) {
     );
 }
 
-fn search_only(scene: &mut Scene) {
-    let host = Host::typing(scene, World::new(&TABS), "how to quit vim");
-    scene.check_eq(
-        host.overlay.chosen(),
-        Some(Target::Search(url(
-            "https://duckduckgo.com/?q=how+to+quit+vim",
-        ))),
-        "plain text is searched first",
-    );
-}
-
+/// Russian text: nothing completes, the search for it comes first, and the Russian title
+/// matches.
 fn cyrillic(scene: &mut Scene) {
     let host = Host::typing(scene, World::new(&TABS), "лента");
     scene.check_eq(host.overlay.text(), "лента".to_owned(), "nothing completes");
+    scene.check_eq(
+        host.overlay.chosen(),
+        Some(Target::Search(url(
+            "https://duckduckgo.com/?q=%D0%BB%D0%B5%D0%BD%D1%82%D0%B0",
+        ))),
+        "plain text is searched first",
+    );
     let world = &host.world;
     scene.check_eq(
         host.overlay.target_at(1),
@@ -227,17 +242,4 @@ fn go_to_tab(scene: &mut Scene) {
         tab.map(|tab| (Target::Tab(tab), Modifiers::NONE)),
         "⏎ switches to the open tab",
     );
-}
-
-/// Type, then `⎋`: the page comes back; `⎋` again closes.
-fn revert(scene: &mut Scene) {
-    let host = Host::typing(scene, World::new(&TABS), "news");
-    scene.check(!host.overlay.shows_page(), "typing shows the field");
-    scene.press(Key::Escape);
-    scene.check(host.overlay.shows_page(), "⎋ brings the page back");
-    scene.check_eq(host.overlay.text(), PAGE.to_owned(), "the page's URL");
-    scene.press(Key::Escape);
-    scene.check(!host.overlay.is_open(), "⎋ again closes");
-    // Rendered on the page again, for the picture.
-    host.overlay.show(scene.host(), scene.window(), PAGE, None);
 }
