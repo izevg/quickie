@@ -74,7 +74,15 @@ quickie-ui-shared.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+quickie-domain-commands.workspace = true
 quickie-domain-palette.workspace = true
+quickie-ui-shared = { workspace = true, features = ["stories"] }
+
+# Every widget's stories: headless renders, visual tests, and play tests (docs/quality.md).
+# Without the libtest harness, so AppKit runs on the main thread.
+[[test]]
+name = "stories"
+harness = false
 
 [lints]
 workspace = true

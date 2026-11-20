@@ -904,6 +904,7 @@ dependencies = [
  "quickie-application",
  "quickie-domain-agents",
  "quickie-domain-browsing",
+ "quickie-domain-commands",
  "quickie-domain-library",
  "quickie-domain-palette",
  "quickie-domain-shields",
