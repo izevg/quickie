@@ -46,6 +46,7 @@ mod network;
 mod page;
 mod scheme;
 mod shields;
+mod user_agent;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;

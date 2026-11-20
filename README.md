@@ -107,6 +107,7 @@ Linux: `keybindings.json` writes it `mod` (`mod+shift+p`), and `⌃⇥` stays Ct
 | `⌘J` | Downloads |
 | `⌘⌥S` | Shields for the site |
 | `⌘N` / `⌘⇧W` | New window / close the window (its tabs go to the trash) |
+| `⌃⌘F` | Enter or exit full screen (Window menu; the window has no buttons) |
 | `⌘.` | Stop the agent's answer (`?` in the palette asks it about the page) |
 
 ## Privacy
