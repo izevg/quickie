@@ -1,5 +1,6 @@
 include = ["**/*.toml"]
-exclude = ["target/**"]
+# .build holds the ignored engine checkouts (WebKit's own TOML files are not ours to format).
+exclude = ["target/**", ".build/**"]
 
 [formatting]
 column_width = 100

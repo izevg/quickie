@@ -11,6 +11,7 @@ This page lives in `engine/` rather than `docs/` because `docs/` already holds i
 | Path | What |
 |---|---|
 | [webkit/webkit.pin](webkit/webkit.pin) | The fork, the branch, the commit that is built, the date it was checked |
+| [webkit/PATCHES.md](webkit/PATCHES.md) | The patch plan: what each fork patch is for, where it goes, its tests, the order |
 | [webkit/scripts/sync](webkit/scripts/sync) | Fetches exactly the pinned commit into `.build/webkit` |
 | [webkit/scripts/build](webkit/scripts/build) | Builds the macOS Release frameworks with `build-webkit` |
 | [webkit/scripts/package](webkit/scripts/package) | Packs them with `BUILD-INFO` and a sha256 |
@@ -97,8 +98,8 @@ the app bundle leaves it out.
 
 ## Bumping the pin
 
-1. Read the new commit off the fork: `git ls-remote https://github.com/izevg/WebKit refs/heads/main`
-   (or the patch branch, once there is one).
+1. Read the new commit off the fork:
+   `git ls-remote https://github.com/izevg/WebKit refs/heads/quickie/2.54`.
 2. Put it into [webkit.pin](webkit/webkit.pin) as `WEBKIT_COMMIT`, with `WEBKIT_CHECKED` set to
    today (UTC), and the subject line in the comment.
 3. Open a pull request; once it lands on `release/**` or `main`, the push builds it. To build a
@@ -107,9 +108,32 @@ the app bundle leaves it out.
 
 `sync` prints whether the branch has moved past the pin, so a stale pin shows in every run.
 
-Our patches will be commits on a branch of the fork (rebased onto WebKit main, or onto the
-Safari release branch the decision names); the pin then names that branch and its head. No patch
-files are kept here, and no git submodule.
+Our patches are commits in the fork: each on its own branch `quickie/patch/<area>-<name>`, built
+there first (below), then merged into `quickie/2.54`, whose new head the pin then names. No patch
+files are kept here, and no git submodule. What each patch is for and in which order they come:
+[webkit/PATCHES.md](webkit/PATCHES.md).
+
+## Building a patch branch
+
+A patch branch of the fork is built before it merges into `quickie/2.54`, without touching the
+pin: the `webkit` workflow's `commit` input (a full 40-character fork commit) replaces
+`WEBKIT_COMMIT` for that run.
+
+```sh
+commit=$(git ls-remote https://github.com/izevg/WebKit refs/heads/quickie/patch/<area>-<name> | cut -f1)
+gh workflow run webkit.yml --repo izevg/quickie --ref release/0.1.0 -f commit="$commit"
+```
+
+- `sync` reads the override from `QUICKIE_WEBKIT_COMMIT` (the workflow sets it from the input),
+  checks it like the pin (40 lowercase hex characters) and says it is building an override.
+- `BUILD-INFO` records the commit that was built (`webkit_commit`) next to the pinned one
+  (`webkit_pinned`), and the artifact is named after the built commit
+  (`webkit-macos-arm64-<commit12>`), so a patch build is never mistaken for the pin's.
+- Runs for different commits do not cancel each other: the concurrency group holds the commit.
+  A second run for the same ref and commit still cancels the first.
+- The compilation cache is shared: its key prefix stays per runner and Xcode, so a patch build
+  restores the newest cache saved on that runner and Xcode (usually a build of the base) and
+  recompiles little more than what the patch touches.
 
 ## How `engine-webkit` will consume the artifact
 

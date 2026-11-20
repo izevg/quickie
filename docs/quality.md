@@ -85,8 +85,10 @@ The table lives in `tools/xtask/src/layers/policy.rs`; change it together with A
   are covered by integration and snapshot tests instead.
 - Policy: every mutant is caught or the push fails. An exclusion needs an `exclude_re` entry with
   the reason, and only for a mutant that cannot be tested.
-- With an upstream branch, only the changed code is mutated (`--in-diff`); without one, the whole
-  scope runs. `--iterate` reuses earlier results.
+- Only the code changed since the base is mutated (`--in-diff`). The base is the merge-base
+  `cargo xtask base` prints, the same one `ui diff` uses: with the upstream branch, else with
+  the newest `origin/release/X.Y.Z`, else with `origin/main`; only without any of them does the
+  whole scope run. `--iterate` reuses earlier results.
 - The engine conformance suite (`application/src/engine/conformance`) is application code, so its
   checks are mutated too: they run against the in-memory reference engine, and against broken
   variants of it that each check must fail. The WebKit adapter runs the same suite in

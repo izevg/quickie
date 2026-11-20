@@ -18,6 +18,8 @@ mod report;
 
 use std::process::Command;
 
+pub use diff::base_commit;
+
 /// The crates with a `stories` test target, and their directories.
 const STORY_CRATES: [(&str, &str); 2] = [
     ("quickie-ui-widgets", "crates/ui/widgets"),

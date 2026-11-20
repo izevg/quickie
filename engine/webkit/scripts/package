@@ -2,7 +2,7 @@
 # Packs what engine/webkit/scripts/build produced into one archive for engine-webkit to consume:
 # the frameworks of WebKitBuild/Release, the dylibs and the XPC services next to them
 # (WebKit.framework/Versions/A/XPCServices links to those by relative paths, so the layout is kept
-# as it is), and BUILD-INFO (pin, toolchain, host). Writes <name>.tar.gz and
+# as it is), and BUILD-INFO (the commit built, the pin, toolchain, host). Writes <name>.tar.gz and
 # <name>.tar.gz.sha256 into the output directory and prints both paths.
 #
 #   engine/webkit/scripts/package [output-dir]     default output-dir: <build>/webkit-package
@@ -38,6 +38,8 @@ done
 
 {
   printf 'webkit_commit=%s\n' "$commit"
+  # The pin, so a build of an override (a patch branch) is told apart from the pin's.
+  printf 'webkit_pinned=%s\n' "$(sed -n 's/^WEBKIT_COMMIT=//p' "$root/engine/webkit/webkit.pin")"
   printf 'webkit_repo=%s\n' "$(git -C "$src" remote get-url origin)"
   printf 'quickie_commit=%s\n' "$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
   printf 'xcode=%s\n' "$(xcodebuild -version | tr '\n' ' ' | sed 's/ $//')"
