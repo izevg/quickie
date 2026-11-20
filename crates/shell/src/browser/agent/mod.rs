@@ -5,7 +5,7 @@
 //!
 //! - [`answer`]: reading the page, asking on a worker thread, the answer's events on the main
 //!   thread batched per frame, citations, links, stopping.
-//! - [`settings`]: the settings popover and its requests.
+//! - [`settings`]: the agent settings form (the Settings window's Agent pane) and its requests.
 //!
 //! No question and no answer is kept anywhere but on screen: none is written to the store,
 //! whichever jar the page is in, throwaway or not.
@@ -24,9 +24,7 @@ use quickie_application::StopSignal;
 use quickie_domain_browsing::TabId;
 use quickie_system::KeychainSecrets;
 use quickie_ui_shared::Trigger;
-use quickie_ui_widgets::{
-    Activity, AgentAnswerPanel, AgentBadge, AgentSettings, SettingsRequest, agent_wording,
-};
+use quickie_ui_widgets::{Activity, AgentAnswerPanel, AgentBadge, AgentSettings, agent_wording};
 
 use super::Browser;
 use crate::input::keystroke::OverlayKey;
@@ -35,7 +33,8 @@ use crate::input::keystroke::OverlayKey;
 pub struct AgentUi {
     panel: AgentAnswerPanel,
     badge: AgentBadge,
-    settings: AgentSettings,
+    /// The settings form, shown in the Settings window.
+    pub(super) settings: AgentSettings,
     /// The Keychain as the worker threads read it.
     secrets: KeychainSecrets,
     /// Counts asks; an event or a page text of an older one is dropped.
@@ -77,14 +76,9 @@ impl AgentUi {
         }
     }
 
-    /// Whether the answer panel or the settings show.
+    /// Whether the answer panel shows.
     pub fn is_open(&self) -> bool {
-        self.panel.is_open() || self.settings.is_open()
-    }
-
-    /// Whether the settings show; their fields then have the keyboard.
-    pub fn settings_open(&self) -> bool {
-        self.settings.is_open()
+        self.panel.is_open()
     }
 }
 
@@ -107,43 +101,24 @@ impl Browser {
         });
     }
 
-    /// Takes the panel and the settings away; an answer streams on, and the panel shows it
-    /// again when reopened.
+    /// Takes the panel away; an answer streams on, and the panel shows it again when reopened.
     pub(super) fn hide_agent(&self) {
         self.agent_ui.panel.hide();
-        self.agent_ui.settings.hide();
         self.clear_citation();
         self.place_badge();
     }
 
-    /// The fixed keys of the panel and the settings: `⎋` closes either, `⏎` saves the
-    /// settings. `false` when neither shows or the key is not theirs.
+    /// The panel's fixed key: `⎋` closes it. `false` when it does not show or the key is not
+    /// its.
     pub(super) fn agent_key(&self, key: OverlayKey) -> bool {
-        let ui = &self.agent_ui;
-        if ui.settings.is_open() {
-            if ui.settings.is_composing() {
-                return false;
-            }
-            return match key {
-                OverlayKey::Accept { .. } => {
-                    self.settings_request(SettingsRequest::Save(ui.settings.form()));
-                    true
-                }
-                OverlayKey::Dismiss => {
-                    self.close_agent();
-                    true
-                }
-                OverlayKey::Move(_) | OverlayKey::Previous => false,
-            };
-        }
-        if ui.panel.is_open() && key == OverlayKey::Dismiss {
+        if self.agent_ui.panel.is_open() && key == OverlayKey::Dismiss {
             self.close_agent();
             return true;
         }
         false
     }
 
-    /// `⎋`: the panel or the settings go, and the page takes the keyboard back.
+    /// `⎋`: the panel goes, and the page takes the keyboard back.
     fn close_agent(&self) {
         self.hide_agent();
         if let Some((window, _)) = self.current() {
@@ -202,7 +177,7 @@ impl Browser {
 
     /// Runs `work` on a worker thread named `name`, then `done` with its result on the main
     /// thread. `false` when no thread could start.
-    fn off_main<T: Send + 'static>(
+    pub(in crate::browser) fn off_main<T: Send + 'static>(
         &self,
         name: &str,
         work: impl FnOnce() -> T + Send + 'static,

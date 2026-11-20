@@ -300,9 +300,9 @@ impl Browser {
             PanelRequest::Cite(anchor) => self.cite(&anchor),
             PanelRequest::Open(url) => self.open_link(url),
             PanelRequest::Stop => self.stop_agent(),
-            PanelRequest::Settings => self.open_agent_settings(Trigger::Pointer),
+            PanelRequest::Settings => self.open_agent_settings(),
             PanelRequest::DetectLocal => {
-                self.open_agent_settings(Trigger::Pointer);
+                self.open_agent_settings();
                 self.settings_request(SettingsRequest::DetectLocal);
             }
         }

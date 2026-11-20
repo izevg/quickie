@@ -59,6 +59,7 @@ quickie-engine-webkit = { path = "crates/adapters/engine-webkit", version = "0.0
 quickie-llm = { path = "crates/adapters/llm", version = "0.0.0" }
 quickie-store = { path = "crates/adapters/store", version = "0.0.0" }
 quickie-system = { path = "crates/adapters/system", version = "0.0.0" }
+quickie-ui-screens = { path = "crates/ui/screens", version = "0.0.0" }
 quickie-ui-shared = { path = "crates/ui/shared", version = "0.0.0" }
 quickie-ui-widgets = { path = "crates/ui/widgets", version = "0.0.0" }
 

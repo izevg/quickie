@@ -10,7 +10,8 @@
 
 ## 0. Principles
 
-1. **Content first.** In the idle state only the page is on screen. UI appears only on an explicit
+1. **Content first.** In the idle state only the page is on screen, edge to edge, with the
+   system's window buttons floating over its top-left corner. UI appears only on an explicit
    key, gesture, or click. Hover-reveal is forbidden.
 2. **Native.** AppKit and Core Animation through `objc2`, 120 Hz, the main thread only renders and
    applies cheap mutations.
@@ -172,6 +173,22 @@ cost nothing at run time.
   Ctrl on Linux), resolved when the keymap is built, so a key stroke is always concrete and the
   lookup costs the same everywhere. Reserved strokes and conflicts follow from the resolved keys;
   keycaps print per platform (`⇧⌘P`, `Ctrl+Shift+P`).
+- **Keys reach the shell first, and only what it binds stops there.** On macOS the app's local
+  event monitor sees every key press before the menu bar's key equivalents, the first responder
+  (the page, a field, an overlay), and `AppKit`. In order: a press held with `fn`/Globe on a key
+  that does not carry `fn` by itself is the system's and passes untouched (Globe+F, Globe+⌃F);
+  a press the page did not take comes back from `WebKit` through the monitor and passes again
+  untouched; a press in another window (Settings, a system panel) is that window's, except
+  `⌘W`/`⌘,` in Settings and `⌘Q`; then an open `⌃⇥` cycle takes `⎋`, a sheet its keys, the
+  overview and link hints theirs, an overlay its fixed keys, and the keymap resolves the rest
+  in the current `when` context. A letter is the Latin letter the layout types (QWERTZ's `⌘Z`
+  is undo), else its US key position (a Russian `д` on the `L` key is `⌘L`). What the keymap
+  does not bind goes on to the page, the field, and the menu bar (`⌘C`, `⌘H`, `⌘M`, `⌃⌘F`).
+  State between presses never outlives the user's attention: a chord's first stroke waits 2 s
+  at most and is dropped by a click, a window or the app losing the keyboard, or a full-screen
+  transition, which also end a held `⌃⇥` cycle; `inputFocused` counts only while the page has
+  the keyboard. "Show Key Debug Overlay" in the palette lists the last presses and what became
+  of each.
 
 #### Engines: ports, capabilities, profiles
 

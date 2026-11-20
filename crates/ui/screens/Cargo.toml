@@ -1,0 +1,33 @@
+[package]
+name = "quickie-ui-screens"
+description = "FSD screens layer of Quickie's UI: the Settings window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = [
+  "objc2-core-foundation",
+  "NSButton",
+  "NSCell",
+  "NSControl",
+  "NSImage",
+  "NSResponder",
+  "NSTabViewController",
+  "NSTabViewItem",
+  "NSText",
+  "NSTextField",
+  "NSTextFieldCell",
+  "NSView",
+  "NSViewController",
+  "NSWindow",
+] }
+objc2-core-foundation = { workspace = true, features = ["CFCGTypes"] }
+objc2-foundation = { workspace = true, features = ["NSGeometry", "NSObject", "NSString"] }
+quickie-domain-shields.workspace = true
+quickie-ui-shared.workspace = true
+
+[lints]
+workspace = true

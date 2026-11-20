@@ -51,6 +51,7 @@ quickie-engine-webkit.workspace = true
 quickie-llm.workspace = true
 quickie-store.workspace = true
 quickie-system.workspace = true
+quickie-ui-screens.workspace = true
 quickie-ui-shared.workspace = true
 quickie-ui-widgets.workspace = true
 url.workspace = true

@@ -13,7 +13,7 @@
 //! As a bundle it opens the links and files other apps hand it (`application:openURLs:`), and
 //! the `App` commands ask macOS to make it the default browser or show the profile in Finder.
 //!
-//! The session, the history, the bookmarks, and the user's key bindings live in
+//! The session, the history, and the bookmarks live in
 //! `~/Library/Application Support/Quickie/shell.sqlite`. Every key is a command of the keymap
 //! (`docs/design/inventory.md`, README "Default keys"): `⇧⌘P` / `⌘K` open the command palette,
 //! `⌘P` goes to a tab, bookmark, or visited page, `⌘L` opens the address overlay, `⌘T` /
@@ -23,7 +23,8 @@
 //! `⌥⌘9` pin there, `⌘D` bookmarks, `⇧⌘C` / `⌥⌘C` copy the URL / a Markdown link, `⌘J`
 //! shows the downloads (saved to `~/Downloads`), `⌥⌘S` the site's shields, `⌘=` / `⌘-` / `⌘0`
 //! zoom the site in, out, and back to 100 %, `⌥⌘P` prints, `⇧⌘R` reloads past the cache, `?`
-//! in the palette asks the agent about the page and `⌘.` stops it. `⌘Q` quits.
+//! in the palette asks the agent about the page and `⌘.` stops it. `⌘,` opens Settings, where
+//! `keybindings.json` (in the same folder) opens and reloads. `⌘Q` quits.
 //! Launching opens no network connection; the start page is served from memory, and the agent
 //! contacts its endpoint only when asked.
 
@@ -52,17 +53,15 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter};
-use quickie_application::{
-    Agent, Browsing, Clock, Library, LoadedKeymap, Shields, Zoom, load_keymap,
-};
+use quickie_application::{Agent, Browsing, Clock, Library, Shields, Zoom};
 use quickie_domain_browsing::{Profile, Timestamp};
-use quickie_domain_commands::{Catalog, Keymap, Platform};
+use quickie_domain_commands::{Catalog, Platform};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
-use quickie_store::{PendingWrites, WriteBehindStore};
+use quickie_store::{KeybindingsFile, PendingWrites, WriteBehindStore};
 use quickie_system::{KeychainSecrets, SystemEntropy};
 use url::Url;
 
-use browser::{Browser, Services, install_shortcuts, launch_urls};
+use browser::{Browser, Services, install_shortcuts, keymap_from, launch_urls};
 use delegate::AppDelegate;
 
 /// The browsing use cases as the app composes them.
@@ -136,7 +135,7 @@ fn main() -> ExitCode {
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     menu::install(&app, &delegate, &Catalog::builtin(), mtm);
     let _flush_on_quit = flush_on_quit(pending);
-    let _monitor = install_shortcuts(&browser);
+    let _shortcuts = install_shortcuts(&browser);
     browser.show();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -156,12 +155,20 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
     let engine = WebKitEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
     let mut browsing = Browsing::start(Profile::Main, engine, store, SystemClock, &home)
         .map_err(|error| error.to_string())?;
-    // The library and the key bindings have a writer, and a connection, of their own.
+    // The library has a writer, and a connection, of its own.
     let library_store =
         WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let library_pending = library_store.pending();
     let catalog = Catalog::builtin();
-    let (keymap, notices) = keymap(&library_store, &catalog);
+    // The user's key bindings are a file they edit; Settings → Keys opens and reloads it.
+    let keybindings = KeybindingsFile::new(support_dir()?.join("keybindings.json"));
+    let (keymap, keymap_problems) = keymap_from(&keybindings, &catalog);
+    let notices = match keymap_problems.len() {
+        0 => Vec::new(),
+        n => vec![format!(
+            "keybindings.json: {n} left out, see Settings → Keys"
+        )],
+    };
     let library = Library::start(library_store, SystemClock).map_err(|error| error.to_string())?;
     // The shields too; they never fetch on their own (docs/privacy.md).
     let shields_store =
@@ -204,32 +211,14 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         palette: Palette::new(catalog.clone(), SystemClock),
         catalog,
         keymap,
+        keybindings,
+        keymap_problems,
         writes: writes.clone(),
         notices,
         downloads_folder,
         profile: support_dir()?,
     };
     Ok((Browser::new(services, home, mtm), writes))
-}
-
-/// The defaults with the user's bindings applied, and what to tell the user about entries
-/// that were left out. A store that cannot be read leaves the defaults.
-fn keymap(store: &WriteBehindStore, catalog: &Catalog) -> (Keymap, Vec<String>) {
-    match load_keymap(store, catalog, PLATFORM) {
-        Ok(LoadedKeymap { keymap, rejected }) => {
-            let notices = rejected
-                .iter()
-                .map(|bad| format!("Key binding `{}` skipped: {}", bad.entry.key, bad.reason))
-                .collect();
-            (keymap, notices)
-        }
-        Err(error) => (
-            Keymap::defaults(PLATFORM),
-            vec![format!(
-                "Key bindings not loaded, using the defaults: {error}"
-            )],
-        ),
-    }
 }
 
 /// Writes the pending saves before the app exits: `terminate:` ends the process without

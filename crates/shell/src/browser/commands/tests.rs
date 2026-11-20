@@ -63,6 +63,8 @@ fn the_commands_this_shell_does_have_actions() {
         ("quickie.agent.stop", Action::StopAgent),
         ("quickie.agent.showAnswer", Action::ShowAgentAnswer),
         ("quickie.agent.settings", Action::ShowAgentSettings),
+        ("quickie.app.settings", Action::ShowSettings),
+        ("quickie.debug.keys", Action::DebugKeys),
     ];
     for (id, action) in cases {
         assert_eq!(of(id), Some(action), "{id}");
@@ -147,8 +149,8 @@ fn every_action_names_a_command_of_the_catalog() {
         .filter(|command| Action::of(&command.id).is_some())
         .count();
 
-    // 42 named commands, nine slots to go to and nine to pin, and the nine developer tools.
-    assert_eq!(built, 42 + 9 + 9 + 9);
+    // 44 named commands, nine slots to go to and nine to pin, and the nine developer tools.
+    assert_eq!(built, 44 + 9 + 9 + 9);
 }
 
 #[test]

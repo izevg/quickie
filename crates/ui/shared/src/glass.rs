@@ -194,9 +194,14 @@ impl GlassSurface {
 
     /// Places the surface in its superview's coordinates and lays out shape and shadow.
     pub fn set_frame(&self, frame: NSRect) {
+        self.set_frame_rounded(frame, self.elevation.corner_radius(frame.size.height));
+    }
+
+    /// As [`Self::set_frame`], with corners of radius `corner` instead of the elevation's: a
+    /// tall E1 panel is a rounded rectangle, not a pill.
+    pub fn set_frame_rounded(&self, frame: NSRect, corner: CGFloat) {
         self.root.setFrame(frame);
         let size = frame.size;
-        let corner = self.elevation.corner_radius(size.height);
         match &self.material {
             Material::Glass(glass) => glass.setCornerRadius(corner),
             Material::Fallback(view) => round(view, corner),

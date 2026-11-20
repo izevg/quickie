@@ -7,25 +7,22 @@ use quickie_application::{LlmPort, LocalFound, detect_local, list_models};
 use quickie_domain_agents::{ApiKey, BaseUrl, ModelId};
 use quickie_engine_webkit::UrlSessionHttp;
 use quickie_llm::OpenAiClient;
-use quickie_ui_shared::Trigger;
+use quickie_ui_screens::Pane;
 use quickie_ui_widgets::{SettingsForm, SettingsRequest, SettingsSummary, Tone, agent_wording};
 
 use super::super::Browser;
 
-/// What a worker found, in words the popover shows.
+/// What a worker found, in words the form shows.
 type Listed = Result<Vec<String>, String>;
 
 impl Browser {
-    /// "Show Agent Settings": the popover with the endpoint as saved.
-    pub(in crate::browser) fn open_agent_settings(&self, trigger: Trigger) {
-        let Some((_, window)) = self.current() else {
-            return;
-        };
-        let Some(host) = window.contentView() else {
-            return;
-        };
-        self.close_overlays();
-        self.hide_find();
+    /// "Show Agent Settings": the Settings window on its Agent pane.
+    pub(in crate::browser) fn open_agent_settings(&self) {
+        self.open_settings(Some(Pane::Agent));
+    }
+
+    /// The form shows the endpoint as saved.
+    pub(in crate::browser) fn load_agent_settings(&self) {
         let summary =
             self.agent
                 .borrow()
@@ -35,12 +32,10 @@ impl Browser {
                     model: endpoint.model().as_str().to_owned(),
                     has_key: endpoint.key().is_some(),
                 });
-        self.agent_ui
-            .settings
-            .show(&host, &window, &summary, trigger);
+        self.agent_ui.settings.load(&summary);
     }
 
-    /// What the popover asked.
+    /// What the form asked.
     pub(super) fn settings_request(&self, request: SettingsRequest) {
         match request {
             SettingsRequest::Save(form) => self.save_settings(&form),
