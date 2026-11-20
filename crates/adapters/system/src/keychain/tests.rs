@@ -138,6 +138,7 @@ fn a_key_in_another_keychain_is_never_read() {
 }
 
 #[test]
+#[ignore = "a locked Keychain blocks on securityd without a GUI session (CI); run with --ignored"]
 fn deleting_from_a_locked_keychain_fails() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("locked.keychain");
