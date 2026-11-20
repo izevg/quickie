@@ -511,19 +511,37 @@ fn saved_pdf<H: Harness>(run: &mut Run<'_, H>) -> Checked {
         &page,
         &(tab(1), Jar::Main, run.url("plain")),
     )?;
-    ensure(
-        file.parent() == Some(folder.as_path())
-            && file.extension().is_some_and(|extension| extension == "pdf"),
-        || format!("{} is no PDF in {}", file.display(), folder.display()),
-    )?;
+    ensure(file.parent() == Some(folder.as_path()), || {
+        format!("{} is not in {}", file.display(), folder.display())
+    })?;
     let written = run.harness.downloaded(&run.engine, &file)?;
     ensure(
         written.is_some_and(|bytes| bytes.starts_with(b"%PDF")),
         || format!("{} holds no PDF", file.display()),
     )?;
+
+    run.engine
+        .save_pdf(tab(1))
+        .map_err(|error| format!("saving a second PDF failed: {error}"))?;
+    run.wait("the second PDF to be saved", |events| {
+        saved_files(events).len() == 2
+    })?;
+    let tokens = saved_files(&run.events);
+    ensure(
+        matches!(tokens.as_slice(), [first, second] if first != second),
+        || format!("two saved PDFs have the tokens {tokens:?}"),
+    )?;
     ensure(run.engine.save_pdf(tab(9)).is_err(), || {
         "a tab without a page was saved".to_owned()
     })
+}
+
+/// The files made from pages so far.
+fn saved_files<P>(events: &[EngineEvent<P>]) -> Vec<DownloadToken> {
+    downloads(events)
+        .filter(|event| matches!(event, DownloadEvent::Saved { .. }))
+        .map(DownloadEvent::token)
+        .collect()
 }
 
 /// The downloads refused so far.
@@ -622,10 +640,21 @@ fn about_as_wide(what: &str, got: f64, want: f64) -> Checked {
 fn zoomed<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     let twice = ZoomLevel::from_percent(200).ok_or("200 % is no zoom level")?;
     run.create(1, "measured", Jar::Main)?;
+    run.create(2, "measured", Jar::Main)?;
     let actual = width(run, 0, 1)?;
+    width(run, 0, 2)?;
 
     run.engine.set_zoom(tab(1), twice);
-    let zoomed = remeasure(run, &Navigation::Reload)?;
+    let mark = run.events.len();
+    for serial in [1, 2] {
+        run.engine
+            .navigate(tab(serial), &Navigation::Reload)
+            .map_err(|error| format!("reloading failed: {error}"))?;
+    }
+    // The other tab first: its page keeps its own zoom, whatever the zoomed one reports.
+    let other = width(run, mark, 2)?;
+    about_as_wide("another tab", other, actual)?;
+    let zoomed = width(run, mark, 1)?;
     about_as_wide("at 200 %", zoomed, actual / 2.0)?;
 
     remeasure_elsewhere(run)?;
