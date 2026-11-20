@@ -26,7 +26,6 @@ const fn palette(state: &'static str, themes: &'static [Theme], scene: fn(&mut S
 
 pub const STORIES: &[Story] = &[
     palette("go-to", LIGHT_DARK, go_to),
-    palette("sections", LIGHT_DARK, sections),
     palette("commands", &Theme::ALL, commands),
     palette("highlights", LIGHT_DARK, highlights),
     palette("empty", LIGHT_DARK, empty),
@@ -186,29 +185,6 @@ fn go_to(scene: &mut Scene) {
     );
 }
 
-/// "rust" finds tabs, a bookmark, and a page from history: a section each, the tabs first.
-/// `↓` walks the rows across sections, past the headers.
-fn sections(scene: &mut Scene) {
-    let host = Host::open(scene, World::new(&TABS), "");
-    scene.type_text("rust");
-    let accessibility = scene.accessibility();
-    for header in ["Open tabs, 2 tabs", "Bookmarks, 1 page", "History, 1 page"] {
-        scene.check(accessibility.contains(header), header);
-    }
-    scene.press(Key::Down);
-    scene.press(Key::Down);
-    scene.check_eq(
-        host.palette.selected().and_then(|row| {
-            host.results
-                .borrow()
-                .get(row)
-                .map(|item| item.title.clone())
-        }),
-        Some("objc2 - Rust".to_owned()),
-        "↓ moves to the bookmark, past its header",
-    );
-}
-
 /// A picture for `github.com`: a symbol drawn into a TIFF, as a kept favicon would be bytes.
 fn favicon() -> impl Fn(&Url) -> Option<Rc<[u8]>> {
     let bytes: Option<Rc<[u8]>> = NSImage::imageWithSystemSymbolName_accessibilityDescription(
@@ -265,7 +241,34 @@ fn long_titles(scene: &mut Scene) {
         TABS[0],
         TABS[2],
     ];
-    Host::open(scene, World::new(&tabs), "");
+    let host = Host::open(scene, World::new(&tabs), "");
+    sections(scene, &host);
+}
+
+/// The answer comes in sections, tabs first, and `↓` walks the rows across them, past the
+/// headers.
+fn sections(scene: &mut Scene, host: &Host) {
+    let accessibility = scene.accessibility();
+    for header in ["Open tabs, 3 tabs", "Bookmarks, 1 page", "History, 1 page"] {
+        scene.check(accessibility.contains(header), header);
+    }
+    for _ in 0..3 {
+        scene.press(Key::Down);
+    }
+    scene.check_eq(
+        host.palette.selected().and_then(|row| {
+            host.results
+                .borrow()
+                .get(row)
+                .map(|item| item.title.clone())
+        }),
+        Some("objc2 - Rust".to_owned()),
+        "↓ moves to the bookmark, past its header",
+    );
+    // Rendered with the first row selected again, for the picture.
+    scene.press(Key::Up);
+    scene.press(Key::Up);
+    scene.press(Key::Up);
 }
 
 /// Typing narrows to the reload commands, `↓` picks the second, `⏎` runs it and closes.

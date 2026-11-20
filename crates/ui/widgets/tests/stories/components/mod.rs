@@ -1,6 +1,7 @@
 //! Stories of the shared controls every overlay is made of, on glass as overlays show them:
 //! the keycap in each style (`docs/design/mocks/components/keycap.html`) and the hint strip
-//! that closes an E2 overlay.
+//! that closes an E2 overlay. Their references sit in the hints group, with the other keys on
+//! screen.
 
 use objc2::Message;
 use objc2::rc::Retained;
@@ -14,7 +15,7 @@ use quickie_ui_shared::{
 
 pub const STORIES: &[Story] = &[
     Story {
-        group: "components",
+        group: "hints",
         widget: "keycap",
         state: "styles",
         themes: &Theme::ALL,
@@ -22,7 +23,7 @@ pub const STORIES: &[Story] = &[
         scene: keycaps,
     },
     Story {
-        group: "components",
+        group: "hints",
         widget: "hint-bar",
         state: "strip",
         themes: LIGHT_DARK,

@@ -265,6 +265,7 @@ fn highlighted(
     for range in char_ranges(title, matches) {
         styled.style(range, &bold, &accent);
     }
+    styled.set_line_break(NSLineBreakMode::ByTruncatingTail);
     let field = NSTextField::labelWithAttributedString(styled.string(), mtm);
     field.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
     field
