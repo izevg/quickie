@@ -271,8 +271,12 @@ What we accept:
   what Web Extensions on WebKit run.
 
 How it is built:
-- **One pinned WebKit revision for both platforms**: a release branch Apple ships in Safari for
-  macOS and the matching WebKitGTK stable branch for Linux, chosen so our patches apply to both.
+- **One pinned WebKit revision for both platforms**: the WebKitGTK/WPE stable series
+  (`webkitglib/2.54` today, release tags `webkitgtk-2.54.N`), the one branch both ports build
+  from, so one patch set serves macOS and Linux. Apple's Mac-only security fixes are
+  cherry-picked from each Apple security note; the base moves to the next stable series about
+  every six months. Decided 2026-11-20 over two bases (a Safari branch for macOS, the stable
+  series for Linux), which would double every patch and rebase.
 - **Patches grouped by meaning** under `engine/` (rule of four), each with its reason; the macOS
   port links the result into the app bundle (frameworks and their XPC services, as Playwright and
   Safari Technology Preview do), the Linux port into the GTK build.
