@@ -44,17 +44,21 @@ touch `engine/webkit/`, the workflow, or its disk cleanup script. One job, `webk
    at the same pin only re-applies the sparse patterns. It checks the free disk first
    (`QUICKIE_MIN_FREE_GB`, default 15) and prints the commit, whether the branch has moved on,
    the checkout's size and the disk left.
-5. **Build** ([build](webkit/scripts/build)): `Tools/Scripts/build-webkit` with the flags below,
+5. **Compilation cache.** Xcode's compilation cache (`.build/webkit-cas`, ~5 GB) is restored
+   from the newest earlier run on the same runner and Xcode, and saved after the build, even
+   one that failed or ran out of time, so a rebuild is mostly cache hits. `WebKitBuild` (~9 GB)
+   is not cached: both would not fit the repository's 10 GB of Actions caches.
+6. **Build** ([build](webkit/scripts/build)): `Tools/Scripts/build-webkit` with the flags below,
    the full transcript in `.build/webkit-build.log` (uploaded as `webkit-macos-build-log`), a
    heartbeat on the console every five minutes, and a time budget (`QUICKIE_BUILD_MINUTES`, 300
    on CI) that stops the build and exits 124 before the 6-hour job limit. The heartbeat makes a
    run that ran out of time still say how far it got.
-6. **Package** ([package](webkit/scripts/package)): `WebKitBuild/Release/*.framework`,
+7. **Package** ([package](webkit/scripts/package)): `WebKitBuild/Release/*.framework`,
    `*.dylib` and `*.xpc` plus `BUILD-INFO` into `webkit-macos-arm64-<commit12>.tar.gz`, with its
    `.sha256`. The XPC services sit next to the frameworks;
    `WebKit.framework/Versions/A/XPCServices/*.xpc` are relative links to them, so the archive is
    unpacked as one directory and never split.
-7. **Attest and upload**, in the same job that built the archive: a build provenance
+8. **Attest and upload**, in the same job that built the archive: a build provenance
    attestation of the archive (`actions/attest-build-provenance`), then the artifact
    `webkit-macos-arm64-<commit12>` (archive, sha256, `BUILD-INFO`), kept 30 days.
 
