@@ -29,5 +29,15 @@ objc2-foundation = { workspace = true, features = ["NSGeometry", "NSObject", "NS
 quickie-domain-shields.workspace = true
 quickie-ui-shared.workspace = true
 
+[dev-dependencies]
+quickie-ui-shared = { workspace = true, features = ["stories"] }
+quickie-ui-widgets.workspace = true
+
+# The Settings panes' stories: headless renders, visual tests, and play tests
+# (docs/quality.md). Without the libtest harness, so AppKit runs on the main thread.
+[[test]]
+name = "stories"
+harness = false
+
 [lints]
 workspace = true

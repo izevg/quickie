@@ -117,6 +117,9 @@ pub struct GlassSurface {
 enum Material {
     Glass(Retained<NSGlassEffectView>),
     Fallback(Retained<NSVisualEffectView>),
+    /// A story render's opaque stand-in ([`stand_in`]).
+    #[cfg(feature = "stories")]
+    StandIn(Retained<NSView>),
 }
 
 impl GlassSurface {
@@ -132,11 +135,7 @@ impl GlassSurface {
         let content = NSView::new(mtm);
         content.setAutoresizingMask(fill());
         content.setWantsLayer(true);
-        let material = if liquid_glass_available() {
-            Material::Glass(glass(elevation, &root, &content, mtm))
-        } else {
-            Material::Fallback(fallback(elevation, &root, &content, mtm))
-        };
+        let material = material(elevation, &root, &content, mtm);
         let surface = Self {
             elevation,
             root,
@@ -205,6 +204,8 @@ impl GlassSurface {
         match &self.material {
             Material::Glass(glass) => glass.setCornerRadius(corner),
             Material::Fallback(view) => round(view, corner),
+            #[cfg(feature = "stories")]
+            Material::StandIn(view) => round(view, corner),
         }
         if let (Some(view), Some(shadow)) = (&self.shadow, self.elevation.shadow()) {
             layout_shadow(view, shadow, size, corner);
@@ -238,6 +239,55 @@ fn glass(
     }
     fit(&glass, root);
     glass
+}
+
+/// Liquid Glass when the system has it, the visual effect view before; in a story render,
+/// the stand-in.
+fn material(
+    elevation: Elevation,
+    root: &NSView,
+    content: &NSView,
+    mtm: MainThreadMarker,
+) -> Material {
+    #[cfg(feature = "stories")]
+    if crate::stories::glass_stand_in() {
+        return Material::StandIn(stand_in(elevation, root, content, mtm));
+    }
+    if liquid_glass_available() {
+        Material::Glass(glass(elevation, root, content, mtm))
+    } else {
+        Material::Fallback(fallback(elevation, root, content, mtm))
+    }
+}
+
+/// What a story renders in place of glass: an opaque fill in the window background colour,
+/// tinted with the accent for E3 as the glass is. Neither Liquid Glass nor the visual effect
+/// view draws offscreen, and the stand-in makes renders independent of what is behind them.
+#[cfg(feature = "stories")]
+fn stand_in(
+    elevation: Elevation,
+    root: &NSView,
+    content: &NSView,
+    mtm: MainThreadMarker,
+) -> Retained<NSView> {
+    let view = NSView::new(mtm);
+    view.setWantsLayer(true);
+    view.setAutoresizingMask(fill());
+    let base = NSColor::windowBackgroundColor();
+    let fill_color = if elevation == Elevation::E3 {
+        base.blendedColorWithFraction_ofColor(0.12, &tokens::color::accent())
+            .unwrap_or(base)
+    } else {
+        base
+    };
+    if let Some(layer) = view.layer() {
+        layer.setBackgroundColor(Some(&fill_color.CGColor()));
+    }
+    view.addSubview(content);
+    root.addSubview(&view);
+    fit(&view, root);
+    fit(content, &view);
+    view
 }
 
 fn fallback(

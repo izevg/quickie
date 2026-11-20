@@ -69,5 +69,24 @@ objc2-quartz-core = { workspace = true, features = [
   "CATransaction",
 ] }
 
+[features]
+# The story harness (`stories`): headless renders, visual tests, and play tests of the UI
+# (docs/quality.md, UI tests). Only the UI crates' story tests turn it on; the product never does.
+stories = [
+  "objc2-app-kit/block2",
+  "objc2-app-kit/NSAccessibilityConstants",
+  "objc2-app-kit/NSAppearance",
+  "objc2-app-kit/NSApplication",
+  "objc2-app-kit/NSBitmapImageRep",
+  "objc2-app-kit/NSColorSpace",
+  "objc2-app-kit/NSEvent",
+  "objc2-app-kit/NSGraphics",
+  "objc2-app-kit/NSGraphicsContext",
+  "objc2-app-kit/NSImageRep",
+  "objc2-app-kit/NSRunningApplication",
+  "objc2-foundation/NSData",
+  "objc2-foundation/NSProcessInfo",
+]
+
 [lints]
 workspace = true

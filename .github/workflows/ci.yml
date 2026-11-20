@@ -73,6 +73,39 @@ jobs:
       - name: Conformance suite on WebKit
         run: mise run conformance
 
+  # The UI stories (docs/quality.md, UI tests): every widget state rendered headless, its plays
+  # run, and its render compared with the reference PNG. This runner is the references' source
+  # of truth, so missing references or references from another macOS fail here (strict); the
+  # renders and diffs are uploaded, and `cargo xtask ui accept --from <artifact>` takes them.
+  # AppKit needs macOS; the Linux mutation job never builds the UI crates.
+  ui:
+    name: ui stories
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: rust
+      # Swatinem/rust-cache v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Stories (renders, plays, visual comparison)
+        env:
+          QUICKIE_UI_STRICT: "1"
+        run: mise run ui
+      # actions/upload-artifact v7.0.2
+      - name: Renders and diffs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ui-renders
+          path: target/ui
+          retention-days: 14
+
   # Only on pull requests: mutate what the branch changed in domain and application. Any missed
   # mutant fails the job. The core is pure Rust, so a Linux runner is enough (and cheaper).
   # cargo-mutants builds and tests only the packages whose files it mutates (examine_globs in

@@ -16,6 +16,8 @@ pub mod glass;
 pub mod list;
 pub mod motion;
 pub mod sheet;
+#[cfg(feature = "stories")]
+pub mod stories;
 pub mod tokens;
 
 pub use controls::{Pill, StyledText, hint_bar, keycap_group, symbol};
