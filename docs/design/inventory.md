@@ -40,12 +40,14 @@ Each folder also has `dark.html`. Sticker sheets of single components: [mocks/co
 |---|---|---|---|
 | `glass` | `GlassSurface::new(Elevation)`: material, shadow, ring, dimming scrim | E1, E2, E3; macOS 15 fallback | everywhere |
 | `sheet` | The E3 sheet: attached to the window's top edge, header (who asks), lines, an optional field, answer rows with their keys, hint bar | with or without a field; the safe default marked `Default` | permission and dialog sheets, agent approval |
-| `keycap` | One glyph chip; `KeycapGroup` for a chord | default, on a selected row (accent border) | [keycap](mocks/components/keycap.html) |
+| `keycap` | One glyph chip; `KeycapGroup` for a chord | default, on a selected row (accent border), conflict (red) | [keycap](mocks/components/keycap.html) |
 | `pill` | Rounded capsule with icon + text | neutral, success, destructive, agent | toasts, origin chip, find bar, status chips |
 | `list` | `NSTableView` wrapper with a diffing source, keyboard selection, section headers | — | palette, popovers, keymap |
 | `hint_bar` | Footer of key hints (`↑↓ select · ⏎ open · ⎋ close`) | — | every E2 |
 | `progress` | Thin line and ring progress | determinate, indeterminate | load line, downloads, agent ingestion |
-| `toggle_row` | Label + detail + switch | on, off, disabled | shields, settings |
+| `toggle_row` | Label + detail + switch, an optional accessory before the switch | on, off, disabled | shields, settings |
+| `form_group` | Rows on a `plate` with hairlines between them, as System Settings groups them | — | settings |
+| `plate` | Rounded rectangle whose fill and border resolve per appearance | fill, border, Increase Contrast | keycaps, groups, cards |
 | `motion` | Timing tokens and helpers (`instant`, `overlay_enter`, `sheet_enter`, `fade`, `gesture_settle`); picks `instant` for keyboard-initiated presentation | Reduce Motion | everywhere |
 
 ## entities (one domain object, shown)
@@ -105,7 +107,7 @@ the slices inside a group still never use each other.
 | Layer | Module | What |
 |---|---|---|
 | screens | `browser` | The window: E0 page plus the overlay host |
-| screens | `settings` | Standard settings window on `⌘,`, one instance, `⌘W` closes. Built: panes `general` (default browser, downloads folder), `shields` (filter lists, keep fresh), `agent` (the `agent_settings` form), `keys` (`keybindings.json`, entries left out). Planned: the keymap editor in `keys`, `advanced` |
+| screens | `settings` | Standard settings window on `⌘,`, one instance, `⌘W` closes; a sidebar of panes, each pane's title in the titlebar's band. Built: `general` (default browser, downloads folder), `shields` (protection card, filter lists with refresh, keep fresh), `keys` (the keymap editor: search on `⌘F`, keycaps, recording on `⏎` or double-click, conflicts in red, user vs default, `⌫` restores the defaults, `keybindings.json`), `agent` (the `agent_settings` form). Planned: `advanced`, searching all settings |
 | app | `overlay_router` | One E2/E3 at a time, focus return, `⎋` handling |
 | app | `theme` | Light/dark/tinted, Increase Contrast, Reduce Motion |
 
@@ -113,7 +115,9 @@ the slices inside a group still never use each other.
 
 - `download_row` and `filter_list_row` live inside their popover slices
   (`widgets/popovers/downloads_popover`, `shields_popover`) until an `entities` crate exists.
-  `toggle_row` is in `shared/form`; sizes and ages read through `shared/format`.
+  `toggle_row` is in `shared/form`; sizes and ages read through `shared/format`. In the
+  Settings window a filter list is a `toggle_row` with a refresh button, and `binding_row` lives
+  in the `screens/settings` keymap pane, for the same reason.
 - `agent_badge`, `model_chip` (a line of the panel's header), and `citation_chip` (the panel's
   source buttons) live in `widgets/agent` for the same reason. The answer panel docks at the
   right of the window instead of under the palette as in the mockup, so a passage a citation

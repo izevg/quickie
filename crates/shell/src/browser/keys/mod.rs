@@ -419,7 +419,7 @@ pub fn install_shortcuts(browser: &Rc<Browser>) -> Shortcuts {
 }
 
 /// The modifiers the keymap reads; Caps Lock and `fn` do not count (`fn` is read apart).
-fn modifiers(flags: NSEventModifierFlags) -> Modifiers {
+pub(in crate::browser) fn modifiers(flags: NSEventModifierFlags) -> Modifiers {
     [
         (NSEventModifierFlags::Command, Modifiers::COMMAND),
         (NSEventModifierFlags::Shift, Modifiers::SHIFT),

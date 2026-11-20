@@ -3,11 +3,20 @@
 //! A bad entry must never cost the user their keyboard, so entries are taken one at a time: an
 //! entry that does not parse, or that would make the keymap invalid, is set aside and reported,
 //! and the keymap keeps the defaults and every entry before it that was fine.
+//!
+//! - [`listing`]: the keymap editor's lines, one per binding, with where each came from.
+//! - [`edit`]: what the editor changes: a command bound to a recorded chord, or back to its
+//!   defaults.
 
+mod edit;
+mod listing;
 #[cfg(test)]
 mod tests;
 
 use quickie_domain_commands::{BindingError, Catalog, Keymap, KeymapEntry, KeymapError, Platform};
+
+pub use edit::{RebindError, check_binding, rebind, reset_binding};
+pub use listing::{BindingLine, BindingSource, keymap_lines};
 
 use crate::{AppError, KeybindingText, KeymapRepo};
 
@@ -53,9 +62,14 @@ pub fn load_keymap(
     catalog: &Catalog,
     platform: Platform,
 ) -> Result<LoadedKeymap, AppError> {
+    Ok(apply(repo.load_keybindings()?, catalog, platform))
+}
+
+/// The default bindings of `platform` with the valid `entries` applied, one at a time.
+fn apply(entries: Vec<KeybindingText>, catalog: &Catalog, platform: Platform) -> LoadedKeymap {
     let mut keymap = Keymap::defaults(platform);
     let mut rejected = Vec::new();
-    for (position, text) in repo.load_keybindings()?.into_iter().enumerate() {
+    for (position, text) in entries.into_iter().enumerate() {
         let outcome = KeymapEntry::parse(&text.key, &text.command, text.when.as_deref(), platform)
             .map_err(Rejection::from)
             .and_then(|entry| {
@@ -72,5 +86,22 @@ pub fn load_keymap(
             }),
         }
     }
-    Ok(LoadedKeymap { keymap, rejected })
+    LoadedKeymap { keymap, rejected }
+}
+
+/// `entry` as `keybindings.json` writes it: the chord's keys, the command (`-<id>` for a
+/// removal), and the clause.
+fn text_of(entry: &KeymapEntry) -> KeybindingText {
+    match entry {
+        KeymapEntry::Bind(binding) => KeybindingText {
+            key: binding.chord.keybinding_text(),
+            command: binding.command.to_string(),
+            when: binding.when.as_ref().map(ToString::to_string),
+        },
+        KeymapEntry::Unbind(unbinding) => KeybindingText {
+            key: unbinding.chord.keybinding_text(),
+            command: format!("-{}", unbinding.command),
+            when: unbinding.when.as_ref().map(ToString::to_string),
+        },
+    }
 }

@@ -1,6 +1,7 @@
 //! The agent settings: the endpoint's address, its model (typed, or picked from the list the
-//! endpoint gives), and its API key, as a plain form the Settings window shows in its Agent
-//! pane. `⏎` saves.
+//! endpoint gives), and its API key, as a form the Settings window shows in its Agent pane: a
+//! line on what it is for, the three fields grouped as System Settings groups rows, the
+//! buttons under them, and how the last request went. `⏎` saves.
 //!
 //! The key field is write-only: it is empty whenever the form loads, its placeholder says
 //! whether the Keychain holds a key, and the browser clears it as soon as the key is saved. The
@@ -19,14 +20,17 @@ use objc2_app_kit::{
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use quickie_ui_shared::FormGroup;
 use quickie_ui_shared::tokens::{TextRole, color, space};
 
-/// The form's width: the Settings window's pane less its margins.
+/// The form's width until its owner fits it to a pane with [`AgentSettings::fit_width`].
 pub const WIDTH: CGFloat = 492.0;
 /// A field's height.
 const FIELD_HEIGHT: CGFloat = 24.0;
+/// A row of the group: a field and the space around it.
+const ROW_HEIGHT: CGFloat = FIELD_HEIGHT + space::SM * 2.0;
 /// The width of the labels before the fields.
-const LABEL_WIDTH: CGFloat = 72.0;
+const LABEL_WIDTH: CGFloat = 96.0;
 
 /// What the fields hold.
 #[derive(Clone, PartialEq, Eq)]
@@ -174,6 +178,7 @@ impl Fields {
 pub struct AgentSettings {
     view: Retained<NSView>,
     intro: Retained<NSTextField>,
+    group: FormGroup,
     labels: [Retained<NSTextField>; 3],
     fields: Rc<Fields>,
     detect: Retained<NSButton>,
@@ -203,17 +208,9 @@ impl AgentSettings {
             field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
             field.setUsesSingleLineMode(true);
         }
+        // The window works the key view loop out from where the fields and buttons are: top
+        // down through the fields, then the buttons with Full Keyboard Access.
         let fields = Rc::new(Fields { base, model, key });
-        let order: [(&NSView, &NSView); 3] = [
-            (&fields.base, &fields.model),
-            (&fields.model, &fields.key),
-            (&fields.key, &fields.base),
-        ];
-        for (field, next) in order {
-            // SAFETY: the key view loop runs through the form's own fields, which the form
-            // keeps alive as long as the loop.
-            unsafe { field.setNextKeyView(Some(next)) };
-        }
         let reader = Rc::clone(&fields);
         *target.ivars().form.borrow_mut() = Some(Rc::new(move || reader.form()));
         let intro = label(TextRole::RowDetail, &color::secondary_label(), mtm);
@@ -225,7 +222,7 @@ impl AgentSettings {
              the key in the Keychain.",
         );
         let labels = ["Endpoint", "Model", "API key"].map(|text| {
-            let field = label(TextRole::RowDetail, &color::secondary_label(), mtm);
+            let field = label(TextRole::RowTitle, &color::label(), mtm);
             set(&field, text);
             field
         });
@@ -238,6 +235,7 @@ impl AgentSettings {
         let settings = Self {
             view: NSView::new(mtm),
             intro,
+            group: FormGroup::new(mtm),
             labels,
             fields,
             detect: button("Detect Local LLM", sel!(detect:), target_object, mtm),
@@ -250,9 +248,7 @@ impl AgentSettings {
         let content = &settings.view;
         for view in [
             &*settings.intro as &NSView,
-            &settings.fields.base,
-            &settings.fields.model,
-            &settings.fields.key,
+            settings.group.view(),
             &settings.detect,
             &settings.list,
             &settings.remove_key,
@@ -261,11 +257,24 @@ impl AgentSettings {
         ] {
             content.addSubview(view);
         }
+        let rows = settings.group.view();
+        for view in [
+            &*settings.fields.base as &NSView,
+            &settings.fields.model,
+            &settings.fields.key,
+        ] {
+            rows.addSubview(view);
+        }
         for view in &settings.labels {
-            content.addSubview(view);
+            rows.addSubview(view);
         }
         settings.lay_out(WIDTH);
         settings
+    }
+
+    /// Lays the form out `width` wide; its height follows.
+    pub fn fit_width(&self, width: CGFloat) {
+        self.lay_out(width);
     }
 
     /// Runs `handler` with what the user asks.
@@ -355,10 +364,11 @@ impl AgentSettings {
         let intro_height = wrapped_height(&self.intro, width);
         let status_height = 3.0 * TextRole::RowDetail.point_size().ceil() + space::SM;
         let button_height = self.save.frame().size.height;
+        let group_height = ROW_HEIGHT * 3.0;
         let height = intro_height
+            + space::MD
+            + group_height
             + space::LG
-            + (FIELD_HEIGHT + space::SM) * 3.0
-            + space::SM
             + button_height
             + space::MD
             + status_height;
@@ -366,29 +376,34 @@ impl AgentSettings {
 
         let mut top = height;
         frame(&self.intro, 0.0, top - intro_height, width, intro_height);
-        top -= intro_height + space::LG;
-        let field_left = LABEL_WIDTH + space::SM;
-        let field_width = width - LABEL_WIDTH - space::SM;
+        top -= intro_height + space::MD;
+        // The group is flipped: its rows' frames run top down.
+        let (rows, _) = self.group.place(
+            NSPoint::new(0.0, top - group_height),
+            width,
+            &[ROW_HEIGHT; 3],
+        );
         let fields: [&NSTextField; 3] = [&self.fields.base, &self.fields.model, &self.fields.key];
-        for (label, field) in self.labels.iter().zip(fields) {
+        for ((label, field), row) in self.labels.iter().zip(fields).zip(rows) {
             let label_height = label.frame().size.height;
+            let middle = |height: CGFloat| row.origin.y + ((ROW_HEIGHT - height) / 2.0).round();
             frame(
                 label,
-                0.0,
-                top - FIELD_HEIGHT + ((FIELD_HEIGHT - label_height) / 2.0).round(),
+                row.origin.x,
+                middle(label_height),
                 LABEL_WIDTH,
                 label_height,
             );
+            let field_left = row.origin.x + LABEL_WIDTH + space::SM;
             frame(
                 field,
                 field_left,
-                top - FIELD_HEIGHT,
-                field_width,
+                middle(FIELD_HEIGHT),
+                row.size.width - LABEL_WIDTH - space::SM,
                 FIELD_HEIGHT,
             );
-            top -= FIELD_HEIGHT + space::SM;
         }
-        top -= space::SM;
+        top -= group_height + space::LG;
         let mut x = 0.0;
         for button in [&self.detect, &self.list] {
             let size = button.frame().size;
@@ -455,7 +470,6 @@ fn button(
     unsafe { button.setTarget(Some(target)) };
     // SAFETY: the target implements `action`, which takes the sender.
     unsafe { button.setAction(Some(action)) };
-    button.setRefusesFirstResponder(true);
     button.sizeToFit();
     button
 }

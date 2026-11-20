@@ -165,13 +165,13 @@ fn start(mtm: MainThreadMarker) -> Result<(std::rc::Rc<Browser>, Vec<PendingWrit
         WriteBehindStore::open(&store_path()?).map_err(|error| error.to_string())?;
     let library_pending = library_store.pending();
     let catalog = Catalog::builtin();
-    // The user's key bindings are a file they edit; Settings → Keys opens and reloads it.
+    // The user's key bindings are a file they edit, and Settings → Keyboard edits too.
     let keybindings = KeybindingsFile::new(support_dir()?.join("keybindings.json"));
     let (keymap, keymap_problems) = keymap_from(&keybindings, &catalog);
-    let notices = match keymap_problems.len() {
+    let notices = match keymap_problems.count() {
         0 => Vec::new(),
         n => vec![format!(
-            "keybindings.json: {n} left out, see Settings → Keys"
+            "keybindings.json: {n} left out, see Settings → Keyboard"
         )],
     };
     let library = Library::start(library_store, SystemClock).map_err(|error| error.to_string())?;
