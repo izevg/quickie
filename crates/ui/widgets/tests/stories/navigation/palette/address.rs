@@ -6,8 +6,9 @@ use std::rc::Rc;
 use quickie_application::{PaletteIndex, Target};
 use quickie_ui_shared::stories::{Key, LIGHT, LIGHT_DARK, Modifiers, Scene, Story, WINDOW};
 use quickie_ui_widgets::AddressOverlay;
+use quickie_ui_widgets::palette::command_palette;
 
-use crate::fixtures::{TABS, World, url};
+use crate::fixtures::{NOW, TABS, World, url};
 
 /// The page the overlay opens on.
 const PAGE: &str = "https://developer.apple.com/documentation/appkit/nswindow";
@@ -67,7 +68,10 @@ impl Host {
         });
         host.overlay
             .show(scene.host(), scene.window(), page, blocked);
-        host.overlay.set_actions(host.index.borrow().page_actions());
+        host.overlay
+            .set_actions(host.index.borrow().page_actions(), |item| {
+                command_palette::row(item, NOW, &|_| None)
+            });
         let weak = Rc::downgrade(&host);
         scene.route(move |stroke| {
             let Some(host) = weak.upgrade() else {
