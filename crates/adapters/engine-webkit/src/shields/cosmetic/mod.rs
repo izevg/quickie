@@ -633,6 +633,44 @@ mod tests {
         );
     }
 
+    // The Shorts feed's ad rules as uBlock filters and EasyList write them (November 2026).
+    const SHORTS: &str = "www.youtube.com##+js(json-prune-fetch-response, \
+        reelWatchSequenceResponse.entries.[-].command.reelWatchEndpoint.adClientParams.isAd \
+        entries.[-].command.reelWatchEndpoint.adClientParams.isAd, , propsToMatch, \
+        url:/reel_watch_sequence?)\n\
+        www.youtube.com##+js(json-prune, entries.[-].command.reelWatchEndpoint.adClientParams.isAd)\n\
+        youtube.com###shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer)\n";
+
+    #[test]
+    fn the_shorts_feed_s_ad_rules_reach_the_host_intact() {
+        let filters = Filters::build(&[list(FilterListId::UblockFilters, SHORTS)]);
+
+        let bundle = filters.lookup("www.youtube.com", &[]);
+
+        assert!(
+            bundle.scriptlets.contains(
+                "quickie_json_prune_fetch_response(\"reelWatchSequenceResponse.entries.[-].command.reelWatchEndpoint.adClientParams.isAd entries.[-].command.reelWatchEndpoint.adClientParams.isAd\", \"\", \"propsToMatch\", \"url:/reel_watch_sequence?\")"
+            ),
+            "{}",
+            bundle.scriptlets
+        );
+        assert!(
+            bundle.scriptlets.contains(
+                "quickie_json_prune(\"entries.[-].command.reelWatchEndpoint.adClientParams.isAd\")"
+            ),
+            "{}",
+            bundle.scriptlets
+        );
+        assert_eq!(
+            bundle.css,
+            [
+                "#shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer){display:none!important}"
+            ],
+            "{:?}",
+            bundle.procedural
+        );
+    }
+
     // The extensions test relies on it: a page on 127.0.0.1 makes the shields replace their
     // scripts.
     #[test]
