@@ -256,6 +256,8 @@ impl PageAsks for FakePages {
         self.answers.push((token, answer.clone()));
         true
     }
+
+    fn exit_fullscreen(&mut self, _tab: TabId) {}
 }
 
 fn dialog(token: u64, serial: u64) -> Ask {

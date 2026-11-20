@@ -101,6 +101,14 @@ pub enum Act {
     /// Adds a frame showing a path, without moving focus; its title becomes `framed:` and the
     /// path once the frame has loaded.
     AddFrame(&'static str),
+    /// Asks for its text's paragraph to go full screen; its title becomes `fullscreen:filled`
+    /// once the paragraph fills the page view, `fullscreen:denied` when the engine refused
+    /// (the Fullscreen API needs the user's click), and `fullscreen:none` once it left. With
+    /// `leave`, the page leaves by itself a moment after it entered, as its own exit control
+    /// does.
+    Fullscreen { leave: bool },
+    /// Leaves full screen by itself (`document.exitFullscreen`).
+    ExitFullscreen,
 }
 
 impl Act {
@@ -134,6 +142,18 @@ impl Act {
                  frame.onload=()=>{{document.title='framed:{path}'}};\
                  frame.src='{path}';document.body.appendChild(frame);"
             ),
+            Self::Fullscreen { leave } => format!(
+                "document.onfullscreenchange=()=>{{const shown=document.fullscreenElement;\
+                 if(!shown){{document.title='fullscreen:none';return;}}\
+                 const box=shown.getBoundingClientRect();\
+                 document.title='fullscreen:'+(Math.round(box.width)===innerWidth&&\
+                 Math.round(box.height)===innerHeight?'filled':'partial');\
+                 if({leave}){{setTimeout(()=>{{{}}},200);}}}};\
+                 document.querySelector('p').requestFullscreen().catch(\
+                 ()=>{{document.title='fullscreen:denied'}});",
+                Self::ExitFullscreen.script()
+            ),
+            Self::ExitFullscreen => "document.exitFullscreen();".to_owned(),
         }
     }
 }
@@ -279,6 +299,36 @@ pub const SITE: &[(&str, Resource)] = &[
     (
         "field-framed",
         Resource::Page(acting("Field", &[Act::FocusField, Act::AddFrame("plain")])),
+    ),
+    (
+        "fullscreen",
+        Resource::Page(TestPage {
+            title: "Full screen",
+            text: "a video",
+            controls: &[Control::Button(Act::Fullscreen { leave: false })],
+            scripts: &[],
+            on_load: &[],
+        }),
+    ),
+    (
+        "fullscreen-brief",
+        Resource::Page(TestPage {
+            title: "Full screen",
+            text: "a video",
+            controls: &[Control::Button(Act::Fullscreen { leave: true })],
+            scripts: &[],
+            on_load: &[],
+        }),
+    ),
+    (
+        "fullscreen-unasked",
+        Resource::Page(TestPage {
+            title: "Full screen",
+            text: "a video",
+            controls: &[],
+            scripts: &[],
+            on_load: &[Act::Fullscreen { leave: false }],
+        }),
     ),
     (
         "tracked",

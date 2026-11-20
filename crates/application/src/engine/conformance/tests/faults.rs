@@ -16,9 +16,9 @@ use crate::conformance::{
 };
 use crate::{
     Answer, Ask, AskKind, BlockerRules, Capabilities, Dialog, DownloadEvent, DownloadToken,
-    Downloads, Engine, EngineError, EngineEvent, EnginePort, FindStep, Followed, LinkTarget,
-    Navigation, NoExtensions, PageAsks, PageContent, PageRect, PageSurface, PageZoom, ReplyToken,
-    Ticket,
+    Downloads, Engine, EngineError, EngineEvent, EnginePort, FindStep, Followed, Fullscreen,
+    LinkTarget, Navigation, NoExtensions, PageAsks, PageContent, PageRect, PageSurface, PageZoom,
+    ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -60,6 +60,10 @@ enum Fault {
     Loading(Option<f64>),
     /// Capturing a page does nothing.
     NoPicture,
+    /// The browser cannot take a page out of full screen.
+    KeepsFullscreen,
+    /// A page refused full screen says it went full screen all the same.
+    FullscreenUnasked,
 }
 
 /// The reference engine with a fault.
@@ -112,6 +116,12 @@ impl PageAsks for Broken {
     fn answer(&mut self, token: ReplyToken, answer: &Answer) -> bool {
         let waited = self.engine.answer(token, answer);
         waited || matches!(self.fault, Fault::TakesEveryAnswer)
+    }
+
+    fn exit_fullscreen(&mut self, tab: TabId) {
+        if !matches!(self.fault, Fault::KeepsFullscreen) {
+            self.engine.exit_fullscreen(tab);
+        }
     }
 }
 
@@ -291,6 +301,15 @@ impl Engine for Broken {
                 (Fault::Events(fault), event) => into.push(fault(event)),
                 (Fault::LateEnd, event @ EngineEvent::Download(DownloadEvent::Finished { .. })) => {
                     self.next_turn.push(event);
+                }
+                (Fault::FullscreenUnasked, EngineEvent::Titled { tab, url, title })
+                    if title == "fullscreen:denied" =>
+                {
+                    into.push(EngineEvent::Fullscreen {
+                        tab,
+                        state: Fullscreen::InWindow,
+                    });
+                    into.push(EngineEvent::Titled { tab, url, title });
                 }
                 (_, event) => into.push(event),
             }
@@ -535,9 +554,23 @@ fn a_download_that_fails_instead_of_finishing_fails() {
     );
 }
 
-/// What misplaced targets fail: the targets check, and a click where a target claims to be.
-const MISPLACED: [&str; 2] = [
+/// The checks that click a page where a target says a control is.
+const CLICKS: [&str; 5] = [
     "a_command_click_opens_in_the_background",
+    "a_clicked_page_fills_its_view_in_full_screen",
+    "the_browser_takes_a_page_out_of_full_screen",
+    "a_page_leaves_full_screen_by_itself",
+    "a_page_that_navigates_leaves_full_screen",
+];
+
+/// What targets without an area fail: the targets check, and every click where a target
+/// claims to be.
+const MISPLACED: [&str; 6] = [
+    CLICKS[0],
+    CLICKS[1],
+    CLICKS[2],
+    CLICKS[3],
+    CLICKS[4],
     "the_targets_are_the_links_and_controls_in_order",
 ];
 
@@ -559,13 +592,21 @@ fn targets_without_a_height_fail() {
     assert_eq!(failed(&report), MISPLACED);
 }
 
+/// Targets on one line fail the targets check, and a click on any target but the first; the
+/// full-screen pages have one button, so their clicks still land.
 #[test]
 fn targets_on_one_line_fail() {
     let report = run(&mut Faulty(Fault::Events(|event| {
         reshape_targets(event, |frame| frame.y = 0.0)
     })));
 
-    assert_eq!(failed(&report), MISPLACED);
+    assert_eq!(
+        failed(&report),
+        [
+            "a_command_click_opens_in_the_background",
+            "the_targets_are_the_links_and_controls_in_order"
+        ]
+    );
 }
 
 #[test]
@@ -664,7 +705,7 @@ fn a_feature_the_harness_cannot_drive_fails_its_group_and_says_so() {
                 .to_owned()
         ))
     );
-    assert_eq!(failed(&report), ["a_command_click_opens_in_the_background"]);
+    assert_eq!(failed(&report), CLICKS);
 }
 
 #[test]
@@ -744,4 +785,41 @@ fn a_page_never_pictured_fails() {
     let report = run(&mut Faulty(Fault::NoPicture));
 
     assert_eq!(failed(&report), ["a_captured_page_has_a_picture"]);
+}
+
+#[test]
+fn a_page_the_browser_cannot_take_out_of_full_screen_fails() {
+    let report = run(&mut Faulty(Fault::KeepsFullscreen));
+
+    assert_eq!(
+        failed(&report),
+        ["the_browser_takes_a_page_out_of_full_screen"]
+    );
+}
+
+#[test]
+fn a_page_that_goes_full_screen_unasked_fails() {
+    let report = run(&mut Faulty(Fault::FullscreenUnasked));
+
+    assert_eq!(failed(&report), ["a_page_goes_full_screen_only_on_a_click"]);
+}
+
+#[test]
+fn a_page_that_never_says_it_left_full_screen_fails() {
+    let report = run(&mut Faulty(Fault::Events(|event| match event {
+        EngineEvent::Fullscreen {
+            tab,
+            state: Fullscreen::Left,
+        } => EngineEvent::Pictured { tab },
+        event => event,
+    })));
+
+    assert_eq!(
+        failed(&report),
+        [
+            "the_browser_takes_a_page_out_of_full_screen",
+            "a_page_leaves_full_screen_by_itself",
+            "a_page_that_navigates_leaves_full_screen"
+        ]
+    );
 }

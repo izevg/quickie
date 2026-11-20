@@ -79,7 +79,7 @@ impl Browser {
             } => self.adopt_opened(opener, page, url, focus),
             EngineEvent::ClosedByPage { tab } => self.closed_by_page(tab),
             EngineEvent::Crashed { tab } => self.crashed(tab),
-            EngineEvent::Fullscreen { tab, entered } => self.fullscreen_changed(tab, entered),
+            EngineEvent::Fullscreen { tab, state } => self.fullscreen_changed(tab, state),
             EngineEvent::Asked(ask) => self.asked(ask),
             EngineEvent::Found(found) => self.found(&found),
             EngineEvent::Targets {
@@ -182,7 +182,7 @@ impl Browser {
     }
 
     /// The window whose active tab `tab` is.
-    fn showing(&self, tab: TabId) -> Option<WindowId> {
+    pub(in crate::browser) fn showing(&self, tab: TabId) -> Option<WindowId> {
         let windows: Vec<WindowId> = self.windows.borrow().keys().copied().collect();
         windows
             .into_iter()
@@ -190,6 +190,9 @@ impl Browser {
     }
 
     fn toast_in(&self, window: WindowId, text: &str) {
+        if self.page_fullscreen(window) {
+            return;
+        }
         if let Some(host) = self.window(window).and_then(|window| window.contentView()) {
             self.toasts.show(&host, text);
         }
