@@ -1,11 +1,13 @@
 //! Repository checks that cargo and clippy cannot express: the rule of four, the layer map, and
 //! commit messages. Run through `cargo xtask <command>`; the rules are in docs/quality.md.
+//! Also `cargo xtask bundle`, which makes the development app a macOS app bundle.
 #![expect(
     clippy::print_stdout,
     clippy::print_stderr,
     reason = "a command-line tool reports to the terminal"
 )]
 
+mod bundle;
 mod commit_msg;
 mod layers;
 mod structure;
@@ -16,11 +18,24 @@ use std::process::{Command, ExitCode};
 
 use serde_json::Value;
 
-const USAGE: &str = "usage: cargo xtask <structure | layers | commit-msg <file>>";
+const USAGE: &str = "usage: cargo xtask <structure | layers | commit-msg <file> | \
+                     bundle [--release] [--bundle-id <id>]>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    if let ["bundle", rest @ ..] = args.as_slice() {
+        return match run_bundle(rest) {
+            Ok(app) => {
+                println!("bundle: {}", app.display());
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("xtask: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let outcome = match args.as_slice() {
         ["structure"] => run_structure().map(|f| ("rule of four", f)),
         ["layers"] => run_layers().map(|f| ("layers", f)),
@@ -69,10 +84,30 @@ fn run_structure() -> Result<Vec<String>, String> {
     Ok(structure::check(&paths))
 }
 
+fn run_bundle(args: &[&str]) -> Result<PathBuf, String> {
+    let options = bundle::options(args)?;
+    let cargo = cargo();
+    let metadata = metadata(&cargo)?;
+    let root = metadata["workspace_root"]
+        .as_str()
+        .ok_or("cargo metadata has no workspace_root")?;
+    let target = metadata["target_directory"]
+        .as_str()
+        .ok_or("cargo metadata has no target_directory")?;
+    bundle::run(&options, Path::new(root), Path::new(target), &cargo)
+}
+
+fn cargo() -> String {
+    std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned())
+}
+
+fn metadata(cargo: &str) -> Result<Value, String> {
+    let metadata = output(cargo, &["metadata", "--format-version", "1", "--no-deps"])?;
+    serde_json::from_str(&metadata).map_err(|e| e.to_string())
+}
+
 fn run_layers() -> Result<Vec<String>, String> {
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let metadata = output(&cargo, &["metadata", "--format-version", "1", "--no-deps"])?;
-    let metadata: Value = serde_json::from_str(&metadata).map_err(|e| e.to_string())?;
+    let metadata = metadata(&cargo())?;
     let root = metadata["workspace_root"]
         .as_str()
         .ok_or("cargo metadata has no workspace_root")?;

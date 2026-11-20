@@ -102,7 +102,9 @@ flowchart TB
   through `objc2`.
 - **Two profiles:** `main` (the user) and `agent` (agent actions; no cookies or logins of `main`).
 - **Development mode (P0):** the same crates build with Cargo into a standalone app on the
-  `engine-webkit` adapter, so UI work never waits for a Chromium build.
+  `engine-webkit` adapter, so UI work never waits for a Chromium build. `cargo xtask bundle`
+  (`mise run bundle`) wraps it as an ad-hoc signed `Quickie.app` that LaunchServices registers as
+  a browser; signing with a Developer ID and notarizing come with the product build (§7, P1).
 
 ## 4. C3 — Components
 
@@ -291,7 +293,7 @@ quickie/
 │  ├─ quickie/          //quickie: bridge, browser_window, keyboard, swipe, shields, net_bridge, privacy, agent_bridge
 │  └─ scripts/          sync, apply, rebase, build, sign, notarize (+ gn args)
 ├─ tools/
-│  ├─ xtask/          structure, layer and commit-message checks
+│  ├─ xtask/          structure, layer and commit-message checks; the development app bundle
 │  ├─ quickie-mcp/    stdio-to-socket bridge for external agents
 │  ├─ egress-test/    fresh profile + netlog + allowlist diff
 │  └─ rebase-bot/     scripts and prompts for agent-assisted rebases

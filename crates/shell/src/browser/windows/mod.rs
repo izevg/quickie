@@ -84,7 +84,7 @@ impl Browser {
 
     /// An `NSWindow` for session window `window`, its content view registered with the
     /// engine, placed a step down and right of the current window.
-    fn add_window(&self, window: WindowId) -> Retained<NSWindow> {
+    pub(super) fn add_window(&self, window: WindowId) -> Retained<NSWindow> {
         let ns_window = browser_window(self.mtm);
         match self.current() {
             Some((_, current)) => {

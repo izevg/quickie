@@ -54,6 +54,8 @@ pub enum Action {
     ShowShields,
     NewWindow,
     CloseWindow,
+    SetDefaultBrowser,
+    RevealProfile,
 }
 
 impl Action {
@@ -119,6 +121,8 @@ impl Action {
             "quickie.shields.open" => Self::ShowShields,
             "quickie.window.new" => Self::NewWindow,
             "quickie.window.close" => Self::CloseWindow,
+            "quickie.app.setDefaultBrowser" => Self::SetDefaultBrowser,
+            "quickie.app.revealProfile" => Self::RevealProfile,
             _ => return None,
         };
         Some(action)
@@ -179,6 +183,11 @@ impl Browser {
             _ => {}
         }
         self.close_overlays();
+        match action {
+            Action::SetDefaultBrowser => return self.set_default_browser(),
+            Action::RevealProfile => return self.reveal_profile(),
+            _ => {}
+        }
         let Some((window, _)) = self.current() else {
             return;
         };
@@ -220,7 +229,9 @@ impl Browser {
             | Action::ShowShields
             | Action::NewWindow
             | Action::CloseWindow
-            | Action::CloseTab => {}
+            | Action::CloseTab
+            | Action::SetDefaultBrowser
+            | Action::RevealProfile => {}
         }
         self.settle(window);
     }
@@ -450,6 +461,8 @@ mod tests {
             ("quickie.shields.open", Action::ShowShields),
             ("quickie.window.new", Action::NewWindow),
             ("quickie.window.close", Action::CloseWindow),
+            ("quickie.app.setDefaultBrowser", Action::SetDefaultBrowser),
+            ("quickie.app.revealProfile", Action::RevealProfile),
         ];
         for (id, action) in cases {
             assert_eq!(of(id), Some(action), "{id}");
@@ -515,8 +528,8 @@ mod tests {
             .filter(|command| Action::of(&command.id).is_some())
             .count();
 
-        // 29 named commands plus nine slots to go to and nine to pin.
-        assert_eq!(built, 29 + 9 + 9);
+        // 31 named commands plus nine slots to go to and nine to pin.
+        assert_eq!(built, 31 + 9 + 9);
     }
 
     #[test]
