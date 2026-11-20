@@ -575,7 +575,8 @@ fn closing_a_tab_keeps_what_other_tabs_reported() {
         [Navigated {
             tab: tab(8),
             url: url("https://b.test/"),
-            title: String::new()
+            title: String::new(),
+            committed: true,
         }]
     );
 }
@@ -675,7 +676,8 @@ fn a_commit_and_a_title_fold_into_one_navigation() {
         [Navigated {
             tab: tab(7),
             url: url("https://a.test/"),
-            title: "A".to_owned()
+            title: "A".to_owned(),
+            committed: true,
         }]
     );
     assert_eq!(engine.take_navigations(), []);
@@ -710,12 +712,14 @@ fn navigations_come_one_per_tab_in_first_change_order() {
             Navigated {
                 tab: tab(8),
                 url: url("https://c.test/"),
-                title: String::new()
+                title: String::new(),
+                committed: true,
             },
             Navigated {
                 tab: tab(7),
                 url: url("https://a.test/"),
-                title: String::new()
+                title: String::new(),
+                committed: true,
             }
         ]
     );
@@ -745,7 +749,32 @@ fn a_later_commit_keeps_the_title_until_the_page_sets_one() {
         [Navigated {
             tab: tab(7),
             url: url("https://a.test/#part"),
-            title: "A".to_owned()
+            title: "A".to_owned(),
+            committed: true,
+        }]
+    );
+}
+
+#[test]
+fn a_title_after_the_report_of_its_commit_is_no_visit() {
+    let (mut engine, _fake) = with_pages(&[7]);
+    report(
+        EngineEventKind::NavigationCommitted,
+        7,
+        None,
+        "https://a.test/",
+    );
+    engine.take_navigations();
+
+    report(EngineEventKind::TitleChanged, 7, None, "Loaded");
+
+    assert_eq!(
+        engine.take_navigations(),
+        [Navigated {
+            tab: tab(7),
+            url: url("https://a.test/"),
+            title: "Loaded".to_owned(),
+            committed: false,
         }]
     );
 }

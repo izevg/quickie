@@ -1,7 +1,7 @@
 //! Find in page: the bar's requests and keys become engine finds, and their answers come back
 //! through [`Browser::found`]. The bar is an E2: opening another E2 closes it.
 
-use quickie_engine_webkit::{FindStep, Found};
+use quickie_application::{FindStep, Found};
 use quickie_ui_widgets::FindRequest;
 
 use super::super::Browser;

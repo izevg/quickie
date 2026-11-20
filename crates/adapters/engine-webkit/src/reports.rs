@@ -3,19 +3,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use quickie_application::Navigated;
 use quickie_domain_browsing::TabId;
 use url::Url;
-
-/// A tab's committed URL and current title, for `Browsing::navigated`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Navigated {
-    pub tab: TabId,
-    pub url: Url,
-    pub title: String,
-    /// The page committed a navigation since the last report: a visit. `false` when only its
-    /// title changed.
-    pub committed: bool,
-}
 
 /// Page reports waiting for the shell, in the order tabs first changed.
 #[derive(Debug, Default)]

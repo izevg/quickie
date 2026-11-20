@@ -8,10 +8,11 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use quickie_application::Navigated;
 use quickie_domain_browsing::{Profile, TabId};
 use url::Url;
 
-use super::reports::{Navigated, Reports};
+use super::reports::Reports;
 use crate::bridge::{Bridge, Event};
 
 /// The tab a serial from the C++ side names. The fork hosts only the main profile for now, so

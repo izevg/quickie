@@ -1,4 +1,4 @@
-//! Settings use cases: page zoom, remembered per site.
+//! Page zoom, remembered per site.
 //!
 //! A site here is a page's registrable domain (`docs.example.com` and `example.com` share a
 //! zoom), as the browsing context reckons it, so a site keeps its zoom across its subdomains.

@@ -18,25 +18,17 @@ use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message};
 use objc2_foundation::NSRunLoop;
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
-use quickie_domain_browsing::{FindMatches, Focus, Jar, TabId};
+use quickie_application::{Answer, Ask, AskKind, Found, ReplyToken};
+use quickie_domain_browsing::{Focus, Jar, TabId};
 use url::Url;
 
 use crate::downloads::DownloadCenter;
-use crate::page::asks::{Answer, AskKind, Reply};
+use crate::page::asks::Reply;
 use crate::page::{FocusReports, Hooks, PageEvent, WebPage};
 use crate::reports::Reports;
 
 /// The tab a page reports for; `None` while a page the engine opened waits to be adopted.
 pub(crate) type Owner = Rc<Cell<Option<TabId>>>;
-
-/// The matches of a find in a tab's page, answering `WebKitEngine::find`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Found {
-    pub tab: TabId,
-    /// The query they match, to tell an answer to an older query apart.
-    pub query: String,
-    pub matches: FindMatches,
-}
 
 /// A page the engine opened by itself, until the session adopts it: the `WebKit` engine's
 /// `EnginePort::Page`.
@@ -64,24 +56,9 @@ pub struct Opened {
     pub focus: Focus,
 }
 
-/// Names an ask until it is answered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct AskId(u64);
-
-/// A question a page waits on: answer it with `WebKitEngine::answer`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Ask {
-    pub id: AskId,
-    pub tab: TabId,
-    /// The origin that asks, as a URL (`https://meet.example/`); `about:blank` for a frame
-    /// without one.
-    pub origin: Url,
-    pub kind: AskKind,
-}
-
 /// An ask whose page may not have a tab yet.
 struct Waiting {
-    id: AskId,
+    token: ReplyToken,
     owner: Owner,
     origin: Url,
     kind: AskKind,
@@ -113,7 +90,7 @@ pub(crate) struct Inbox {
     pub(crate) closed: RefCell<Vec<TabId>>,
     pub(crate) fullscreen: RefCell<Vec<(TabId, bool)>>,
     asks: RefCell<Vec<Waiting>>,
-    replies: RefCell<HashMap<AskId, (Owner, Reply)>>,
+    replies: RefCell<HashMap<ReplyToken, (Owner, Reply)>>,
     next_ask: Cell<u64>,
     pub(crate) wake: RefCell<Option<Rc<dyn Fn()>>>,
     scheduled: Cell<bool>,
@@ -179,14 +156,15 @@ impl Inbox {
         let Some(inbox) = inbox.upgrade() else {
             return;
         };
-        let id = AskId(inbox.next_ask.get());
-        inbox.next_ask.set(id.0 + 1);
+        let raw = inbox.next_ask.get();
+        inbox.next_ask.set(raw + 1);
+        let token = ReplyToken::new(raw);
         inbox
             .replies
             .borrow_mut()
-            .insert(id, (Rc::clone(owner), reply));
+            .insert(token, (Rc::clone(owner), reply));
         inbox.asks.borrow_mut().push(Waiting {
-            id,
+            token,
             owner: Rc::clone(owner),
             origin,
             kind,
@@ -237,7 +215,7 @@ impl Inbox {
             .retain(|waiting| match waiting.owner.get() {
                 Some(tab) => {
                     taken.push(Ask {
-                        id: waiting.id,
+                        token: waiting.token,
                         tab,
                         origin: waiting.origin.clone(),
                         kind: waiting.kind.clone(),
@@ -249,9 +227,9 @@ impl Inbox {
         taken
     }
 
-    /// Sends the answer to the page that waits on `id`; false when it no longer waits.
-    pub(crate) fn answer(&self, id: AskId, answer: &Answer) -> bool {
-        let reply = self.replies.borrow_mut().remove(&id);
+    /// Sends the answer to the page that waits on `token`; false when it no longer waits.
+    pub(crate) fn answer(&self, token: ReplyToken, answer: &Answer) -> bool {
+        let reply = self.replies.borrow_mut().remove(&token);
         reply.map(|(_, reply)| reply.answer(answer)).is_some()
     }
 
@@ -259,12 +237,15 @@ impl Inbox {
     pub(crate) fn forget(&self, tab: TabId) {
         let declined: Vec<(Owner, Reply)> = {
             let mut replies = self.replies.borrow_mut();
-            let ids: Vec<AskId> = replies
+            let tokens: Vec<ReplyToken> = replies
                 .iter()
                 .filter(|(_, (owner, _))| owner.get() == Some(tab))
-                .map(|(&id, _)| id)
+                .map(|(&token, _)| token)
                 .collect();
-            ids.iter().filter_map(|id| replies.remove(id)).collect()
+            tokens
+                .iter()
+                .filter_map(|token| replies.remove(token))
+                .collect()
         };
         self.asks
             .borrow_mut()
