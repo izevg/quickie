@@ -2,7 +2,9 @@ name: webkit
 
 # Builds our WebKit fork at the commit in engine/webkit/webkit.pin and publishes the frameworks as
 # an artifact with a sha256 and a build provenance attestation, both made by the job that built
-# them. The engine is built here only, never on a developer's machine (engine/README.md).
+# them. The engine is built here only, never on a developer's machine (engine/README.md). A manual
+# run may build another fork commit instead (the `commit` input), to test a patch branch before
+# it is merged and pinned (engine/README.md, "Building a patch branch").
 
 on:
   workflow_dispatch:
@@ -15,6 +17,10 @@ on:
         description: Xcode to select, by its path under /Applications
         default: Xcode_26.6.app
         type: string
+      commit:
+        description: Fork commit to build instead of the pin (40 hex characters; empty builds the pin)
+        default: ""
+        type: string
   push:
     branches: [main, "release/**"]
     paths:
@@ -24,8 +30,9 @@ on:
 
 permissions: {}
 
+# Per commit, so manual runs for different patch branches do not cancel each other.
 concurrency:
-  group: webkit-${{ github.ref }}
+  group: webkit-${{ github.ref }}-${{ inputs.commit || 'pin' }}
   cancel-in-progress: true
 
 defaults:
@@ -50,6 +57,8 @@ jobs:
     env:
       CI: "true"
       XCODE_APP: ${{ inputs.xcode || 'Xcode_26.6.app' }}
+      # Read by sync, which checks it like the pin; empty builds the pin.
+      QUICKIE_WEBKIT_COMMIT: ${{ inputs.commit }}
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -81,15 +90,15 @@ jobs:
       # WebKitBuild (~9 GB) is not kept: both would not fit the repository's 10 GB of caches.
       # Keys are per runner and Xcode (objects from another compiler are useless) and unique per
       # run, so every run saves what it compiled, even a failed or timed-out one, and the next run
-      # restores the newest; GitHub evicts the oldest past 10 GB.
+      # restores the newest; GitHub evicts the oldest past 10 GB. The prefix leaves the commit out,
+      # so a patch branch's build restores what its base compiled.
       - name: Cache key
         id: cas
         run: |
-          # shellcheck disable=SC1091
-          . engine/webkit/webkit.pin
           prefix="webkit-cas-${RUNNER_LABEL}-${XCODE_APP%.app}-"
+          commit=$(git -C .build/webkit rev-parse 'HEAD^{commit}')
           echo "prefix=$prefix" >>"$GITHUB_OUTPUT"
-          echo "key=$prefix${WEBKIT_COMMIT:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >>"$GITHUB_OUTPUT"
+          echo "key=$prefix${commit:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >>"$GITHUB_OUTPUT"
         env:
           RUNNER_LABEL: ${{ inputs.runner || 'macos-26' }}
 
@@ -138,6 +147,8 @@ jobs:
           {
             echo '### WebKit (macOS arm64)'
             echo '```'
+            echo "webkit commit: $(git -C .build/webkit rev-parse 'HEAD^{commit}' 2>/dev/null || echo none)"
+            echo "override: ${QUICKIE_WEBKIT_COMMIT:-none (the pin)}"
             df -h /
             cat "$RUNNER_TEMP"/webkit/*.sha256 2>/dev/null || echo 'no archive'
             ls -lh "$RUNNER_TEMP"/webkit 2>/dev/null || true

@@ -1,6 +1,8 @@
 //! Repository checks that cargo and clippy cannot express: the rule of four, the layer map, and
 //! commit messages. Run through `cargo xtask <command>`; the rules are in docs/quality.md.
-//! Also `cargo xtask bundle`, which makes the development app a macOS app bundle.
+//! Also `cargo xtask bundle`, which makes the development app a macOS app bundle, and
+//! `cargo xtask base`, which prints the commit a branch's changes are measured from (the
+//! merge-base `ui diff` and the mutation gate compare with).
 #![expect(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -21,7 +23,8 @@ use serde_json::Value;
 
 const USAGE: &str = "usage: cargo xtask <structure | layers | commit-msg <file> | \
                      bundle [--release] [--bundle-id <id>] | ui <list | render | check | accept> \
-                     [<widget>[/<state>[.<theme>]] ...] | ui diff [--base <rev>] [--when-foreign]>";
+                     [<widget>[/<state>[.<theme>]] ...] | ui diff [--base <rev>] [--when-foreign] \
+                     | base>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,6 +34,20 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("xtask ui: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let ["base"] = args.as_slice() {
+        // The commit alone on stdout, for scripts; where it comes from on stderr, for people.
+        return match ui::base_commit(None) {
+            Ok((commit, label)) => {
+                println!("{commit}");
+                eprintln!("base: {label}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("xtask base: {error}");
                 ExitCode::FAILURE
             }
         };
