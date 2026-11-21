@@ -8,10 +8,9 @@ use std::fmt::Write as _;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
-use objc2::{MainThreadMarker, msg_send, sel};
+use objc2::{msg_send, sel};
 use objc2_app_kit::{
-    NSAccessibility, NSApplication, NSControl, NSEvent, NSEventModifierFlags, NSEventType, NSView,
-    NSWindow,
+    NSAccessibility, NSControl, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow,
 };
 use objc2_foundation::{NSArray, NSPoint, NSString};
 
@@ -196,9 +195,12 @@ pub(super) fn send_key(window: &NSWindow, stroke: Keystroke) {
 /// A control (a button, a switch) is clicked through `performClick:`, the path a pointer click
 /// takes once tracking ends: highlight, state, target and action. Real mouse events do not
 /// reach a control's tracking in a window that was never key, which a headless app's never is.
-/// Any other view gets a mouse down, with the mouse up waiting in the queue for a tracking
-/// loop and handed over after.
-pub(super) fn send_click(window: &NSWindow, view: &NSView, point: NSPoint, mtm: MainThreadMarker) {
+/// Any other view gets a mouse down and then the mouse up, both handed to it, as a window
+/// hands the mouse up to the view that took the mouse down. Not through the app's event queue:
+/// how soon a posted event can be taken back out of it differs between macOS releases (on
+/// macOS 26 not at once), and a mouse up left behind would land in the next click. No view of
+/// ours runs a tracking loop of its own in `mouseDown:` that would wait for it there.
+pub(super) fn send_click(window: &NSWindow, view: &NSView, point: NSPoint) {
     let location = view.convertPoint_toView(point, None);
     let Some(content) = window.contentView() else {
         return;
@@ -230,31 +232,8 @@ pub(super) fn send_click(window: &NSWindow, view: &NSView, point: NSPoint, mtm: 
     ) else {
         return;
     };
-    NSApplication::sharedApplication(mtm).postEvent_atStart(&up, false);
     target.mouseDown(&down);
-    // A view that does not track leaves the mouse up queued: hand it over too.
-    drain(window, &target, mtm);
-}
-
-/// Delivers what is still queued for the app to `window`, without waiting; a mouse up goes to
-/// `pressed`, the view that took the mouse down, as a window hands it over after a press. The
-/// window itself never saw that press, so it would not.
-fn drain(window: &NSWindow, pressed: &NSView, mtm: MainThreadMarker) {
-    let app = NSApplication::sharedApplication(mtm);
-    // SAFETY: `NSDefaultRunLoopMode` is an immutable string exported by Foundation.
-    let mode = unsafe { objc2_foundation::NSDefaultRunLoopMode };
-    while let Some(event) = app.nextEventMatchingMask_untilDate_inMode_dequeue(
-        objc2_app_kit::NSEventMask::Any,
-        None,
-        mode,
-        true,
-    ) {
-        if event.r#type() == NSEventType::LeftMouseUp {
-            pressed.mouseUp(&event);
-        } else {
-            window.sendEvent(&event);
-        }
-    }
+    target.mouseUp(&up);
 }
 
 /// The first visible view under `view`, depth first, whose accessibility title or label is
