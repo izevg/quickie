@@ -49,11 +49,42 @@ pub struct Capabilities {
 /// How a page's developer tools open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Inspector {
-    /// [`PageSurface::inspect`] opens them.
+    /// [`PageSurface::inspect`] opens them, on the panel asked.
     Programmatic,
     /// Only the user opens them, from the page's context menu; [`PageSurface::inspect`] only
     /// says whether they can attach to the page.
     FromContextMenu,
+}
+
+/// What the developer tools are asked to do on a page ([`PageSurface::inspect`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DevTools {
+    /// Open them where they were, or close them when they show.
+    Toggle,
+    /// Open them and let the user pick an element of the page to inspect.
+    InspectElement,
+    /// Open them on a panel.
+    Panel(DevToolsPanel),
+}
+
+/// A panel of the developer tools, by the names the palette's commands give them; each engine
+/// shows its own closest panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DevToolsPanel {
+    /// The page's DOM and styles.
+    Elements,
+    /// The page's console.
+    Console,
+    /// The page's requests.
+    Network,
+    /// The page's scripts and its debugger.
+    Sources,
+    /// A recording of what the page does over time.
+    Performance,
+    /// The page's storage: cookies, local storage, databases.
+    Application,
+    /// The page's memory over time.
+    Memory,
 }
 
 /// Putting pages on screen: each window's host view, which a tab's page fills while the window
@@ -104,14 +135,14 @@ pub trait PageSurface {
     /// The tab has no page, or its page is not in a window.
     fn print(&mut self, tab: TabId) -> Result<(), EngineError>;
 
-    /// Opens the developer tools on the tab's page when [`Capabilities::inspector`] is
-    /// [`Inspector::Programmatic`]; otherwise only checks that they can attach to it from the
-    /// page's context menu.
+    /// Does what `asked` says with the developer tools of the tab's page when
+    /// [`Capabilities::inspector`] is [`Inspector::Programmatic`]; otherwise only checks that
+    /// they can attach to it from the page's context menu.
     ///
     /// # Errors
     ///
     /// The tab has no page, or the developer tools cannot attach to it; the error says why.
-    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError>;
+    fn inspect(&mut self, tab: TabId, asked: DevTools) -> Result<(), EngineError>;
 }
 
 /// A tab's video out of its page, for the mini player: the page of a tab the user left goes

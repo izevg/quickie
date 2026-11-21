@@ -35,12 +35,18 @@ description = "Our WebKit fork's build of the pin into .build/webkit-frameworks,
 run = "engine/webkit/scripts/fetch"
 
 [tasks.fork]
-description = "The app on our WebKit fork: fetch it, bundle a debug app with it, and run that"
-run = [
-  "engine/webkit/scripts/fetch",
-  "cargo xtask bundle --webkit .build/webkit-frameworks",
-  "target/debug/Quickie.app/Contents/MacOS/quickie",
-]
+description = "The app on our WebKit fork: fetch it, bundle an app with it (--release: optimized), and run that"
+usage = 'flag "--release" help="Bundle and run the optimized build, as a release ships it"'
+run = '''
+set -eu
+engine/webkit/scripts/fetch
+if [ "${usage_release:-false}" = true ]; then
+  cargo xtask bundle --release --webkit .build/webkit-frameworks
+  exec target/release/Quickie.app/Contents/MacOS/quickie
+fi
+cargo xtask bundle --webkit .build/webkit-frameworks
+exec target/debug/Quickie.app/Contents/MacOS/quickie
+'''
 
 # ---- single gates ------------------------------------------------------------------------------
 

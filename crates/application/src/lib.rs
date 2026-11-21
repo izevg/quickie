@@ -24,11 +24,11 @@ pub use browsing::{Browsing, Playback};
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::conformance;
 pub use engine::{
-    Access, Answer, Ask, AskKind, Capabilities, Dialog, DownloadEvent, DownloadToken, Downloads,
-    Engine, EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost,
-    ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, Fullscreen, Inspector, LinkTarget,
-    NoExtensions, PackageSource, PageAsks, PageContent, PageRect, PageSurface, PageVideo, PageZoom,
-    PortsOf, ReplyToken, Ticket, Unpacked, WindowTabs,
+    Access, Answer, Ask, AskKind, Capabilities, DevTools, DevToolsPanel, Dialog, DownloadEvent,
+    DownloadToken, Downloads, Engine, EngineEvent, EventQueue, Expected, ExtensionCommand,
+    ExtensionEvent, ExtensionHost, ExtensionInfo, ExtensionPackages, FindStep, Followed, Found,
+    Fullscreen, Inspector, LinkTarget, NoExtensions, PackageSource, PageAsks, PageContent,
+    PageRect, PageSurface, PageVideo, PageZoom, PortsOf, ReplyToken, Ticket, Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,

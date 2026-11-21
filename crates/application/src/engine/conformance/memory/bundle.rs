@@ -10,8 +10,8 @@ use url::Url;
 
 use super::{MemoryEngine, MemoryPage, rules_in};
 use crate::{
-    ActiveRules, BlockerError, BlockerRules, Capabilities, ContentBlockerPort, Ended, Engine,
-    EngineError, EngineEvent, Flow, HttpError, HttpEvent, HttpPort, HttpRequest, Inspector,
+    ActiveRules, BlockerError, BlockerRules, Capabilities, ContentBlockerPort, DevTools, Ended,
+    Engine, EngineError, EngineEvent, Flow, HttpError, HttpEvent, HttpPort, HttpRequest, Inspector,
     NoExtensions, PageSurface, RulesStatus, StopSignal,
 };
 
@@ -136,7 +136,7 @@ impl PageSurface for MemoryEngine {
         self.page(tab).map(drop)
     }
 
-    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError> {
+    fn inspect(&mut self, tab: TabId, _asked: DevTools) -> Result<(), EngineError> {
         self.page(tab).map(drop)
     }
 }

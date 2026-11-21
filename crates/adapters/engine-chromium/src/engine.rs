@@ -16,9 +16,9 @@ use objc2::Message;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSImage, NSView};
 use quickie_application::{
-    Answer, Capabilities, DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort,
-    FindStep, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageVideo, PageZoom,
-    ReplyToken, Ticket,
+    Answer, Capabilities, DevTools, DownloadToken, Downloads, Engine, EngineError, EngineEvent,
+    EnginePort, FindStep, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageVideo,
+    PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -374,7 +374,7 @@ impl PageSurface for ChromiumEngine {
         self.unsupported(tab, "print")
     }
 
-    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError> {
+    fn inspect(&mut self, tab: TabId, _asked: DevTools) -> Result<(), EngineError> {
         self.unsupported(tab, "open the developer tools on")
     }
 }

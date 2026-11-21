@@ -181,6 +181,7 @@ mise run bundle --release                          # target/release/Quickie.app
 open target/debug/Quickie.app
 open -a target/debug/Quickie.app https://example.com page.html
 mise run fork                                      # the app on our WebKit fork (needs gh)
+mise run fork --release                            # the same, optimized as a release ships it
 ```
 
 The development binary runs on the system WebKit. `mise run fork` fetches our fork's build of
