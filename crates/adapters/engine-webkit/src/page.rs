@@ -15,18 +15,21 @@ use std::rc::Rc;
 
 pub(crate) use scripts::FocusReports;
 use scripts::fullscreen::{self, FullscreenHandler, FullscreenPages};
+use scripts::video::VideoFrames;
 
 /// Where every page's scripts report, shared by all pages: whether a frame's focused element
-/// takes text, and the hooks that hear a page go full screen, each under its view.
+/// takes text, the hooks that hear a page go full screen, and the frames that report on the
+/// page's video, each under its view.
 #[derive(Clone, Default)]
 pub(crate) struct Reports {
     pub(crate) focus: FocusReports,
     pub(crate) fullscreen: FullscreenPages,
+    pub(crate) videos: VideoFrames,
 }
 
 use block2::RcBlock;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, ProtocolObject};
+use objc2::runtime::ProtocolObject;
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSImage, NSPrintInfo, NSPrintingPaginationMode, NSView,
@@ -46,10 +49,8 @@ use url::Url;
 pub(crate) use observer::PageEvent;
 use observer::PageObserver;
 use scripts::hints::{self, COLLECT_SCRIPT, follow_script};
-use scripts::video::{
-    DOCK_SCRIPT, FLOAT_SCRIPT, VIDEO_HANDLER, VIDEO_SCRIPT, VideoHandler, play_script,
-};
 pub(crate) use scripts::video::{OnReport, Report};
+use scripts::video::{VIDEO_HANDLER, VIDEO_SCRIPT, VideoHandler};
 use scripts::{FOCUS_HANDLER, FOCUS_SCRIPT, FocusHandler, text_script};
 
 use crate::scheme::InternalPages;
@@ -97,6 +98,9 @@ pub(crate) struct WebPage {
     world: Retained<WKContentWorld>,
     /// Every page's script reports, this one's under its view.
     reports: Reports,
+    /// How many times the page floated or docked its video: a float's chain of frames stops
+    /// once a later call came.
+    floats: Rc<Cell<u64>>,
 }
 
 impl WebPage {
@@ -238,6 +242,7 @@ impl WebPage {
             _ui: ui,
             world,
             reports,
+            floats: Rc::default(),
         }
     }
 
@@ -515,20 +520,28 @@ impl WebPage {
         self.evaluate(&text_script(max_chars), done);
     }
 
-    /// Makes the page's video fill the view alone, for the mini player; the view is resized to
-    /// the player after.
+    /// Makes the page's video fill the view alone, for the mini player, in whichever frame it
+    /// plays; the view is resized to the player after.
     pub(crate) fn float_video(&self) {
-        self.evaluate(FLOAT_SCRIPT, drop);
+        self.floats.set(self.floats.get() + 1);
+        let videos = self.reports.videos.borrow();
+        let frames = videos.get(&scripts::view_key(&self.view));
+        scripts::video::float(&self.view, &self.world, frames, &self.floats);
     }
 
     /// Puts the page back as it was before [`Self::float_video`], scrolled where it was.
     pub(crate) fn dock_video(&self) {
-        self.evaluate(DOCK_SCRIPT, drop);
+        self.floats.set(self.floats.get() + 1);
+        let videos = self.reports.videos.borrow();
+        let frames = videos.get(&scripts::view_key(&self.view));
+        scripts::video::dock(&self.view, &self.world, frames);
     }
 
     /// Plays the page's video, or pauses it; the video script reports the change.
     pub(crate) fn play_video(&self, play: bool) {
-        self.evaluate(&play_script(play), drop);
+        let videos = self.reports.videos.borrow();
+        let frames = videos.get(&scripts::view_key(&self.view));
+        scripts::video::play(&self.view, &self.world, frames, play);
     }
 
     /// Takes the page out of full screen: out of the page view through our Fullscreen API, and
@@ -551,27 +564,7 @@ impl WebPage {
     /// Runs `script` in Quickie's world of the main frame; `done` gets its string answer, empty
     /// for anything else or an error.
     fn evaluate(&self, script: &str, done: impl FnOnce(String) + 'static) {
-        let done = Cell::new(Some(done));
-        let block = RcBlock::new(move |answer: *mut AnyObject, _error: *mut NSError| {
-            // SAFETY: WebKit passes a valid object or null for the duration of the call.
-            let answer = unsafe { answer.as_ref() }
-                .and_then(|answer| answer.downcast_ref::<NSString>())
-                .map_or_else(String::new, NSString::to_string);
-            if let Some(done) = done.take() {
-                done(answer);
-            }
-        });
-        // SAFETY: no frame means the main frame; WebKit calls the block once on the main
-        // thread, where its captures live.
-        unsafe {
-            self.view
-                .evaluateJavaScript_inFrame_inContentWorld_completionHandler(
-                    &NSString::from_str(script),
-                    None,
-                    &self.world,
-                    Some(&block),
-                );
-        }
+        scripts::evaluate(&self.view, &self.world, None, script, done);
     }
 }
 
@@ -583,6 +576,7 @@ impl Drop for WebPage {
         let key = scripts::view_key(&self.view);
         self.reports.focus.borrow_mut().remove(&key);
         self.reports.fullscreen.borrow_mut().remove(&key);
+        self.reports.videos.borrow_mut().remove(&key);
         // SAFETY: stopping has no preconditions; a page going away loads nothing more.
         unsafe { self.view.stopLoading() };
         self.view.removeFromSuperview();
@@ -590,23 +584,24 @@ impl Drop for WebPage {
     }
 }
 
-/// Adds the video script to the main frame of every page that uses `controller`, and one
-/// handler that hands each page's reports to `on_report`. Once per controller, as
-/// [`install_scripts`].
+/// Adds the video script to every frame of every page that uses `controller`, and one handler
+/// that keeps each page's frames in `frames` and hands each change of a page's video to
+/// `on_report`. Once per controller, as [`install_scripts`].
 pub(crate) fn install_video_script(
     controller: &WKUserContentController,
+    frames: &VideoFrames,
     on_report: OnReport,
     mtm: MainThreadMarker,
 ) {
     let world = scripts::world(mtm);
-    let handler = VideoHandler::new(on_report, mtm);
-    // SAFETY: the source is a complete script, injected at document start into main frames.
+    let handler = VideoHandler::new(Rc::clone(frames), on_report, mtm);
+    // SAFETY: the source is a complete script, injected at document start into every frame.
     let script = unsafe {
         WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
             WKUserScript::alloc(mtm),
             &NSString::from_str(VIDEO_SCRIPT),
             WKUserScriptInjectionTime::AtDocumentStart,
-            true,
+            false,
             &world,
         )
     };

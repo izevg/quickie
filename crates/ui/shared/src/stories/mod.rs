@@ -175,7 +175,6 @@ impl Scene {
             &self.window,
             view,
             NSPoint::new(size.width / 2.0, size.height / 2.0),
-            self.mtm,
         );
     }
 
