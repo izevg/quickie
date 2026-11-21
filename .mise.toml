@@ -27,7 +27,7 @@ run = "git config core.hooksPath .githooks"
 # ---- the app ------------------------------------------------------------------------------------
 
 [tasks.bundle]
-description = "The development app as target/<profile>/Quickie.app (--release, --bundle-id <id>)"
+description = "The app as target/<profile>/Quickie.app (--release, --bundle-id <id>, --version <X.Y.Z>, --sign <identity>, --dmg)"
 run = "cargo xtask bundle"
 
 # ---- single gates ------------------------------------------------------------------------------
