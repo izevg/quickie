@@ -14,6 +14,7 @@
 
 mod base;
 mod diff;
+mod git;
 mod report;
 
 use std::process::Command;
