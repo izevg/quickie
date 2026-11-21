@@ -10,7 +10,8 @@
 //!   drops the inset, which returns with it ([`PageFrame::set_page_full_screen`]).
 //! - Core Animation only: the card's layer casts the shadow along a path, and the page's host
 //!   inside it clips to the rounded corners. Resizing keeps the inset exact in the same frame:
-//!   the card follows the window by its autoresizing mask, never by a second layout pass.
+//!   the card lays itself out from the window's size each time the window resizes
+//!   (`resizeWithOldSuperviewSize:`), never by a second layout pass.
 //! - [`glow`]: while the page loads, a light runs along its edge: the window's inner edge, or
 //!   around the card as its box shadow.
 
@@ -122,6 +123,14 @@ define_class!(
         }
 
         /// The shadow's path follows the card's size as the window resizes.
+        /// Lays the card out from the window's new size, in place of the autoresizing mask:
+        /// the full-screen transition resizes the window through sizes where the mask's kept
+        /// margins come out wrong, and the card would keep them.
+        #[unsafe(method(resizeWithOldSuperviewSize:))]
+        fn resize_with_old_superview_size(&self, _old: NSSize) {
+            self.place(false);
+        }
+
         #[unsafe(method(setFrameSize:))]
         fn set_frame_size(&self, size: NSSize) {
             // SAFETY: `setFrameSize:` is `NSView`'s and takes the new size.
@@ -168,6 +177,12 @@ impl Card {
     /// it: around the card and under it when inset, else over the page along the window's
     /// edge.
     fn lay_out(&self) {
+        self.place(true);
+    }
+
+    /// [`Card::lay_out`]; `restack` also moves the glow above or below the card, which only a
+    /// change of state needs, never a resize.
+    fn place(&self, restack: bool) {
         // SAFETY: a getter; the superview is retained for the duration of the layout.
         let Some(parent) = (unsafe { self.superview() }) else {
             return;
@@ -212,7 +227,9 @@ impl Card {
                 },
             )
         };
-        parent.addSubview_positioned_relativeTo(glow, order, Some(self));
+        if restack {
+            parent.addSubview_positioned_relativeTo(glow, order, Some(self));
+        }
         glow.place(frame, edge);
     }
 
