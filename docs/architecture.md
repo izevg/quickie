@@ -372,9 +372,10 @@ overlays at once.
 | `agent_bridge/` | C++ | Internal DevTools session (`DevToolsAgentHost`), agent profile only, no port |
 
 **Developer tools.** On the WebKit stand-in every page sets the public `isInspectable`, so Web
-Inspector attaches from right-click → Inspect Element or Safari's Develop menu; `WKWebView` has no
-public call that opens it, and Quickie calls no private API, so the `quickie.devtools.*` commands
-say where it is in a toast. On Chromium the bridge opens `DevTools` docked in the window
+Inspector attaches from Safari's Develop menu. `WKWebView` has no public call that opens it, and
+the context menu's Inspect Element needs the private `developerExtrasEnabled` preference; Quickie
+calls no private API, so the `quickie.devtools.*` commands point to Safari's Develop menu in a
+toast. The fork's I1 patch opens it from the app (#84). On Chromium the bridge opens `DevTools` docked in the window
 (`DevToolsWindow::OpenDevToolsWindow` with the asked panel, `ToggleDevToolsWindow` for the toggle),
 in the main profile only and never on a port.
 

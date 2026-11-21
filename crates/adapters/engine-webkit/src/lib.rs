@@ -34,9 +34,10 @@
 //! folder [`Downloads::set_directory`] names and reports [`EngineEvent::Download`]s; a page
 //! saved as a PDF ([`Downloads::save_pdf`]) is written there too, under a free name.
 //!
-//! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from the
-//! page's context menu or Safari's Develop menu; `WebKit` has no public call that opens it, so
-//! its inspector is [`Inspector::FromContextMenu`]. Page zoom ([`PageZoom`]) and printing
+//! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from
+//! Safari's Develop menu; `WebKit` has no public call that opens it, so its inspector is
+//! [`Inspector::FromContextMenu`] (the name predates finding that the page's own context menu
+//! offers it only with a private preference). Page zoom ([`PageZoom`]) and printing
 //! ([`PageSurface::print`]) are the view's own.
 //!
 //! Web extensions ([`WebKitExtensions`], from [`Engine::web_extensions`]) run in the

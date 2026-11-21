@@ -176,7 +176,8 @@ impl WebPage {
         unsafe { view.setAllowsBackForwardNavigationGestures(true) };
         // SAFETY: as above.
         unsafe { view.setAllowsMagnification(false) };
-        // Web Inspector can attach (Safari's Develop menu, "Inspect Element"): public API since
+        // Web Inspector can attach from Safari's Develop menu (the context menu's Inspect Element
+        // needs a private preference, which Quickie does not set): public API since
         // macOS 13.3, so asked for before it is called on an older system.
         if view.respondsToSelector(sel!(setInspectable:)) {
             // SAFETY: a plain boolean setter the view answers to.

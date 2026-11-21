@@ -193,7 +193,7 @@ fn an_inspector_only_the_context_menu_opens_is_pointed_to() {
 
     assert_eq!(
         attaches.as_deref(),
-        Some("Right-click → Inspect Element opens Web Inspector")
+        Some("Web Inspector opens from Safari: Develop → Quickie → this page")
     );
     assert_eq!(
         cannot.as_deref(),
