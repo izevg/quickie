@@ -157,6 +157,28 @@ impl WebPage {
         unsafe { preferences.setElementFullscreenEnabled(true) };
         // Web Inspector, on our fork; a page it opens copies the preferences.
         inspector::allow(&preferences);
+        // EXPERIMENT (not for commit): QUICKIE_WEBKIT_OFF=Key1,Key2 turns those fork features off.
+        if let Ok(off) = std::env::var("QUICKIE_WEBKIT_OFF")
+            && let Some(class) = objc2::runtime::AnyClass::get(c"WKPreferences")
+        {
+            {
+                // SAFETY: experiment; `_features` returns an array of `_WKFeature`.
+                let features: Option<
+                    objc2::rc::Retained<objc2_foundation::NSArray<objc2::runtime::AnyObject>>,
+                > = unsafe { objc2::msg_send![class, _features] };
+                for feature in features.iter().flat_map(|all| all.iter()) {
+                    // SAFETY: `_WKFeature` has a `key` string.
+                    let key: objc2::rc::Retained<NSString> =
+                        unsafe { objc2::msg_send![&*feature, key] };
+                    if off.split(',').any(|name| name == key.to_string()) {
+                        // SAFETY: the setter takes a bool and the feature.
+                        unsafe {
+                            let (): () = objc2::msg_send![&*preferences, _setEnabled: false, forFeature: &*feature];
+                        }
+                    }
+                }
+            }
+        }
         Self::with_configuration(&configuration, hooks, reports, mtm)
     }
 
