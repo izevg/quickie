@@ -28,8 +28,8 @@ use std::rc::Rc;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSBackingStoreType, NSEventModifierFlags, NSView, NSWindow, NSWindowStyleMask,
-    NSWindowTitleVisibility,
+    NSBackingStoreType, NSEventModifierFlags, NSView, NSWindow, NSWindowCollectionBehavior,
+    NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use quickie_domain_commands::{Chord, CommandId};
@@ -244,6 +244,12 @@ impl SettingsScreen {
         window.setTitle(&NSString::from_str("Settings"));
         window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
         window.setTitlebarAppearsTransparent(true);
+        // Opens over the browser window it was asked from, even one full screen on its own
+        // Space, instead of switching to the desktop Space.
+        window.setCollectionBehavior(
+            NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::MoveToActiveSpace,
+        );
         window.setContentView(Some(&frame.root));
         window.setInitialFirstResponder(Some(sidebar.list()));
         // SAFETY: the screen owns the window, so AppKit must not release it on close as well.
