@@ -184,7 +184,7 @@ fn loaded(scene: &mut Scene) {
 }
 
 /// An element full screen drops the inset and gives it back when it ends. (The window's own
-/// full screen does the same through `AppKit`'s notifications, seen in the app.)
+/// full screen keeps it; that comes through `AppKit`'s notifications, seen in the app.)
 fn inset_full_screen(scene: &mut Scene) {
     let frame = open(scene);
     frame.set_inset(true);
