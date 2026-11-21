@@ -119,6 +119,19 @@ pub fn embed(source: &Path, app: &Path) -> Result<(), String> {
     for helper in helpers(source)? {
         let name = helper.file_name().ok_or("a helper without a name")?;
         ditto(&helper, &services.join(name))?;
+        // EXPERIMENT (not for merge): keep LaunchServices from giving the helpers a background
+        // app's task policy, as Apple's own helpers declare.
+        let plist = services.join(name).join("Contents/Info.plist");
+        quiet(
+            "plutil",
+            &[
+                "-replace",
+                "LSDoNotSetTaskPolicyAutomatically",
+                "-bool",
+                "YES",
+                &plist.to_string_lossy(),
+            ],
+        )?;
     }
 
     for name in FRAMEWORKS {
