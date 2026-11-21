@@ -12,6 +12,7 @@ objc2.workspace = true
 objc2-app-kit = { workspace = true, features = [
   "objc2-core-foundation",
   "objc2-quartz-core",
+  "NSAccessibilityConstants",
   "NSAttributedString",
   "NSBox",
   "NSButton",

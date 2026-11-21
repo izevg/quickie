@@ -84,8 +84,8 @@ pub enum Group {
     /// A page has a view while it exists, says how far it loaded, has a picture once captured,
     /// and says when a text field of its own has focus.
     Surface,
-    /// A page says what its video does: it plays, pauses when asked, plays again, and is gone
-    /// when the page leaves.
+    /// A page says what its video does, on the page, in a frame of another origin, or in a
+    /// shadow root: it plays, pauses when asked, plays again, and is gone when the page leaves.
     Video,
 }
 

@@ -8,7 +8,8 @@
 //! composites it like any page. A clear grip over the video takes every press, so the page
 //! never sees the pointer; dragging moves the player anywhere over the window, 1:1, and on
 //! release it springs (`gesture-settle`) to the corner it was flung toward, or fades there
-//! under Reduce Motion.
+//! under Reduce Motion. A click that does not drag goes back to the video's tab, as the
+//! button does.
 //!
 //! It is content on the page, not a glass surface: a rounded video on black with a medium
 //! shadow and no dimming, and its controls on one E1 pill over the video, in the theme's
@@ -50,7 +51,8 @@ const STILL: f64 = 0.08;
 pub enum PlayerRequest {
     /// Pause the video when it plays, play it when it does not.
     PlayPause,
-    /// Go back to the video's tab; the player ends there.
+    /// Go back to the video's tab, from its button or a click on the video; the player ends
+    /// there.
     BackToTab,
     /// Close the player; the video pauses.
     Close,
@@ -164,7 +166,6 @@ impl MiniPlayer {
         clip.addSubview(&slot);
         let grip = Grip::new(mtm);
         grip.setAutoresizingMask(fill());
-        grip.setAccessibilityElement(true);
         clip.addSubview(&grip);
         let target = PlayerTarget::new(mtm);
         let controls = GlassSurface::new(Elevation::E1, mtm);
@@ -331,7 +332,7 @@ impl MiniPlayer {
         cast_shadow(&self.root, Elevation::E2, radius::CARD);
     }
 
-    /// A press, a drag, or a release on the grip, at `in_window`.
+    /// A press, a drag, or a release on the grip, at `in_window`; or `VoiceOver` pressing it.
     fn pointer(&self, phase: Phase, in_window: NSPoint, time: f64) {
         // SAFETY: a getter; the superview is retained for the duration of the call.
         let Some(host) = (unsafe { self.root.superview() }) else {
@@ -339,6 +340,7 @@ impl MiniPlayer {
         };
         let at = host.convertPoint_fromView(in_window, None);
         match phase {
+            Phase::Activate => self.target.ask(PlayerRequest::BackToTab),
             Phase::Press => {
                 let base = motion::dragged_offset(&self.root);
                 self.drag.set(Some(Drag {
@@ -364,6 +366,8 @@ impl MiniPlayer {
                     return;
                 };
                 if !drag.moved && drag.base == NSPoint::ZERO {
+                    // A click on the video, not a drag: back to its tab.
+                    self.target.ask(PlayerRequest::BackToTab);
                     return;
                 }
                 let velocity = if time - drag.time > STILL {

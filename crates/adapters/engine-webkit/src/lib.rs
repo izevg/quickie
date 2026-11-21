@@ -151,8 +151,14 @@ impl WebKitEngine {
         let inbox = Rc::<Inbox>::default();
         page::install_scripts(&content, &inbox.reports, mtm);
         page::install_scripts(&throwaway_content, &inbox.reports, mtm);
-        page::install_video_script(&content, Inbox::video_reports(&inbox), mtm);
-        page::install_video_script(&throwaway_content, Inbox::video_reports(&inbox), mtm);
+        let videos = &inbox.reports.videos;
+        page::install_video_script(&content, videos, Inbox::video_reports(&inbox), mtm);
+        page::install_video_script(
+            &throwaway_content,
+            videos,
+            Inbox::video_reports(&inbox),
+            mtm,
+        );
         let waiting = Rc::downgrade(&inbox);
         let downloads = DownloadCenter::new(
             move |event| {
@@ -533,8 +539,10 @@ impl PageAsks for WebKitEngine {
 
 /// The page itself floats: its `WKWebView` moves into the slot, sized to it, and the video
 /// script makes its video fill it alone, the element staying where it is in the document, so
-/// it plays on and its own page draws it. Docking undoes both. Nothing is copied or composited
-/// by Quickie; the window server composites the page's layers as anywhere else.
+/// it plays on and its own page draws it. A video in a frame fills its frame, and each
+/// `<iframe>` up to the main frame fills its parent (`page::scripts::video`, with the limits
+/// of the public API it names). Docking undoes both. Nothing is copied or composited by
+/// Quickie; the window server composites the page's layers as anywhere else.
 impl PageVideo for WebKitEngine {
     fn float_video(&mut self, tab: TabId, slot: &NSView) -> Result<(), EngineError> {
         if self.shown.values().any(|&shown| shown == tab) {

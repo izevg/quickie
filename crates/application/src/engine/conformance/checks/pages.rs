@@ -100,6 +100,16 @@ pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
             "a_video_says_it_plays_pauses_and_leaves",
             video_reports,
         ),
+        case(
+            Group::Video,
+            "a_video_in_a_foreign_frame_says_it_plays_pauses_and_leaves",
+            framed_video_reports,
+        ),
+        case(
+            Group::Video,
+            "a_video_in_a_shadow_root_says_it_plays_pauses_and_leaves",
+            shadow_video_reports,
+        ),
     ]
 }
 
@@ -397,8 +407,24 @@ fn wait_video<H: Harness>(run: &mut Run<'_, H>, serial: u64, video: Option<Video
 /// The page plays a muted video by itself, which pauses and plays again when asked, and is
 /// gone once the page leaves.
 fn video_reports<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    video_says(run, "video")
+}
+
+/// The same, with the video in a frame of another origin, which the page cannot look into.
+fn framed_video_reports<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    video_says(run, "video-framed")
+}
+
+/// The same, with the video in an open shadow root inside another one.
+fn shadow_video_reports<H: Harness>(run: &mut Run<'_, H>) -> Checked {
+    video_says(run, "video-shadow")
+}
+
+/// The page at `path` plays a muted video by itself, somewhere in it; it pauses and plays
+/// again when asked, and is gone once the page leaves.
+fn video_says<H: Harness>(run: &mut Run<'_, H>, path: &str) -> Checked {
     let playing = Some(Video::Playing { audible: false });
-    run.create(1, "video", Jar::Main)?;
+    run.create(1, path, Jar::Main)?;
     run.engine
         .show(WINDOW, tab(1))
         .map_err(|error| format!("showing failed: {error}"))?;
