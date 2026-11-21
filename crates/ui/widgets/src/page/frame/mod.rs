@@ -5,9 +5,9 @@
 //! ring. The band around the card is the window's chrome: the shell's drag area lies under it,
 //! and the card itself never moves the window.
 //!
-//! - The window's full screen and a page's element full screen drop the inset, which returns
-//!   with them. The frame follows the window's full screen on its own; the page's comes from
-//!   [`PageFrame::set_page_full_screen`].
+//! - The window's full screen keeps the card, with an even [`INSET`] on top as well, since the
+//!   window buttons are gone there; the frame follows it on its own. A page's element full screen
+//!   drops the inset, which returns with it ([`PageFrame::set_page_full_screen`]).
 //! - Core Animation only: the card's layer casts the shadow along a path, and the page's host
 //!   inside it clips to the rounded corners. Resizing keeps the inset exact in the same frame:
 //!   the card follows the window by its autoresizing mask, never by a second layout pass.
@@ -161,7 +161,7 @@ impl Card {
     /// True while the card stands inset.
     fn is_inset(&self) -> bool {
         let ivars = self.ivars();
-        ivars.inset.get() && !ivars.window_full_screen.get() && !ivars.page_full_screen.get()
+        ivars.inset.get() && !ivars.page_full_screen.get()
     }
 
     /// Puts the card where its state says, in its superview, and paints it; the glow goes with
@@ -175,10 +175,13 @@ impl Card {
         let bounds = parent.bounds();
         let inset = self.is_inset();
         let frame = if inset {
-            let top = self.window().map_or(INSET, |window| {
-                let layout = window.contentLayoutRect();
-                (bounds.size.height - layout.origin.y - layout.size.height).max(INSET)
-            });
+            let top = match self.window() {
+                Some(window) if !self.ivars().window_full_screen.get() => {
+                    let layout = window.contentLayoutRect();
+                    (bounds.size.height - layout.origin.y - layout.size.height).max(INSET)
+                }
+                _ => INSET,
+            };
             card_frame(bounds.size, top)
         } else {
             bounds
@@ -356,8 +359,8 @@ impl PageFrame {
         }
     }
 
-    /// True while the page stands inset as a card: *Inset page* is on and nothing is full
-    /// screen.
+    /// True while the page stands inset as a card: *Inset page* is on and the page shows no
+    /// element full screen.
     #[must_use]
     pub fn is_inset(&self) -> bool {
         self.card.is_inset()
