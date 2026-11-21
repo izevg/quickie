@@ -19,7 +19,9 @@ Each patch is developed on its own fork branch `quickie/patch/<name>` and merged
 | A1 in-process automation client | `quickie/patch/automation-local-channel` | §2.1 |
 | W1 own WebAuthn manager, keychain group from Info.plist | `quickie/patch/webauthn-own-manager` | §2.5 |
 
-The Rust side of A1, I1 and W1 is not written yet: the app does not call the new SPI.
+The app calls I1's SPI: the `quickie.devtools.*` commands open Web Inspector by tab and dock it
+at the bottom (`crates/adapters/engine-webkit/src/page/inspector/`). The Rust side of A1 and W1
+is not written yet.
 
 Planned next: **V1 `media/fullscreen-in-window`**. Element full screen already stays in the tab's
 window through a page-script shim of the Fullscreen API (quickie #74), but the native fullscreen

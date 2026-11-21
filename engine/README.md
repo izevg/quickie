@@ -164,7 +164,10 @@ gh workflow run webkit.yml --repo izevg/quickie --ref release/0.1.0 -f commit="$
 3. **Tests.** `mise run conformance-fork` runs the engine conformance suite with
    `DYLD_FRAMEWORK_PATH` (and `__XPC_DYLD_FRAMEWORK_PATH` for the helpers) on the unpacked
    build, as WebKit's own `run-minibrowser` does; CI runs it as `engine conformance (WebKit
-   fork)`. `engine-webkit` uses the same `WKWebView` API through `objc2` on either engine.
+   fork)`. `engine-webkit` uses the same `WKWebView` API through `objc2` on either engine; the
+   fork's own SPI (I1's Web Inspector) only where `_WKInspector` answers it. The same test
+   binary then checks Web Inspector: on the fork it docks under the page on the asked tab,
+   stays with its tab, and closes; on the system `WebKit` the command fails with why.
 4. **The minimum macOS** is the fork's deployment target (26.5 with Xcode 26.6), which the
    bundle's `LSMinimumSystemVersion` takes from the build.
 

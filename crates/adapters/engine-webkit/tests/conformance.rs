@@ -63,13 +63,192 @@ fn main() -> ExitCode {
     };
 
     let report = conformance::run(&mut harness);
-
     print(&report.to_string());
-    if report.passed() {
+    let inspected = inspector::check(&mut harness);
+    match &inspected {
+        Ok(what) => print(&format!("inspector: passed ({what})\n")),
+        Err(why) => print(&format!("inspector: FAILED: {why}\n")),
+    }
+
+    if report.passed() && inspected.is_ok() {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
     }
+}
+
+/// Web Inspector, which the suite leaves to the harness: on our fork a developer tools'
+/// command opens it docked under the page on the panel asked, it stays with its tab, and the
+/// toggle closes it; on the system `WebKit` the command fails and says why.
+mod inspector {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use block2::RcBlock;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{msg_send, sel};
+    use objc2_app_kit::NSView;
+    use objc2_foundation::{NSError, NSString};
+    use objc2_web_kit::WKWebView;
+    use quickie_application::conformance::{Harness, PageSource, WINDOW};
+    use quickie_application::{
+        DevTools, DevToolsPanel, Engine, EngineEvent, EnginePort, PageSurface,
+    };
+    use quickie_domain_browsing::{Jar, Profile, TabId};
+    use quickie_engine_webkit::WebKitEngine;
+
+    use super::{HEIGHT, WIDTH, WebKit};
+
+    /// What was checked, or why it failed.
+    pub(super) fn check(harness: &mut WebKit) -> Result<&'static str, String> {
+        let mut engine = harness.engine();
+        let first = TabId::new(Profile::Main, 1);
+        open(harness, &mut engine, first, "plain")?;
+        let on_fork = AnyClass::get(c"_WKInspector").is_some_and(|class| {
+            class.responds_to(sel!(showTab:)) && class.responds_to(sel!(attachToSide:))
+        });
+        let network = DevTools::Panel(DevToolsPanel::Network);
+        if !on_fork {
+            return match engine.inspect(first, network) {
+                Err(_) => Ok("the system WebKit says where Web Inspector opens from"),
+                Ok(()) => Err("the system WebKit claims to have opened Web Inspector".to_owned()),
+            };
+        }
+
+        engine
+            .inspect(first, network)
+            .map_err(|error| format!("Network: {error}"))?;
+        let docked = harness.pump(&mut engine, &mut |engine| {
+            page_height(engine, first) < HEIGHT && siblings(engine, first) == 2
+        });
+        if !docked {
+            return Err(format!(
+                "Web Inspector did not dock under the page: the page is {} high in a {HEIGHT} \
+                 window, beside {} views",
+                page_height(&engine, first),
+                siblings(&engine, first) - 1,
+            ));
+        }
+        let shown = Rc::new(RefCell::new(String::new()));
+        let selected = harness.pump(&mut engine, &mut |engine| {
+            selected_tab(engine, first, &shown);
+            *shown.borrow() == "network"
+        });
+        if !selected {
+            return Err(format!(
+                "Web Inspector shows the tab {:?}, not network",
+                shown.borrow()
+            ));
+        }
+
+        let second = TabId::new(Profile::Main, 2);
+        open(harness, &mut engine, second, "other")?;
+        let host = engine
+            .view(second)
+            .and_then(NSView::window)
+            .and_then(|window| window.contentView())
+            .ok_or("the second tab's page is not in the window")?;
+        if host.subviews().len() != 1 || page_height(&engine, second) < HEIGHT {
+            return Err(
+                "the first tab's Web Inspector stayed when the window showed the \
+                        second tab"
+                    .to_owned(),
+            );
+        }
+        engine
+            .show(WINDOW, first)
+            .map_err(|error| error.to_string())?;
+
+        engine
+            .inspect(first, DevTools::Toggle)
+            .map_err(|error| format!("Toggle: {error}"))?;
+        let closed = harness.pump(&mut engine, &mut |engine| {
+            page_height(engine, first) >= HEIGHT && siblings(engine, first) == 1
+        });
+        if !closed {
+            return Err("the toggle left Web Inspector open".to_owned());
+        }
+        Ok("docked under the page on the Network tab, kept with its tab, closed by the toggle")
+    }
+
+    /// Makes a page of the suite's `path` in `tab`, shows it, and waits until it committed.
+    fn open(
+        harness: &mut WebKit,
+        engine: &mut WebKitEngine,
+        tab: TabId,
+        path: &str,
+    ) -> Result<(), String> {
+        let url = harness
+            .base()
+            .join(path)
+            .map_err(|error| error.to_string())?;
+        engine
+            .create(tab, &url, Jar::Main)
+            .and_then(|()| engine.show(WINDOW, tab))
+            .map_err(|error| error.to_string())?;
+        let mut events = Vec::new();
+        let committed = harness.pump(engine, &mut |engine| {
+            engine.drain(&mut events);
+            events.iter().any(
+                |event| matches!(event, EngineEvent::Committed { tab: about, .. } if *about == tab),
+            )
+        });
+        if committed {
+            Ok(())
+        } else {
+            Err(format!("{url} never committed"))
+        }
+    }
+
+    /// The height of the tab's page view, `0` without one.
+    fn page_height(engine: &WebKitEngine, tab: TabId) -> f64 {
+        engine
+            .view(tab)
+            .map_or(0.0, |view| view.frame().size.height)
+    }
+
+    /// How many views share the page view's superview, itself included.
+    fn siblings(engine: &WebKitEngine, tab: TabId) -> usize {
+        // SAFETY: a getter; the superview is retained while it is counted.
+        engine
+            .view(tab)
+            .and_then(|view| unsafe { view.superview() })
+            .map_or(0, |parent: Retained<NSView>| parent.subviews().len())
+    }
+
+    /// Asks the tab's Web Inspector which tab it shows; the answer lands in `shown`.
+    fn selected_tab(engine: &WebKitEngine, tab: TabId, shown: &Rc<RefCell<String>>) {
+        let Some(view) = engine.view(tab) else {
+            return;
+        };
+        // SAFETY: on the fork a `WKWebView` answers `_inspector` with its inspector or nil.
+        let inspector: Option<Retained<AnyObject>> = unsafe { msg_send![view, _inspector] };
+        // SAFETY: `_WKInspector (WKTesting)` answers `inspectorWebView` with the frontend's view
+        // or nil; this test is its only caller.
+        let frontend: Option<Retained<WKWebView>> =
+            inspector.and_then(|inspector| unsafe { msg_send![&inspector, inspectorWebView] });
+        let Some(frontend) = frontend else {
+            return;
+        };
+        let shown = Rc::clone(shown);
+        let reply = RcBlock::new(move |value: *mut AnyObject, _error: *mut NSError| {
+            // SAFETY: `WebKit` hands over the script's value, an `NSString` here, or nil.
+            if let Some(value) = unsafe { value.as_ref() }
+                && let Some(text) = value.downcast_ref::<NSString>()
+            {
+                *shown.borrow_mut() = text.to_string();
+            }
+        });
+        let script = NSString::from_str("WI.tabBrowser.selectedTabContentView?.type ?? ''");
+        // SAFETY: a script for the inspector's own page; the block is copied by `WebKit`.
+        unsafe { frontend.evaluateJavaScript_completionHandler(&script, Some(&reply)) };
+    }
+
+    const _: () = assert!(
+        WIDTH > 500.0 && HEIGHT > 333.0,
+        "WebKit docks only on large pages"
+    );
 }
 
 #[expect(

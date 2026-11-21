@@ -3,7 +3,7 @@
 //! rather than doing nothing.
 //!
 //! - [`zoom`]: page zoom, remembered per site, applied to every page as it commits.
-//! - [`output`]: printing a page, saving it as a PDF, and where Web Inspector is.
+//! - [`output`]: printing a page, saving it as a PDF, and Web Inspector.
 
 mod output;
 #[cfg(test)]
@@ -17,7 +17,9 @@ use objc2::rc::Retained;
 use objc2::{ClassType, MainThreadMarker, msg_send};
 use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
 use objc2_foundation::NSString;
-use quickie_application::{FetchedList, ListFetch, Navigation, fetch_lists};
+use quickie_application::{
+    DevTools, DevToolsPanel, FetchedList, ListFetch, Navigation, fetch_lists,
+};
 use quickie_domain_browsing::{Direction, Focus, JarChoice, PinnedSlot, WindowId};
 use quickie_domain_commands::{CommandId, KeyStroke, Modifiers};
 use quickie_domain_settings::ZoomStep;
@@ -77,8 +79,8 @@ pub enum Action {
     ShowSettings,
     /// The key debug overlay, on or off.
     DebugKeys,
-    /// Any of the developer tools' commands: Web Inspector opens from the page.
-    DevTools,
+    /// The developer tools on the active page: toggled, picking an element, or on a panel.
+    DevTools(DevTools),
     /// Installing, updating, and placing web extensions.
     Extensions(ExtensionsAction),
 }
@@ -132,10 +134,17 @@ impl Action {
         if let Some(slot) = slot("quickie.tab.pinToSlot") {
             return Some(Self::PinToSlot(slot));
         }
-        if id.starts_with("quickie.devtools.") {
-            return Some(Self::DevTools);
-        }
+        let panel = |panel| Self::DevTools(DevTools::Panel(panel));
         let action = match id {
+            "quickie.devtools.toggle" => Self::DevTools(DevTools::Toggle),
+            "quickie.devtools.inspectElement" => Self::DevTools(DevTools::InspectElement),
+            "quickie.devtools.elements" => panel(DevToolsPanel::Elements),
+            "quickie.devtools.console" => panel(DevToolsPanel::Console),
+            "quickie.devtools.network" => panel(DevToolsPanel::Network),
+            "quickie.devtools.sources" => panel(DevToolsPanel::Sources),
+            "quickie.devtools.performance" => panel(DevToolsPanel::Performance),
+            "quickie.devtools.application" => panel(DevToolsPanel::Application),
+            "quickie.devtools.memory" => panel(DevToolsPanel::Memory),
             "quickie.palette.openCommands" => Self::OpenCommands,
             "quickie.palette.goto" => Self::GoTo,
             "quickie.address.open" => Self::OpenAddress,
@@ -309,7 +318,7 @@ impl Browser {
             Action::Zoom(step) => self.zoom(window, step),
             Action::Print => self.print(window),
             Action::SavePdf => self.save_pdf(window),
-            Action::DevTools => self.devtools_hint(),
+            Action::DevTools(asked) => self.devtools(window, asked),
             Action::ToggleShields => self.toggle_shields(window),
             Action::EnableLists => self.enable_lists(),
             Action::RefreshLists => {
