@@ -1,0 +1,63 @@
+#!/bin/sh
+# Fetches the build of the pinned fork commit into <build>/webkit-frameworks, verified: the
+# archive's sha256, its build provenance attestation (made by the webkit.yml job that built it),
+# and BUILD-INFO naming the pinned commit. A tree that already holds the pin is kept.
+#
+#   engine/webkit/scripts/fetch
+#
+# The archive comes from the `webkit-<commit12>` prerelease, where webkit.yml keeps every build of
+# a pushed branch, else from the newest unexpired webkit.yml artifact (manual runs; artifacts
+# expire after 30 days). Needs `gh`, signed in (GH_TOKEN on CI).
+#
+# Environment:
+#   QUICKIE_BUILD_DIR   where it goes (default: <repo>/.build)
+#   QUICKIE_REPO        the repository that built it (default: izevg/quickie)
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=${QUICKIE_BUILD_DIR:-$root/.build}
+repo=${QUICKIE_REPO:-izevg/quickie}
+dest=$build/webkit-frameworks
+
+die() {
+  printf 'fetch: %s\n' "$1" >&2
+  exit 1
+}
+
+commit=$(sed -n 's/^WEBKIT_COMMIT=//p' "$root/engine/webkit/webkit.pin")
+printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$' || die "no commit in engine/webkit/webkit.pin"
+short=$(printf '%s' "$commit" | cut -c1-12)
+name=webkit-macos-$(uname -m)-$short
+
+if [ -f "$dest/BUILD-INFO" ] && grep -qx "webkit_commit=$commit" "$dest/BUILD-INFO"; then
+  printf 'fetch: %s holds %s already\n' "$dest" "$short"
+  exit 0
+fi
+
+work=$build/webkit-download
+rm -rf "$work"
+mkdir -p "$work"
+if gh release download "webkit-$short" --repo "$repo" --dir "$work" \
+  --pattern "$name.tar.gz" --pattern "$name.tar.gz.sha256" 2>/dev/null; then
+  printf 'fetch: %s from the webkit-%s release\n' "$name" "$short"
+else
+  run=$(gh api "repos/$repo/actions/artifacts?name=$name&per_page=20" \
+    --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')
+  [ -n "$run" ] || die "no build of $short: run webkit.yml for the pin"
+  gh run download "$run" --repo "$repo" --name "$name" --dir "$work"
+  printf 'fetch: %s from run %s\n' "$name" "$run"
+fi
+
+(cd "$work" && shasum -a 256 -c "$name.tar.gz.sha256") || die "$name.tar.gz: sha256 mismatch"
+gh attestation verify "$work/$name.tar.gz" --repo "$repo" >/dev/null ||
+  die "$name.tar.gz: no build provenance attestation from $repo"
+
+stage=$dest.new
+rm -rf "$stage"
+mkdir -p "$stage"
+tar -xzf "$work/$name.tar.gz" -C "$stage"
+grep -qx "webkit_commit=$commit" "$stage/BUILD-INFO" || die "BUILD-INFO names another commit than the pin"
+rm -rf "$dest"
+mv "$stage" "$dest"
+rm -rf "$work"
+printf 'fetch: %s (%s)\n' "$dest" "$(du -sh "$dest" | cut -f1)"

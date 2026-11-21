@@ -48,7 +48,8 @@ After the first release, `main` is protected and changes land through pull reque
   it. Running `release` by hand is a dry run that prints the notes. To skip a release, make the
   change a `docs`/`chore`/... type.
 - A release is a tag, notes, and the macOS app as a DMG with its sha256 (`release.yml`). The app
-  runs on the system WebKit; it is signed with Developer ID and notarized when the repository
+  carries our WebKit fork at the pin (`engine/webkit/scripts/fetch`, `bundle --webkit`) and needs
+  the macOS the fork was built for (26.5); it is signed with Developer ID and notarized when the repository
   holds the signing secrets (listed in `release.yml`), else signed ad hoc.
 
 ## The rule of four

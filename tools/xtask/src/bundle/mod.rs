@@ -1,7 +1,7 @@
 //! `cargo xtask bundle [--release] [--bundle-id <id>] [--version <X.Y.Z>] [--sign <identity>]
-//! [--dmg]`: the app as a real macOS app, `target/<profile>/Quickie.app`, that `LaunchServices`
-//! can register, open links with, and make the default browser; with `--dmg` also
-//! `target/<profile>/Quickie-<version>.dmg` ([`dmg`]), what a release hands out.
+//! [--webkit <dir>] [--dmg]`: the app as a real macOS app, `target/<profile>/Quickie.app`, that
+//! `LaunchServices` can register, open links with, and make the default browser; with `--dmg`
+//! also `target/<profile>/Quickie-<version>.dmg` ([`dmg`]), what a release hands out.
 //!
 //! ```text
 //! Quickie.app/Contents/
@@ -9,6 +9,7 @@
 //!   PkgInfo
 //!   MacOS/quickie        the shell binary, built with Cargo
 //!   Resources/Quickie.icns   from docs/assets/logo.png with sips and iconutil
+//!   Frameworks/          with --webkit: our WebKit fork (webkit.rs)
 //! ```
 //!
 //! The version is the latest release tag's unless `--version` names it (a release builds before
@@ -19,12 +20,15 @@
 
 mod dmg;
 mod plist;
+mod webkit;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use plist::{Bundle, DEFAULT_ID, entitlements, info_plist, valid_id, version_from_tag};
+use plist::{
+    Bundle, DEFAULT_ID, SYSTEM_MINIMUM, entitlements, info_plist, valid_id, version_from_tag,
+};
 
 /// Every image an `.iconset` holds: the pixel size and its file name.
 const ICON_SIZES: [(u32, &str); 10] = [
@@ -49,6 +53,8 @@ pub struct Options {
     pub version: Option<String>,
     /// A Developer ID Application identity; ad hoc when `None`.
     pub sign: Option<String>,
+    /// Our `WebKit` fork's build to carry (`.build/webkit-frameworks`); the system's when `None`.
+    pub webkit: Option<PathBuf>,
     pub dmg: bool,
 }
 
@@ -59,6 +65,7 @@ pub fn options(args: &[&str]) -> Result<Options, String> {
         id: DEFAULT_ID.to_owned(),
         version: None,
         sign: None,
+        webkit: None,
         dmg: false,
     };
     let mut args = args.iter();
@@ -82,6 +89,10 @@ pub fn options(args: &[&str]) -> Result<Options, String> {
             "--sign" => {
                 let identity = args.next().filter(|identity| !identity.is_empty());
                 options.sign = Some((*identity.ok_or("--sign needs an identity")?).to_owned());
+            }
+            "--webkit" => {
+                let dir = args.next().filter(|dir| !dir.is_empty());
+                options.webkit = Some(PathBuf::from(dir.ok_or("--webkit needs a directory")?));
             }
             "--dmg" => options.dmg = true,
             other => return Err(format!("unknown bundle option: {other}")),
@@ -117,12 +128,17 @@ pub fn run(
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     copy(&out.join("quickie"), &macos.join("quickie"))?;
+    let fork = options.webkit.as_ref().map(|dir| root.join(dir));
     let bundle = Bundle {
         id: options.id.clone(),
         version: options
             .version
             .clone()
             .unwrap_or_else(|| version_from_tag(latest_tag().as_deref())),
+        minimum: match &fork {
+            Some(dir) => webkit::minimum(dir)?,
+            None => SYSTEM_MINIMUM.to_owned(),
+        },
     };
     write(&contents.join("Info.plist"), &info_plist(&bundle))?;
     write(&contents.join("PkgInfo"), "APPL????")?;
@@ -131,6 +147,10 @@ pub fn run(
         &out.join("Quickie.iconset"),
         &resources.join("Quickie.icns"),
     )?;
+    if let Some(dir) = &fork {
+        webkit::embed(dir, &app)?;
+        webkit::sign(&app, options.sign.as_deref(), &out)?;
+    }
     sign(&app, options.sign.as_deref(), &out)?;
     let mut made = vec![app.clone()];
     if options.dmg {
@@ -142,13 +162,14 @@ pub fn run(
 }
 
 /// Signs `app` ad hoc, or with `identity` under the hardened runtime; `out` holds the
-/// entitlements file the signature reads.
+/// entitlements file the signature reads. The code inside it is signed already
+/// ([`webkit::sign`]): a deep signature would drop the helpers' own entitlements.
 fn sign(app: &Path, identity: Option<&str>, out: &Path) -> Result<(), String> {
     let app = app.to_string_lossy();
     let Some(identity) = identity else {
         return status(
             "codesign",
-            &["--sign", "-", "--force", "--deep", "--timestamp=none", &app],
+            &["--sign", "-", "--force", "--timestamp=none", &app],
         );
     };
     let file = out.join("Quickie.entitlements");
@@ -257,6 +278,7 @@ mod tests {
                 id: DEFAULT_ID.to_owned(),
                 version: None,
                 sign: None,
+                webkit: None,
                 dmg: false,
             })
         );
@@ -271,6 +293,7 @@ mod tests {
                 id: "dev.quickie.test".to_owned(),
                 version: None,
                 sign: None,
+                webkit: None,
                 dmg: false,
             })
         );
@@ -285,6 +308,8 @@ mod tests {
                 "0.1.0",
                 "--sign",
                 "Developer ID Application: Someone (TEAM123456)",
+                "--webkit",
+                ".build/webkit-frameworks",
                 "--dmg",
             ]),
             Ok(Options {
@@ -292,6 +317,7 @@ mod tests {
                 id: DEFAULT_ID.to_owned(),
                 version: Some("0.1.0".to_owned()),
                 sign: Some("Developer ID Application: Someone (TEAM123456)".to_owned()),
+                webkit: Some(".build/webkit-frameworks".into()),
                 dmg: true,
             })
         );
@@ -305,6 +331,8 @@ mod tests {
         assert!(options(&["--version"]).is_err());
         assert!(options(&["--version", "v0.1.0"]).is_err());
         assert!(options(&["--version", "0.1"]).is_err());
+        assert!(options(&["--webkit"]).is_err());
+        assert!(options(&["--webkit", ""]).is_err());
         assert!(options(&["--sign"]).is_err());
         assert!(options(&["--sign", ""]).is_err());
     }

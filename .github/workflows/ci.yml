@@ -73,6 +73,35 @@ jobs:
       - name: Conformance suite on WebKit
         run: mise run conformance
 
+  # The same suite on our WebKit fork at the pin, the engine the app ships with: a patch or a pin
+  # bump that breaks what the application expects fails here. The fork needs macOS 26.5.
+  conformance-fork:
+    name: engine conformance (WebKit fork)
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # read: the fork's build (a prerelease asset, else a workflow artifact) and its attestation.
+      actions: read
+      attestations: read
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: rust
+      # Swatinem/rust-cache v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: WebKit fork
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: engine/webkit/scripts/fetch
+      - name: Conformance suite on the fork
+        run: mise run conformance-fork
+
   # The UI stories (docs/quality.md, UI tests): every widget state rendered headless, its plays
   # run, and its render compared with the reference PNG. This runner is the references' source
   # of truth, so missing references or references from another macOS fail here (strict); the

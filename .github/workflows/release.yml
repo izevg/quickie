@@ -19,7 +19,8 @@ name: release
 #   APPLE_NOTARY_KEY_ID              the key's id
 #   APPLE_NOTARY_ISSUER              the key's issuer id
 # Without them the app is signed ad hoc and the notes tell how to open it past Gatekeeper.
-# The app runs on the system WebKit, arm64 only (Apple silicon).
+# The app carries our WebKit fork at the pin (engine/webkit/scripts/fetch verifies the build
+# webkit.yml made), arm64 only (Apple silicon), on the macOS the fork was built for.
 
 on:
   push:
@@ -56,6 +57,10 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: write
+      # read: the WebKit fork's build, a workflow artifact when no prerelease keeps it, and its
+      # attestation.
+      actions: read
+      attestations: read
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -134,6 +139,12 @@ jobs:
           fi
           echo "identity=$identity" >> "$GITHUB_OUTPUT"
 
+      # The app carries our WebKit fork at the pin: the build webkit.yml made and attested.
+      - name: WebKit fork
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: engine/webkit/scripts/fetch
+
       - name: Build the app and the DMG
         id: dmg
         env:
@@ -142,7 +153,8 @@ jobs:
         run: |
           sign=()
           if [ -n "$IDENTITY" ]; then sign=(--sign "$IDENTITY"); fi
-          cargo xtask bundle --release --version "${VERSION%%-*}" --dmg "${sign[@]}"
+          cargo xtask bundle --release --version "${VERSION%%-*}" \
+            --webkit .build/webkit-frameworks --dmg "${sign[@]}"
           dmg="$RUNNER_TEMP/Quickie-$VERSION.dmg"
           mv "target/release/Quickie-${VERSION%%-*}.dmg" "$dmg"
           echo "path=$dmg" >> "$GITHUB_OUTPUT"
@@ -178,7 +190,8 @@ jobs:
             echo
             echo '## Install'
             echo
-            echo "macOS 15 or later on Apple silicon. Open \`$(basename "$DMG")\` and drag Quickie to Applications."
+            minimum=$(plutil -extract LSMinimumSystemVersion raw target/release/Quickie.app/Contents/Info.plist)
+            echo "macOS $minimum or later on Apple silicon. Open \`$(basename "$DMG")\` and drag Quickie to Applications."
             if [ -z "$IDENTITY" ]; then
               echo
               echo 'This build is not notarized. On first launch macOS refuses it: open'
