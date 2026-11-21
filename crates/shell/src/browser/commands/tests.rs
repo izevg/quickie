@@ -1,4 +1,4 @@
-use quickie_application::EngineError;
+use quickie_application::{DevTools, DevToolsPanel, Engine, EngineError, Inspector};
 use quickie_domain_browsing::{Direction, PinnedSlot};
 use quickie_domain_commands::{Catalog, CommandId, KeyStroke, Modifiers};
 use quickie_domain_settings::ZoomStep;
@@ -75,22 +75,44 @@ fn the_commands_this_shell_does_have_actions() {
 }
 
 #[test]
-fn every_developer_tools_command_points_to_web_inspector() {
+fn every_developer_tools_command_asks_for_its_own_panel() {
+    let panel = |panel| Some(Action::DevTools(DevTools::Panel(panel)));
+    let cases = [
+        (
+            "quickie.devtools.toggle",
+            Some(Action::DevTools(DevTools::Toggle)),
+        ),
+        (
+            "quickie.devtools.inspectElement",
+            Some(Action::DevTools(DevTools::InspectElement)),
+        ),
+        ("quickie.devtools.elements", panel(DevToolsPanel::Elements)),
+        ("quickie.devtools.console", panel(DevToolsPanel::Console)),
+        ("quickie.devtools.network", panel(DevToolsPanel::Network)),
+        ("quickie.devtools.sources", panel(DevToolsPanel::Sources)),
+        (
+            "quickie.devtools.performance",
+            panel(DevToolsPanel::Performance),
+        ),
+        (
+            "quickie.devtools.application",
+            panel(DevToolsPanel::Application),
+        ),
+        ("quickie.devtools.memory", panel(DevToolsPanel::Memory)),
+    ];
     let catalog = Catalog::builtin();
-    let devtools: Vec<_> = catalog
+    let listed: Vec<_> = catalog
         .iter()
-        .filter(|command| command.id.as_str().starts_with("quickie.devtools."))
+        .map(|command| command.id.as_str())
+        .filter(|id| id.starts_with("quickie.devtools."))
         .collect();
 
-    assert_eq!(devtools.len(), 9);
-    for command in devtools {
-        assert_eq!(
-            Action::of(&command.id),
-            Some(Action::DevTools),
-            "{}",
-            command.id
-        );
+    assert_eq!(listed.len(), cases.len());
+    for (id, action) in cases {
+        assert!(listed.contains(&id), "{id} is not in the catalog");
+        assert_eq!(of(id), action, "{id}");
     }
+    assert_eq!(of("quickie.devtools.layers"), None);
 }
 
 #[test]
@@ -185,15 +207,33 @@ fn a_cycle_is_held_by_its_modifiers_but_shift() {
 }
 
 #[test]
+fn an_inspector_that_opened_says_nothing_and_one_that_could_not_says_why() {
+    let why = || Err(EngineError("the page has no Web Inspector".to_owned()));
+
+    assert_eq!(
+        <MainEngine as Engine>::CAPS.inspector,
+        Inspector::Programmatic
+    );
+    assert_eq!(inspector_told(Inspector::Programmatic, Ok(())), None);
+    assert_eq!(
+        inspector_told(Inspector::Programmatic, why()).as_deref(),
+        Some("Couldn't open the developer tools: the page has no Web Inspector")
+    );
+}
+
+#[test]
 fn an_inspector_only_the_context_menu_opens_is_pointed_to() {
-    let attaches = inspector_told::<MainEngine>(Ok(()));
-    let cannot = inspector_told::<MainEngine>(Err(EngineError(
-        "Web Inspector needs macOS 13.3 or later".to_owned(),
-    )));
+    let attaches = inspector_told(Inspector::FromContextMenu, Ok(()));
+    let cannot = inspector_told(
+        Inspector::FromContextMenu,
+        Err(EngineError(
+            "Web Inspector needs macOS 13.3 or later".to_owned(),
+        )),
+    );
 
     assert_eq!(
         attaches.as_deref(),
-        Some("Web Inspector opens from Safari: Develop → Quickie → this page")
+        Some("Web Inspector opens from the page's context menu: Inspect Element")
     );
     assert_eq!(
         cannot.as_deref(),

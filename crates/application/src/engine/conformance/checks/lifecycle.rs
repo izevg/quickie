@@ -8,7 +8,7 @@ use quickie_domain_browsing::Jar;
 
 use super::{Case, Checked, Run, about, ensure, first_navigation, same, tab, visit};
 use crate::conformance::{Group, Harness, WINDOW};
-use crate::{Engine, EngineEvent, EnginePort, Navigation, PageSurface};
+use crate::{DevTools, Engine, EngineEvent, EnginePort, Navigation, PageSurface};
 
 pub(super) fn cases<H: Harness>() -> Vec<Case<H>> {
     let case = |group, name, run| Case { group, name, run };
@@ -196,7 +196,7 @@ fn nothing_on_screen<H: Harness>(run: &mut Run<'_, H>, when: &str) -> Checked {
     ensure(engine.print(tab(1)).is_err(), || {
         format!("a tab printed {when}")
     })?;
-    ensure(engine.inspect(tab(1)).is_err(), || {
+    ensure(engine.inspect(tab(1), DevTools::Toggle).is_err(), || {
         format!("a tab was inspected {when}")
     })
 }

@@ -9,9 +9,9 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use quickie_application::{
-    Answer, BlockerRules, ContentBlockerPort, DownloadToken, Downloads, Engine, EngineError,
-    EngineEvent, EnginePort, FindStep, HttpPort, Inspector, Navigation, PageAsks, PageContent,
-    PageSurface, PageZoom, ReplyToken, RulesStatus,
+    Answer, BlockerRules, ContentBlockerPort, DevTools, DownloadToken, Downloads, Engine,
+    EngineError, EngineEvent, EnginePort, FindStep, HttpPort, Inspector, Navigation, PageAsks,
+    PageContent, PageSurface, PageZoom, ReplyToken, RulesStatus,
 };
 use quickie_domain_browsing::{Focus, Jar, JarId, Profile, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -755,7 +755,7 @@ fn the_surface_has_nothing_to_show_and_fails_without_calling_chromium() {
 
     engine.capture(tab(7));
     let printed = engine.print(tab(7));
-    let inspected = engine.inspect(tab(7));
+    let inspected = engine.inspect(tab(7), DevTools::Toggle);
     let without = engine.print(tab(8));
 
     assert!(engine.view(tab(7)).is_none());

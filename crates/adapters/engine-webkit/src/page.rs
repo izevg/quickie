@@ -1,10 +1,12 @@
-//! One tab's page: a `WKWebView` in a data store, the observer that reports its navigations
-//! and loading, the delegate that hears what it asks (pages of its own, dialogs, devices), find
-//! in page, and the scripts Quickie runs in it (focus reports, link hints, and full screen in
+//! One tab's page: a `WKWebView` in a data store, inside a frame view of its own that it shares
+//! only with its docked Web Inspector, the observer that reports its navigations and loading,
+//! the delegate that hears what it asks (pages of its own, dialogs, devices), find in page, Web
+//! Inspector, and the scripts Quickie runs in it (focus reports, link hints, and full screen in
 //! the tab's own window).
 
 pub(crate) mod asks;
 mod find;
+pub(crate) mod inspector;
 mod observer;
 pub(crate) mod scripts;
 
@@ -26,7 +28,9 @@ use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
-use objc2_app_kit::{NSImage, NSPrintInfo, NSPrintingPaginationMode, NSView};
+use objc2_app_kit::{
+    NSAutoresizingMaskOptions, NSImage, NSPrintInfo, NSPrintingPaginationMode, NSView,
+};
 use objc2_foundation::{
     NSData, NSError, NSNumber, NSObjectProtocol, NSRect, NSSize, NSString, NSURL, NSURLRequest,
 };
@@ -35,7 +39,7 @@ use objc2_web_kit::{
     WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebExtensionController,
     WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
 };
-use quickie_application::{AskKind, EngineError, FindStep, Followed, LinkTarget};
+use quickie_application::{AskKind, DevTools, EngineError, FindStep, Followed, LinkTarget};
 use quickie_domain_browsing::{FindMatches, Focus};
 use url::Url;
 
@@ -83,6 +87,10 @@ pub(crate) struct Hooks {
 /// A page and its view. Dropping it stops observation and takes the view off screen.
 pub(crate) struct WebPage {
     view: Retained<WKWebView>,
+    /// What a window shows of the page: the view, filling it, and the page's Web Inspector
+    /// when it docks, which `WebKit` puts next to the view in the view's superview and makes
+    /// room for. A tab's inspector leaves and comes back with the tab.
+    frame: Retained<NSView>,
     observer: Retained<PageObserver>,
     /// Keeps the UI delegate alive as long as the view refers to it.
     _ui: Retained<PageUi>,
@@ -147,6 +155,8 @@ impl WebPage {
         // all (`allowfullscreen`), which the script reads from it.
         // SAFETY: a plain boolean setter.
         unsafe { preferences.setElementFullscreenEnabled(true) };
+        // Web Inspector, on our fork; a page it opens copies the preferences.
+        inspector::allow(&preferences);
         Self::with_configuration(&configuration, hooks, reports, mtm)
     }
 
@@ -176,13 +186,19 @@ impl WebPage {
         unsafe { view.setAllowsBackForwardNavigationGestures(true) };
         // SAFETY: as above.
         unsafe { view.setAllowsMagnification(false) };
-        // Web Inspector can attach from Safari's Develop menu (the context menu's Inspect Element
-        // needs a private preference, which Quickie does not set): public API since
-        // macOS 13.3, so asked for before it is called on an older system.
+        // Web Inspector can also attach from Safari's Develop menu, the only way on the system
+        // `WebKit` ([`inspector`]): public API since macOS 13.3, so asked for before it is
+        // called on an older system.
         if view.respondsToSelector(sel!(setInspectable:)) {
             // SAFETY: a plain boolean setter the view answers to.
             unsafe { view.setInspectable(true) };
         }
+        let frame = NSView::new(mtm);
+        view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
+        frame.addSubview(&view);
         let hooks = Rc::new(hooks);
         reports
             .fullscreen
@@ -195,6 +211,7 @@ impl WebPage {
         unsafe { view.setUIDelegate(Some(ProtocolObject::from_ref(&*ui))) };
         Self {
             view,
+            frame,
             observer,
             _ui: ui,
             world,
@@ -202,9 +219,37 @@ impl WebPage {
         }
     }
 
-    /// The view to embed; it draws the page edge to edge.
+    /// The view the page draws in, edge to edge; it takes the keyboard.
     pub(crate) fn view(&self) -> &NSView {
         &self.view
+    }
+
+    /// The view to embed in a window: the page, and its Web Inspector when it docks.
+    pub(crate) fn frame(&self) -> &NSView {
+        &self.frame
+    }
+
+    /// Puts the page's view back into its frame, filling it, after it was shown elsewhere
+    /// alone (the mini player); `WebKit` makes room for a docked inspector again as the
+    /// view's frame changes.
+    pub(crate) fn reframe(&self) {
+        // SAFETY: a getter; the superview is retained for the duration of the comparison.
+        let parent = unsafe { self.view.superview() };
+        if parent.is_some_and(|parent| parent == self.frame) {
+            return;
+        }
+        self.view.removeFromSuperview();
+        self.view.setFrame(self.frame.bounds());
+        self.view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
+        self.frame.addSubview(&self.view);
+    }
+
+    /// Does what `asked` says with the page's Web Inspector ([`inspector`]).
+    pub(crate) fn inspect(&self, asked: DevTools) -> Result<(), EngineError> {
+        inspector::open(&self.view, asked)
     }
 
     /// A copy of the page's configuration, to open a page in the same data store.
@@ -304,12 +349,6 @@ impl WebPage {
             // SAFETY: a plain setter; any positive factor is valid.
             unsafe { self.view.setPageZoom(factor) };
         }
-    }
-
-    /// Whether Web Inspector may attach to the page.
-    pub(crate) fn inspectable(&self) -> bool {
-        // SAFETY: a plain getter, asked only where the view answers to it.
-        self.view.respondsToSelector(sel!(isInspectable)) && unsafe { self.view.isInspectable() }
     }
 
     /// Opens the print panel as a sheet on the page's window; `WebKit` lays the page out in
@@ -525,6 +564,7 @@ impl Drop for WebPage {
         // SAFETY: stopping has no preconditions; a page going away loads nothing more.
         unsafe { self.view.stopLoading() };
         self.view.removeFromSuperview();
+        self.frame.removeFromSuperview();
     }
 }
 

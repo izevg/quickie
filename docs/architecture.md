@@ -371,11 +371,22 @@ overlays at once.
 | `privacy/` | C++ patches | On top of ungoogled-chromium ([privacy.md](privacy.md)) |
 | `agent_bridge/` | C++ | Internal DevTools session (`DevToolsAgentHost`), agent profile only, no port |
 
-**Developer tools.** On the WebKit stand-in every page sets the public `isInspectable`, so Web
-Inspector attaches from Safari's Develop menu. `WKWebView` has no public call that opens it, and
-the context menu's Inspect Element needs the private `developerExtrasEnabled` preference; Quickie
-calls no private API, so the `quickie.devtools.*` commands point to Safari's Develop menu in a
-toast. The fork's I1 patch opens it from the app (#84). On Chromium the bridge opens `DevTools` docked in the window
+**Developer tools.** Quickie calls no private API of Apple's system `WebKit`. Our fork's SPI is
+a different matter: the fork is our own engine, built and pinned by us, and the app always ships
+on it, so its `_WKInspector` and `WKPreferences` SPI is our API, like any other port of our
+engine. On the fork (`Inspector::Programmatic`) each `quickie.devtools.*` command opens Web
+Inspector on the active tab: `-[WKWebView _inspector]` → `_WKInspector` `show`, `close`
+(the toggle), `toggleElementSelection` (Inspect Element), and I1's `showTab:` with the panel's
+tab (`elements`, `console`, `network`, `sources`; Performance and Memory are `timeline`,
+Application is `storage`). Pages run with `_setDeveloperExtrasEnabled:` so the inspector may
+open and the page's context menu offers Inspect Element. Web Inspector docks at the bottom of
+the page, whichever way it opened: the page's UI delegate calls I1's `attachToSide:` from
+`_webView:didAttachLocalInspector:`, before it shows; the design system names no side, and
+bottom keeps the page's full width. It docks inside the page's own frame view, so it leaves
+the window with its tab and comes back with it. The adapter asks first whether `_WKInspector`
+answers I1's selectors; on the system `WebKit` (a plain `cargo run`) it calls none of this,
+every page stays `isInspectable` for Safari's Develop menu, and the command's toast says so.
+On Chromium the bridge opens `DevTools` docked in the window
 (`DevToolsWindow::OpenDevToolsWindow` with the asked panel, `ToggleDevToolsWindow` for the toggle),
 in the main profile only and never on a port.
 

@@ -34,11 +34,14 @@
 //! folder [`Downloads::set_directory`] names and reports [`EngineEvent::Download`]s; a page
 //! saved as a PDF ([`Downloads::save_pdf`]) is written there too, under a free name.
 //!
-//! Every page is inspectable (`WKWebView.isInspectable`), so Web Inspector attaches from
-//! Safari's Develop menu; `WebKit` has no public call that opens it, so its inspector is
-//! [`Inspector::FromContextMenu`] (the name predates finding that the page's own context menu
-//! offers it only with a private preference). Page zoom ([`PageZoom`]) and printing
-//! ([`PageSurface::print`]) are the view's own.
+//! Web Inspector is [`Inspector::Programmatic`] on our `WebKit` fork, which the app ships
+//! with: the developer tools' commands open it on a panel through the fork's `_WKInspector`,
+//! docked under the page, and the page's context menu offers Inspect Element. On the system
+//! `WebKit` (a plain `cargo run`) [`PageSurface::inspect`] fails and says that Safari's Develop
+//! menu attaches it, as every page is inspectable (`WKWebView.isInspectable`). Each page sits
+//! in a frame view of its own, which the engine puts into windows, so a docked inspector goes
+//! with its tab. Page zoom ([`PageZoom`]) and printing ([`PageSurface::print`]) are the view's
+//! own.
 //!
 //! Web extensions ([`WebKitExtensions`], from [`Engine::web_extensions`]) run in the
 //! main jar's pages through one `WKWebExtensionController`, on macOS 15.4 and later; never in
@@ -72,9 +75,9 @@ use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrdering
 use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
-    Answer, Capabilities, DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort,
-    FindStep, Found, Inspector, Navigation, PageAsks, PageContent, PageSurface, PageVideo,
-    PageZoom, ReplyToken, Ticket,
+    Answer, Capabilities, DevTools, DownloadToken, Downloads, Engine, EngineError, EngineEvent,
+    EnginePort, FindStep, Found, Inspector, Navigation, PageAsks, PageContent, PageSurface,
+    PageVideo, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -268,7 +271,7 @@ impl WebKitEngine {
     /// for the overview before it is ever shown.
     fn lay_out(&self, page: &WebPage) {
         if let Some(host) = self.hosts.values().next() {
-            page.view().setFrame(host.bounds());
+            page.frame().setFrame(host.bounds());
         }
     }
 
@@ -345,10 +348,12 @@ impl EnginePort for WebKitEngine {
     /// host is not attached yet gets the page when [`PageSurface::attach_host`] runs. A page
     /// that floats in the mini player docks first.
     fn show(&mut self, window: WindowId, tab: TabId) -> Result<(), EngineError> {
-        let view = self.page(tab)?.view().retain();
+        let frame = self.page(tab)?.frame().retain();
         if self.floated == Some(tab) {
             self.floated = None;
-            self.page(tab)?.dock_video();
+            let page = self.page(tab)?;
+            page.dock_video();
+            page.reframe();
         }
         let previous = self.shown.insert(window, tab);
         if let Some(previous) = previous.filter(|&previous| previous != tab)
@@ -356,10 +361,10 @@ impl EnginePort for WebKitEngine {
         {
             // The page as the user left it, for the tab overview; drawn while still laid out.
             self.snapshot(previous);
-            page.view().removeFromSuperview();
+            page.frame().removeFromSuperview();
         }
         if let Some(host) = self.hosts.get(&window) {
-            place(&view, host);
+            place(&frame, host);
         }
         Ok(())
     }
@@ -540,6 +545,7 @@ impl PageVideo for WebKitEngine {
         }
         let page = self.page(tab)?;
         page.float_video();
+        // The page alone, out of its frame: a docked inspector stays behind, off screen.
         place(page.view(), slot);
         self.floated = Some(tab);
         Ok(())
@@ -554,7 +560,7 @@ impl PageVideo for WebKitEngine {
         self.floated = None;
         if let Some(page) = self.pages.get(&tab) {
             page.dock_video();
-            page.view().removeFromSuperview();
+            page.reframe();
             self.lay_out(page);
         }
     }
@@ -575,7 +581,8 @@ impl PageZoom for WebKitEngine {
     }
 }
 
-/// Each page is a `WKWebView` filling its window's host view; its picture is a snapshot its web
+/// Each page is a `WKWebView` in a frame view that fills its window's host view (with the
+/// page's docked Web Inspector, when it docks); its picture is a snapshot its web
 /// content process paints, kept per tab at [`WebKitEngine::set_thumbnail_size`].
 impl PageSurface for WebKitEngine {
     type View = NSView;
@@ -584,14 +591,14 @@ impl PageSurface for WebKitEngine {
     fn attach_host(&mut self, window: WindowId, host: &NSView) -> Result<(), EngineError> {
         self.hosts.insert(window, host.retain());
         if let Some(page) = self.shown.get(&window).and_then(|tab| self.pages.get(tab)) {
-            place(page.view(), host);
+            place(page.frame(), host);
         }
         Ok(())
     }
 
     fn detach_host(&mut self, window: WindowId) {
         if let Some(page) = self.shown.get(&window).and_then(|tab| self.pages.get(tab)) {
-            page.view().removeFromSuperview();
+            page.frame().removeFromSuperview();
         }
         self.hosts.remove(&window);
     }
@@ -623,22 +630,16 @@ impl PageSurface for WebKitEngine {
         self.page(tab)?.print()
     }
 
-    /// Every page, popups included, is inspectable on macOS 13.3 and later; Web Inspector then
-    /// attaches from its context menu.
-    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError> {
-        if self.page(tab)?.inspectable() {
-            Ok(())
-        } else {
-            Err(EngineError(
-                "Web Inspector needs macOS 13.3 or later".to_owned(),
-            ))
-        }
+    /// Web Inspector through our fork's `_WKInspector`, docked under the page; on the system
+    /// `WebKit`, an error that says where it opens from instead.
+    fn inspect(&mut self, tab: TabId, asked: DevTools) -> Result<(), EngineError> {
+        self.page(tab)?.inspect(asked)
     }
 }
 
 /// The browser's own requests go over `NSURLSession`; the content blocker compiles rule lists
 /// into both user content controllers. Pages report their blocked requests, and Web Inspector
-/// opens only from a page's context menu.
+/// opens by panel on our fork.
 impl Engine for WebKitEngine {
     type Http = UrlSessionHttp;
     type Blocker = WebKitContentBlocker;
@@ -646,7 +647,7 @@ impl Engine for WebKitEngine {
 
     const CAPS: Capabilities = Capabilities {
         web_extensions: true,
-        inspector: Inspector::FromContextMenu,
+        inspector: Inspector::Programmatic,
         blocked_counts: true,
     };
 
