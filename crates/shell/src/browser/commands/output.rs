@@ -1,14 +1,13 @@
 //! A page out of the browser: printed (`⌥⌘P`, since `⌘P` goes to a tab), saved as a PDF into
 //! the downloads list, or open in the developer tools.
 //!
-//! **Developer tools.** How they open is the engine's capability ([`Inspector`]). On `WebKit`
-//! (`Inspector::FromContextMenu`) `WKWebView` has no public call that opens Web Inspector, only
-//! `isInspectable`, which every page sets. That lets Safari's Develop menu attach Web Inspector;
-//! the page's own context menu offers Inspect Element only with a private preference. Quickie
-//! calls no private API, so the developer tools' commands point to Safari's Develop menu. On Chromium (P1, `Inspector::Programmatic`) they open `DevTools` docked in the
-//! window and on the asked panel, through the bridge.
+//! **Developer tools.** How they open is the engine's capability ([`Inspector`]). On our
+//! `WebKit` fork and on Chromium it is `Inspector::Programmatic`: each `quickie.devtools.*`
+//! command opens them on the active page, docked in the window, toggled, picking an element,
+//! or on its panel ([`DevTools`]). An engine that cannot (the system `WebKit` of a plain
+//! `cargo run`) answers with an error that says where they open from, and the toast shows it.
 
-use quickie_application::{Downloads, Engine, EngineError, Inspector, PageSurface};
+use quickie_application::{DevTools, Downloads, Engine, EngineError, Inspector, PageSurface};
 use quickie_domain_browsing::WindowId;
 
 use super::Browser;
@@ -38,31 +37,34 @@ impl Browser {
         }
     }
 
-    /// The developer tools' commands: they open on the active page, or a toast says where
-    /// they open from.
-    pub(super) fn devtools_hint(&self) {
-        let Some(tab) = self.current().and_then(|(window, _)| self.active(window)) else {
+    /// Does what a developer tools' command asks on the window's active page; a toast says why
+    /// it could not.
+    pub(super) fn devtools(&self, window: WindowId, asked: DevTools) {
+        let Some(tab) = self.active(window) else {
             return;
         };
-        let inspected = self.browsing.borrow_mut().engine_mut().inspect(tab);
-        if let Some(told) = inspector_told::<MainEngine>(inspected) {
+        let inspected = self.browsing.borrow_mut().engine_mut().inspect(tab, asked);
+        if let Some(told) = inspector_told(<MainEngine as Engine>::CAPS.inspector, inspected) {
             self.toast(&told);
         }
     }
 }
 
-/// What the user is told after asking `E` for the developer tools, which answered `inspected`:
-/// where they open from when only the page's context menu opens them, why they cannot when
-/// they cannot, and nothing when they opened.
-pub(super) fn inspector_told<E: Engine>(inspected: Result<(), EngineError>) -> Option<String> {
-    match (E::CAPS.inspector, inspected) {
+/// What the user is told after asking an engine whose developer tools open as `inspector`
+/// says, which answered `inspected`: nothing when they opened, why when they could not, and
+/// where they open from when only the page's context menu opens them.
+pub(super) fn inspector_told(
+    inspector: Inspector,
+    inspected: Result<(), EngineError>,
+) -> Option<String> {
+    match (inspector, inspected) {
+        (Inspector::Programmatic, Ok(())) => None,
+        (Inspector::Programmatic, Err(EngineError(why))) => {
+            Some(format!("Couldn't open the developer tools: {why}"))
+        }
         (Inspector::FromContextMenu, Ok(())) => {
-            Some("Web Inspector opens from Safari: Develop → Quickie → this page".to_owned())
+            Some("Web Inspector opens from the page's context menu: Inspect Element".to_owned())
         }
         (Inspector::FromContextMenu, Err(EngineError(why))) => Some(why),
-        (Inspector::Programmatic, Ok(())) => None,
-        (Inspector::Programmatic, Err(error)) => {
-            Some(format!("Couldn't open the developer tools: {error}"))
-        }
     }
 }

@@ -15,10 +15,10 @@ use crate::conformance::{
     NotDriven, Outcome, PageSource, run,
 };
 use crate::{
-    Answer, Ask, AskKind, BlockerRules, Capabilities, Dialog, DownloadEvent, DownloadToken,
-    Downloads, Engine, EngineError, EngineEvent, EnginePort, FindStep, Followed, Fullscreen,
-    LinkTarget, Navigation, NoExtensions, PageAsks, PageContent, PageRect, PageSurface, PageVideo,
-    PageZoom, ReplyToken, Ticket,
+    Answer, Ask, AskKind, BlockerRules, Capabilities, DevTools, Dialog, DownloadEvent,
+    DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort, FindStep, Followed,
+    Fullscreen, LinkTarget, Navigation, NoExtensions, PageAsks, PageContent, PageRect, PageSurface,
+    PageVideo, PageZoom, ReplyToken, Ticket,
 };
 
 /// How the engine under test differs from the reference.
@@ -271,8 +271,8 @@ impl PageSurface for Broken {
         self.engine.print(tab)
     }
 
-    fn inspect(&mut self, tab: TabId) -> Result<(), EngineError> {
-        self.engine.inspect(tab)
+    fn inspect(&mut self, tab: TabId, asked: DevTools) -> Result<(), EngineError> {
+        self.engine.inspect(tab, asked)
     }
 }
 
