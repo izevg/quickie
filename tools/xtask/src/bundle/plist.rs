@@ -106,6 +106,21 @@ pub fn info_plist(bundle: &Bundle) -> String {
         ),
         ("NSPrincipalClass", Value::Text("NSApplication")),
     ]);
+    document(&root)
+}
+
+/// The entitlements of a Developer ID build under the hardened runtime: a site may ask for the
+/// camera and the microphone. `WebKit`'s JIT runs in the system's web content process, so the
+/// app needs no code-signing exceptions.
+pub fn entitlements() -> String {
+    document(&Value::Dict(vec![
+        ("com.apple.security.device.audio-input", Value::Flag(true)),
+        ("com.apple.security.device.camera", Value::Flag(true)),
+    ]))
+}
+
+/// `root` as a property list document.
+fn document(root: &Value) -> String {
     let mut xml = String::from(concat!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
         "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" ",
@@ -113,7 +128,7 @@ pub fn info_plist(bundle: &Bundle) -> String {
         "<plist version=\"1.0\">\n",
     ));
     let mut lines = Vec::new();
-    write(&root, 0, &mut lines);
+    write(root, 0, &mut lines);
     for line in lines {
         xml.push_str(&line);
         xml.push('\n');
@@ -155,7 +170,18 @@ fn escape(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Bundle, DEFAULT_ID, escape, info_plist, valid_id, version_from_tag};
+    use super::{Bundle, DEFAULT_ID, entitlements, escape, info_plist, valid_id, version_from_tag};
+
+    #[test]
+    fn a_developer_id_build_may_use_the_camera_and_the_microphone_only() {
+        let xml = entitlements();
+        assert_eq!(after(&xml, "com.apple.security.device.camera"), "<true/>");
+        assert_eq!(
+            after(&xml, "com.apple.security.device.audio-input"),
+            "<true/>"
+        );
+        assert_eq!(xml.matches("<key>").count(), 2);
+    }
 
     fn plist(id: &str) -> String {
         info_plist(&Bundle {

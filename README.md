@@ -187,8 +187,10 @@ open -a target/debug/Quickie.app https://example.com page.html
 made from `docs/assets/logo.png` at bundle time, and signs it ad hoc so WebKit's helper processes
 launch. As a bundle, Quickie opens the links and files other apps hand it, and the palette's
 **Set as Default Browser** asks macOS to make it the default browser (macOS confirms with you).
-The ad-hoc signature is for development only: the Developer ID signed and notarized build comes
-with the engine fork's release pipeline in P1.
+The ad-hoc signature is for this Mac only. A release builds the same bundle with
+`--version <X.Y.Z> --dmg`, and `--sign <identity>` signs it with Developer ID under the hardened
+runtime for notarization; `release.yml` does all of it and attaches the DMG to the GitHub
+Release.
 
 To use Quickie day to day, run the release bundle, `cargo xtask bundle --release` (the same as
 `mise run bundle --release`), and open `target/release/Quickie.app`. It is built with fat LTO and
