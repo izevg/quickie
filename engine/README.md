@@ -139,23 +139,33 @@ gh workflow run webkit.yml --repo izevg/quickie --ref release/0.1.0 -f commit="$
   restores the newest cache saved on that runner and Xcode (usually a build of the base) and
   recompiles little more than what the patch touches.
 
-## How `engine-webkit` will consume the artifact
+## How the app consumes the artifact
 
-Not wired yet; this is the plan the artifact is shaped for.
-
-1. **Fetch and verify.** A task downloads the artifact of the pinned commit
-   (`gh run download --name webkit-macos-arm64-<commit12>`), checks the sha256 and
-   `gh attestation verify <archive> --repo izevg/quickie`, and unpacks it into
-   `.build/webkit-frameworks/`. `BUILD-INFO` names the WebKit commit, Xcode and SDK; a mismatch
-   with `webkit.pin` is an error.
-2. **Development.** The shell runs against the unpacked frameworks with `DYLD_FRAMEWORK_PATH`
-   (and `__XPC_DYLD_FRAMEWORK_PATH` for the XPC services), as WebKit's own `run-minibrowser`
-   does. `engine-webkit` keeps using the `WKWebView` API through `objc2`; only the frameworks
-   underneath change.
-3. **The app bundle.** The frameworks go into `Quickie.app/Contents/Frameworks/`, signed with the
-   app. The hardened runtime ignores `DYLD_*`, so the shipping build needs install names the app
-   resolves itself (`@rpath`) or WebKit's staged-framework layout, as Safari Technology Preview
-   uses; which one is decided with the first bundle (open question below).
+1. **Fetch and verify.** `engine/webkit/scripts/fetch` (`mise run webkit-fetch`) takes the
+   archive of the pinned commit from the `webkit-<commit12>` prerelease, where `webkit.yml` keeps
+   every build of a pushed branch (artifacts expire after 30 days), else from the newest
+   unexpired artifact. It checks the sha256, `gh attestation verify <archive> --repo
+   izevg/quickie`, and that `BUILD-INFO` names the pin, then unpacks it into
+   `.build/webkit-frameworks/`.
+2. **The app bundle.** `cargo xtask bundle --webkit .build/webkit-frameworks`
+   (`tools/xtask/src/bundle/webkit.rs`) copies the frameworks, the libraries, and the helper
+   processes into `Quickie.app/Contents/Frameworks/` (the `.xpc` services move into
+   `WebKit.framework/Versions/A/XPCServices`), rewrites the system install names
+   (`/System/Library/...`) to `@rpath/...`, gives every binary the `LC_RPATH` to
+   `Contents/Frameworks`, and signs from the inside out, each helper with its own entitlements
+   (`allow-jit` for the content process) minus `get-task-allow`. The app's binary also carries
+   `DYLD_FRAMEWORK_PATH` and `DYLD_LIBRARY_PATH` in its own `LC_DYLD_ENVIRONMENT`
+   (`crates/shell/build.rs`): system frameworks the app loads deep down link `WebKit` by its
+   absolute path, and without it both copies would load into one process. dyld honors it under
+   the hardened runtime, as it is part of the signed binary. Checked: the app and every helper
+   map only the bundle's `WebKit`, `WebCore`, and `JavaScriptCore`. `mise run fork` does both
+   steps for a debug app and runs it.
+3. **Tests.** `mise run conformance-fork` runs the engine conformance suite with
+   `DYLD_FRAMEWORK_PATH` (and `__XPC_DYLD_FRAMEWORK_PATH` for the helpers) on the unpacked
+   build, as WebKit's own `run-minibrowser` does; CI runs it as `engine conformance (WebKit
+   fork)`. `engine-webkit` uses the same `WKWebView` API through `objc2` on either engine.
+4. **The minimum macOS** is the fork's deployment target (26.5 with Xcode 26.6), which the
+   bundle's `LSMinimumSystemVersion` takes from the build.
 
 ## Linux (planned)
 
@@ -175,7 +185,8 @@ attestation. `sync` is already portable; `build` and `package` grow a GTK branch
 2. WebKit main's clean build races on `availability-overlay.yaml` (JavaScriptCore's
    `testLibJSCToolsHelper` does not depend on bmalloc, which writes it); [build](webkit/scripts/build)
    writes the file first. Fix upstream, or in the fork, and drop the workaround.
-3. Install names for the app bundle: `@rpath` build settings or WebKit's staged frameworks.
+3. Install names: the bundle rewrites them after the build (`install_name_tool`); building the
+   fork with `@rpath` install names would drop that step.
 4. ThinLTO for shipping builds: with 3.5 h of headroom it may fit; measure its time and memory
    first. It changes speed, not behaviour.
 5. Which Safari release branch the fork follows for macOS and which WebKitGTK stable branch for

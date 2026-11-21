@@ -172,7 +172,7 @@ mise run pre-commit                            # the fast gates
 mise run pre-push                              # everything, mutation testing included
 ```
 
-Running the development app (on the system WebKit until our fork ships):
+Running the development app:
 
 ```sh
 mise exec -- cargo run -p quickie                  # the bare binary; URLs or files may follow `--`
@@ -180,7 +180,13 @@ mise run bundle                                    # target/debug/Quickie.app
 mise run bundle --release                          # target/release/Quickie.app
 open target/debug/Quickie.app
 open -a target/debug/Quickie.app https://example.com page.html
+mise run fork                                      # the app on our WebKit fork (needs gh)
 ```
+
+The development binary runs on the system WebKit. `mise run fork` fetches our fork's build of
+the pin (`engine/webkit/scripts/fetch`: sha256, build attestation, the pinned commit), bundles a
+debug app that carries it (`cargo xtask bundle --webkit .build/webkit-frameworks`), and runs it.
+Releases carry the fork and need macOS 26.5 or later, the macOS it is built for.
 
 `mise run bundle` wraps `cargo xtask bundle`: it builds the shell, lays out `Quickie.app` with its
 `Info.plist` (bundle id `dev.quickie.Quickie`, `--bundle-id` for a throwaway build), and an icon

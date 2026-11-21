@@ -27,8 +27,20 @@ run = "git config core.hooksPath .githooks"
 # ---- the app ------------------------------------------------------------------------------------
 
 [tasks.bundle]
-description = "The app as target/<profile>/Quickie.app (--release, --bundle-id <id>, --version <X.Y.Z>, --sign <identity>, --dmg)"
+description = "The app as target/<profile>/Quickie.app (--release, --bundle-id <id>, --version <X.Y.Z>, --sign <identity>, --webkit <dir>, --dmg)"
 run = "cargo xtask bundle"
+
+[tasks.webkit-fetch]
+description = "Our WebKit fork's build of the pin into .build/webkit-frameworks, verified (needs gh)"
+run = "engine/webkit/scripts/fetch"
+
+[tasks.fork]
+description = "The app on our WebKit fork: fetch it, bundle a debug app with it, and run that"
+run = [
+  "engine/webkit/scripts/fetch",
+  "cargo xtask bundle --webkit .build/webkit-frameworks",
+  "target/debug/Quickie.app/Contents/MacOS/quickie",
+]
 
 # ---- single gates ------------------------------------------------------------------------------
 
@@ -92,6 +104,16 @@ run = "cargo test --workspace --no-fail-fast --quiet"
 [tasks.conformance]
 description = "The engine conformance suite on the WebKit engine (macOS)"
 run = "cargo test --package quickie-engine-webkit --test conformance"
+
+[tasks.conformance-fork]
+description = "The engine conformance suite on our WebKit fork (macOS; after webkit-fetch)"
+run = '''
+set -eu
+fork="$PWD/.build/webkit-frameworks"
+export DYLD_FRAMEWORK_PATH="$fork" DYLD_LIBRARY_PATH="$fork"
+export __XPC_DYLD_FRAMEWORK_PATH="$fork" __XPC_DYLD_LIBRARY_PATH="$fork"
+cargo test --package quickie-engine-webkit --test conformance
+'''
 
 [tasks.ui]
 description = "UI stories: headless renders, plays, and comparison with the reference images (macOS)"

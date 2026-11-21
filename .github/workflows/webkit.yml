@@ -51,7 +51,8 @@ jobs:
     # to leave time for packaging and for the logs.
     timeout-minutes: 355
     permissions:
-      contents: read
+      # write: the Keep step's prerelease.
+      contents: write
       id-token: write
       attestations: write
     env:
@@ -140,6 +141,25 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 30
+
+      # Artifacts expire; the app is built from this archive for as long as the pin names it
+      # (engine/webkit/scripts/fetch). A pushed branch's build is kept as the assets of the
+      # `webkit-<commit12>` prerelease; a manual run of another commit stays an artifact only.
+      - name: Keep
+        if: github.event_name == 'push' || inputs.commit == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.package.outputs.name }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          tag="webkit-${NAME##*-}"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --title "WebKit fork ${NAME##*-}" \
+              --notes "Our WebKit fork built at izevg/WebKit@${NAME##*-} (engine/webkit/webkit.pin), for engine/webkit/scripts/fetch. Not a Quickie release."
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$ARCHIVE" "$ARCHIVE.sha256"
 
       - name: Summary
         if: always()
