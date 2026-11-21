@@ -24,6 +24,8 @@ pub use settings::keymap::KeybindingsFile;
 pub use write_behind::{PendingWrites, SETTLE, WriteBehindStore};
 
 use std::path::Path;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use quickie_application::{
     AgentRepo, AppearanceRepo, ExtensionsRepo, KeybindingText, KeymapRepo, LibraryRepo,
@@ -36,7 +38,7 @@ use quickie_domain_library::{
 };
 use quickie_domain_settings::{AppearanceSnapshot, InstalledExtensionsSnapshot, SiteZoomsSnapshot};
 use quickie_domain_shields::{FilterListId, FilterListSetSnapshot, SitePoliciesSnapshot};
-use rusqlite::Connection;
+use rusqlite::{Connection, ErrorCode};
 use settings::{agent, appearance, keymap, zoom};
 use url::Url;
 
@@ -54,8 +56,7 @@ impl SqliteStore {
     /// The file could not be opened, or the schema is newer than this build.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         let db = Connection::open(path).map_err(failed)?;
-        db.pragma_update(None, "journal_mode", "WAL")
-            .map_err(failed)?;
+        write_ahead(&db)?;
         // With the write-ahead log, NORMAL keeps the database consistent through a crash and
         // skips the fsync of every commit; a power cut may lose the last commits, which the
         // write-behind store already risks for its settle time.
@@ -182,6 +183,28 @@ impl ShieldsRepo for SqliteStore {
 
     fn save_list_body(&mut self, list: FilterListId, body: &[u8]) -> Result<(), StoreError> {
         shields::save_body(&self.db, list, body)
+    }
+}
+
+/// How long opening waits for another connection to the same file: SQLite's own busy timeout.
+const BUSY: Duration = Duration::from_secs(5);
+
+/// Turns on the write-ahead log. A new file needs to itself for that, and SQLite does not wait
+/// for it the way it waits for a lock: a second connection opening the file at the same moment
+/// gets "database is locked" at once (#76). So this waits as long as a lock would. A file
+/// already in the log's mode returns at once.
+fn write_ahead(db: &Connection) -> Result<(), StoreError> {
+    let deadline = Instant::now() + BUSY;
+    loop {
+        match db.pragma_update(None, "journal_mode", "WAL") {
+            Err(error)
+                if error.sqlite_error_code() == Some(ErrorCode::DatabaseBusy)
+                    && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(1));
+            }
+            result => return result.map_err(failed),
+        }
     }
 }
 
