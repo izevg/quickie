@@ -1,14 +1,25 @@
 name: release
 
-# Creates the `vX.Y.Z` tag and publishes the GitHub Release with notes from git-cliff.
+# Builds Quickie for macOS as a DMG, creates the `vX.Y.Z` tag, and publishes the GitHub Release
+# with the DMG, its sha256, and notes from git-cliff.
 # Three ways in:
 #   - `workflow_call` from auto-release.yml: the normal path (version computed from Conventional
 #     Commits, .github/cliff.toml). This workflow creates the tag.
 #   - a `v*` tag pushed by a human: the manual and emergency path. The tag already exists.
-#   - `workflow_dispatch`: a dry run that prints the notes and publishes nothing.
+#   - `workflow_dispatch`: a dry run that prints the notes and builds the DMG as a workflow
+#     artifact, and publishes nothing.
 # The version lives in the tag, never in Cargo.toml (the repository keeps 0.0.0).
-# No build artifacts yet: the signed browser bundle joins with the Chromium build (phase P1).
-# A version with a `-` (`1.0.0-rc.1`) is a prerelease.
+# A version with a `-` (`1.0.0-rc.1`) is a prerelease; the app itself carries the part before it.
+#
+# Signing. With these repository secrets the app is signed with Developer ID under the hardened
+# runtime and the DMG is notarized and stapled:
+#   MACOS_DEVELOPER_ID_P12           the "Developer ID Application" certificate and key, base64
+#   MACOS_DEVELOPER_ID_P12_PASSWORD  its password
+#   APPLE_NOTARY_KEY                 an App Store Connect API key (.p8), its text
+#   APPLE_NOTARY_KEY_ID              the key's id
+#   APPLE_NOTARY_ISSUER              the key's issuer id
+# Without them the app is signed ad hoc and the notes tell how to open it past Gatekeeper.
+# The app runs on the system WebKit, arm64 only (Apple silicon).
 
 on:
   push:
@@ -40,8 +51,9 @@ defaults:
 jobs:
   publish:
     name: publish
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # macOS 26 with Xcode 26 on arm64, as the WebKit build.
+    runs-on: macos-26
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -53,9 +65,11 @@ jobs:
       # jdx/mise-action v5.2.9
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
         with:
-          install_args: aqua:orhun/git-cliff
+          install_args: rust aqua:orhun/git-cliff
         env:
           MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+      # Swatinem/rust-cache v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - name: Resolve the version and the mode
         id: mode
         env:
@@ -71,6 +85,8 @@ jobs:
             echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
             echo "mode=called" >> "$GITHUB_OUTPUT"
           else
+            version="$(.github/scripts/next-version.sh || true)"
+            echo "version=${version:-0.0.0}" >> "$GITHUB_OUTPUT"
             echo "mode=dry-run" >> "$GITHUB_OUTPUT"
           fi
       - name: Release notes
@@ -86,6 +102,103 @@ jobs:
             git-cliff --config .github/cliff.toml --unreleased --strip all > notes.md
           fi
           cat notes.md
+
+      - name: Signing identity
+        id: identity
+        env:
+          P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then
+            echo "::warning::no Developer ID secrets: the app is signed ad hoc and not notarized"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" \
+            > /dev/null
+          # shellcheck disable=SC2046 # the keychain list is several words on purpose
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)"
+          if [ -z "$identity" ]; then
+            echo "::error::the certificate holds no Developer ID Application identity"
+            exit 1
+          fi
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+
+      - name: Build the app and the DMG
+        id: dmg
+        env:
+          VERSION: ${{ steps.mode.outputs.version }}
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: |
+          sign=()
+          if [ -n "$IDENTITY" ]; then sign=(--sign "$IDENTITY"); fi
+          cargo xtask bundle --release --version "${VERSION%%-*}" --dmg "${sign[@]}"
+          dmg="$RUNNER_TEMP/Quickie-$VERSION.dmg"
+          mv "target/release/Quickie-${VERSION%%-*}.dmg" "$dmg"
+          echo "path=$dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Notarize
+        if: steps.identity.outputs.identity != ''
+        env:
+          DMG: ${{ steps.dmg.outputs.path }}
+          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+        run: |
+          if [ -z "$NOTARY_KEY" ]; then
+            echo "::error::signed with Developer ID but no notary key: Gatekeeper would refuse it"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/notary.p8"
+          printf '%s' "$NOTARY_KEY" > "$key"
+          xcrun notarytool submit "$DMG" --key "$key" --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER" --wait
+          rm -f "$key"
+          xcrun stapler staple "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose "$DMG"
+
+      - name: Checksum and install notes
+        env:
+          DMG: ${{ steps.dmg.outputs.path }}
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: |
+          (cd "$(dirname "$DMG")" && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
+          cat "$DMG.sha256"
+          {
+            echo
+            echo '## Install'
+            echo
+            echo "macOS 15 or later on Apple silicon. Open \`$(basename "$DMG")\` and drag Quickie to Applications."
+            if [ -z "$IDENTITY" ]; then
+              echo
+              echo 'This build is not notarized. On first launch macOS refuses it: open'
+              echo 'System Settings → Privacy & Security and choose **Open Anyway** for Quickie, or run'
+              # shellcheck disable=SC2016 # Markdown backticks, not a command substitution
+              echo '`xattr -dr com.apple.quarantine /Applications/Quickie.app` once.'
+            fi
+          } >> notes.md
+
+      # actions/upload-artifact v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: quickie-macos-${{ steps.mode.outputs.version }}
+          path: |
+            ${{ steps.dmg.outputs.path }}
+            ${{ steps.dmg.outputs.path }}.sha256
+            notes.md
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Tag and publish
         if: steps.mode.outputs.mode != 'dry-run'
         env:
@@ -93,6 +206,7 @@ jobs:
           MODE: ${{ steps.mode.outputs.mode }}
           VERSION: ${{ steps.mode.outputs.version }}
           SHA: ${{ inputs.ref || github.sha }}
+          DMG: ${{ steps.dmg.outputs.path }}
         run: |
           tag="v$VERSION"
           if [ "$MODE" = called ]; then
@@ -101,4 +215,9 @@ jobs:
           fi
           prerelease=()
           case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac
-          gh release create "$tag" --verify-tag --title "$tag" --notes-file notes.md "${prerelease[@]}"
+          gh release create "$tag" --verify-tag --title "$tag" --notes-file notes.md \
+            "${prerelease[@]}" "$DMG" "$DMG.sha256"
+
+      - name: Remove the signing keychain
+        if: always() && steps.identity.outputs.identity != ''
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true

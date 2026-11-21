@@ -1,6 +1,7 @@
-//! `cargo xtask bundle [--release] [--bundle-id <id>]`: the development app as a real macOS
-//! app, `target/<profile>/Quickie.app`, that `LaunchServices` can register, open links with,
-//! and make the default browser.
+//! `cargo xtask bundle [--release] [--bundle-id <id>] [--version <X.Y.Z>] [--sign <identity>]
+//! [--dmg]`: the app as a real macOS app, `target/<profile>/Quickie.app`, that `LaunchServices`
+//! can register, open links with, and make the default browser; with `--dmg` also
+//! `target/<profile>/Quickie-<version>.dmg` ([`dmg`]), what a release hands out.
 //!
 //! ```text
 //! Quickie.app/Contents/
@@ -10,17 +11,20 @@
 //!   Resources/Quickie.icns   from docs/assets/logo.png with sips and iconutil
 //! ```
 //!
-//! The bundle is signed ad hoc (`codesign -s -`), without the hardened runtime, so `WebKit`'s
-//! helper processes launch. A Developer ID signature and notarization belong to the product
-//! build (docs/architecture.md §7, P1).
+//! The version is the latest release tag's unless `--version` names it (a release builds before
+//! its tag exists). Without `--sign` the bundle is signed ad hoc (`codesign -s -`), for this
+//! Mac only. `--sign` takes a Developer ID Application identity from the keychain and signs
+//! under the hardened runtime with a secure timestamp and [`plist::entitlements`], ready for
+//! notarization.
 
+mod dmg;
 mod plist;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use plist::{Bundle, DEFAULT_ID, info_plist, valid_id, version_from_tag};
+use plist::{Bundle, DEFAULT_ID, entitlements, info_plist, valid_id, version_from_tag};
 
 /// Every image an `.iconset` holds: the pixel size and its file name.
 const ICON_SIZES: [(u32, &str); 10] = [
@@ -41,6 +45,11 @@ const ICON_SIZES: [(u32, &str); 10] = [
 pub struct Options {
     pub release: bool,
     pub id: String,
+    /// `MAJOR.MINOR.PATCH`; the latest release tag's when `None`.
+    pub version: Option<String>,
+    /// A Developer ID Application identity; ad hoc when `None`.
+    pub sign: Option<String>,
+    pub dmg: bool,
 }
 
 /// Reads the arguments after `bundle`.
@@ -48,6 +57,9 @@ pub fn options(args: &[&str]) -> Result<Options, String> {
     let mut options = Options {
         release: false,
         id: DEFAULT_ID.to_owned(),
+        version: None,
+        sign: None,
+        dmg: false,
     };
     let mut args = args.iter();
     while let Some(&arg) = args.next() {
@@ -60,14 +72,32 @@ pub fn options(args: &[&str]) -> Result<Options, String> {
                 }
                 (*id).clone_into(&mut options.id);
             }
+            "--version" => {
+                let version = args.next().ok_or("--version needs a value")?;
+                if version_from_tag(Some(&format!("v{version}"))) != *version {
+                    return Err(format!("not a MAJOR.MINOR.PATCH version: {version}"));
+                }
+                options.version = Some((*version).to_owned());
+            }
+            "--sign" => {
+                let identity = args.next().filter(|identity| !identity.is_empty());
+                options.sign = Some((*identity.ok_or("--sign needs an identity")?).to_owned());
+            }
+            "--dmg" => options.dmg = true,
             other => return Err(format!("unknown bundle option: {other}")),
         }
     }
     Ok(options)
 }
 
-/// Builds the shell and lays out, signs, and returns the path of `Quickie.app`.
-pub fn run(options: &Options, root: &Path, target: &Path, cargo: &str) -> Result<PathBuf, String> {
+/// Builds the shell, lays out and signs `Quickie.app`, packs the disk image when asked, and
+/// returns the paths it made.
+pub fn run(
+    options: &Options,
+    root: &Path,
+    target: &Path,
+    cargo: &str,
+) -> Result<Vec<PathBuf>, String> {
     let profile = if options.release { "release" } else { "debug" };
     let mut build = vec!["build", "--package", "quickie"];
     if options.release {
@@ -89,7 +119,10 @@ pub fn run(options: &Options, root: &Path, target: &Path, cargo: &str) -> Result
     copy(&out.join("quickie"), &macos.join("quickie"))?;
     let bundle = Bundle {
         id: options.id.clone(),
-        version: version_from_tag(latest_tag().as_deref()),
+        version: options
+            .version
+            .clone()
+            .unwrap_or_else(|| version_from_tag(latest_tag().as_deref())),
     };
     write(&contents.join("Info.plist"), &info_plist(&bundle))?;
     write(&contents.join("PkgInfo"), "APPL????")?;
@@ -98,19 +131,43 @@ pub fn run(options: &Options, root: &Path, target: &Path, cargo: &str) -> Result
         &out.join("Quickie.iconset"),
         &resources.join("Quickie.icns"),
     )?;
-    let app_path = app.to_string_lossy();
+    sign(&app, options.sign.as_deref(), &out)?;
+    let mut made = vec![app.clone()];
+    if options.dmg {
+        let image = out.join(format!("Quickie-{}.dmg", bundle.version));
+        dmg::create(&app, &image, options.sign.as_deref())?;
+        made.push(image);
+    }
+    Ok(made)
+}
+
+/// Signs `app` ad hoc, or with `identity` under the hardened runtime; `out` holds the
+/// entitlements file the signature reads.
+fn sign(app: &Path, identity: Option<&str>, out: &Path) -> Result<(), String> {
+    let app = app.to_string_lossy();
+    let Some(identity) = identity else {
+        return status(
+            "codesign",
+            &["--sign", "-", "--force", "--deep", "--timestamp=none", &app],
+        );
+    };
+    let file = out.join("Quickie.entitlements");
+    write(&file, &entitlements())?;
     status(
         "codesign",
         &[
             "--sign",
-            "-",
+            identity,
             "--force",
-            "--deep",
-            "--timestamp=none",
-            &app_path,
+            "--options",
+            "runtime",
+            "--timestamp",
+            "--entitlements",
+            &file.to_string_lossy(),
+            &app,
         ],
     )?;
-    Ok(app)
+    status("codesign", &["--verify", "--strict", "--verbose=2", &app])
 }
 
 /// The latest release tag reachable from `HEAD`, if any.
@@ -198,6 +255,9 @@ mod tests {
             Ok(Options {
                 release: false,
                 id: DEFAULT_ID.to_owned(),
+                version: None,
+                sign: None,
+                dmg: false,
             })
         );
     }
@@ -209,6 +269,30 @@ mod tests {
             Ok(Options {
                 release: true,
                 id: "dev.quickie.test".to_owned(),
+                version: None,
+                sign: None,
+                dmg: false,
+            })
+        );
+    }
+
+    #[test]
+    fn a_release_names_its_version_identity_and_image() {
+        assert_eq!(
+            options(&[
+                "--release",
+                "--version",
+                "0.1.0",
+                "--sign",
+                "Developer ID Application: Someone (TEAM123456)",
+                "--dmg",
+            ]),
+            Ok(Options {
+                release: true,
+                id: DEFAULT_ID.to_owned(),
+                version: Some("0.1.0".to_owned()),
+                sign: Some("Developer ID Application: Someone (TEAM123456)".to_owned()),
+                dmg: true,
             })
         );
     }
@@ -218,6 +302,11 @@ mod tests {
         assert!(options(&["--bundle-id"]).is_err());
         assert!(options(&["--bundle-id", "quickie"]).is_err());
         assert!(options(&["--debug"]).is_err());
+        assert!(options(&["--version"]).is_err());
+        assert!(options(&["--version", "v0.1.0"]).is_err());
+        assert!(options(&["--version", "0.1"]).is_err());
+        assert!(options(&["--sign"]).is_err());
+        assert!(options(&["--sign", ""]).is_err());
     }
 
     #[test]

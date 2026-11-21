@@ -22,7 +22,8 @@ use std::process::{Command, ExitCode};
 use serde_json::Value;
 
 const USAGE: &str = "usage: cargo xtask <structure | layers | commit-msg <file> | \
-                     bundle [--release] [--bundle-id <id>] | ui <list | render | check | accept> \
+                     bundle [--release] [--bundle-id <id>] [--version <X.Y.Z>] \
+                     [--sign <identity>] [--dmg] | ui <list | render | check | accept> \
                      [<widget>[/<state>[.<theme>]] ...] | ui diff [--base <rev>] [--when-foreign] \
                      | base>";
 
@@ -54,8 +55,10 @@ fn main() -> ExitCode {
     }
     if let ["bundle", rest @ ..] = args.as_slice() {
         return match run_bundle(rest) {
-            Ok(app) => {
-                println!("bundle: {}", app.display());
+            Ok(made) => {
+                for path in made {
+                    println!("bundle: {}", path.display());
+                }
                 ExitCode::SUCCESS
             }
             Err(error) => {
@@ -112,7 +115,7 @@ fn run_structure() -> Result<Vec<String>, String> {
     Ok(structure::check(&paths))
 }
 
-fn run_bundle(args: &[&str]) -> Result<PathBuf, String> {
+fn run_bundle(args: &[&str]) -> Result<Vec<PathBuf>, String> {
     let options = bundle::options(args)?;
     let cargo = cargo();
     let metadata = metadata(&cargo)?;

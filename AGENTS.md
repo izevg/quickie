@@ -47,8 +47,9 @@ After the first release, `main` is protected and changes land through pull reque
 - Manual or emergency release: push a `vX.Y.Z` tag on the commit you want; `release.yml` publishes
   it. Running `release` by hand is a dry run that prints the notes. To skip a release, make the
   change a `docs`/`chore`/... type.
-- Until the Chromium build exists (phase P1), a release is a tag plus notes; the signed and
-  notarized bundle joins the release workflow then.
+- A release is a tag, notes, and the macOS app as a DMG with its sha256 (`release.yml`). The app
+  runs on the system WebKit; it is signed with Developer ID and notarized when the repository
+  holds the signing secrets (listed in `release.yml`), else signed ad hoc.
 
 ## The rule of four
 
