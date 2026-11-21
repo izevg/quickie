@@ -233,11 +233,13 @@ pub(super) fn send_click(window: &NSWindow, view: &NSView, point: NSPoint, mtm: 
     NSApplication::sharedApplication(mtm).postEvent_atStart(&up, false);
     target.mouseDown(&down);
     // A view that does not track leaves the mouse up queued: hand it over too.
-    drain(window, mtm);
+    drain(window, &target, mtm);
 }
 
-/// Delivers what is still queued for the app to `window`, without waiting.
-fn drain(window: &NSWindow, mtm: MainThreadMarker) {
+/// Delivers what is still queued for the app to `window`, without waiting; a mouse up goes to
+/// `pressed`, the view that took the mouse down, as a window hands it over after a press. The
+/// window itself never saw that press, so it would not.
+fn drain(window: &NSWindow, pressed: &NSView, mtm: MainThreadMarker) {
     let app = NSApplication::sharedApplication(mtm);
     // SAFETY: `NSDefaultRunLoopMode` is an immutable string exported by Foundation.
     let mode = unsafe { objc2_foundation::NSDefaultRunLoopMode };
@@ -247,7 +249,11 @@ fn drain(window: &NSWindow, mtm: MainThreadMarker) {
         mode,
         true,
     ) {
-        window.sendEvent(&event);
+        if event.r#type() == NSEventType::LeftMouseUp {
+            pressed.mouseUp(&event);
+        } else {
+            window.sendEvent(&event);
+        }
     }
 }
 

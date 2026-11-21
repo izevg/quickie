@@ -211,8 +211,9 @@ browser's own traffic bypassed the engine's network stack.
   text, link-hint targets, find), `PageZoom`, `PageAsks` (JavaScript dialogs, permissions, full
   screen, answered with a `ReplyToken`), `Downloads`, `PageVideo` (the mini player: a left
   tab's page floats into a slot showing only its video, docks back, plays or pauses; on the
-  system WebKit the `WKWebView` itself moves and a script in Quickie's world makes its video
-  fill it). There is no "evaluate JavaScript" port: an isolated world is how WebKit does it, not
+  system WebKit the `WKWebView` itself moves and a script in Quickie's world, in every frame,
+  makes its video fill it, through open shadow roots and up the chain of `<iframe>`s of any
+  origin). There is no "evaluate JavaScript" port: an isolated world is how WebKit does it, not
   what a use case needs.
 - **One event stream.** Every engine reports through one `EngineEvent` enum, drained by the shell
   on the main thread after a waker. Nothing calls back into a use case from inside an engine

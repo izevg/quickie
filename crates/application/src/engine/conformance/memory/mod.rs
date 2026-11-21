@@ -247,8 +247,20 @@ impl MemoryEngine {
                     .titled(tab, format!("cookies:{}", cookies.unwrap_or_default()));
             }
             Act::FocusField => page.field_focused = true,
-            Act::AddFrame(path) => self.events.titled(tab, format!("framed:{path}")),
-            Act::PlayVideo => self.play(tab, Video::Playing { audible: false }),
+            Act::AddFrame(path) | Act::AddForeignFrame(path) => {
+                // A frame plays its page's video as the page's own: the page has a video.
+                let plays = matches!(resource(path), Some(Resource::Page(framed))
+                if framed.on_load.iter().any(|act| {
+                    matches!(act, Act::PlayVideo | Act::PlayVideoInShadow)
+                }));
+                if plays {
+                    self.play(tab, Video::Playing { audible: false });
+                }
+                self.events.titled(tab, format!("framed:{path}"));
+            }
+            Act::PlayVideo | Act::PlayVideoInShadow => {
+                self.play(tab, Video::Playing { audible: false });
+            }
             Act::ShowScripts => {
                 let rules = self.rules.borrow();
                 let ran = page

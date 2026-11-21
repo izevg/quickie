@@ -799,8 +799,12 @@ fn a_page_loaded_past_the_end_fails() {
     );
 }
 
-/// What a video that does not do as it says fails.
-const VIDEO: [&str; 1] = ["a_video_says_it_plays_pauses_and_leaves"];
+/// What a video that does not do as it says fails: on the page, in a frame, in a shadow root.
+const VIDEO: [&str; 3] = [
+    "a_video_says_it_plays_pauses_and_leaves",
+    "a_video_in_a_foreign_frame_says_it_plays_pauses_and_leaves",
+    "a_video_in_a_shadow_root_says_it_plays_pauses_and_leaves",
+];
 
 #[test]
 fn a_video_that_cannot_be_paused_fails() {

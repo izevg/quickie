@@ -4,34 +4,68 @@
 //! site's JavaScript cannot see its globals or replace the functions it calls, and it adds
 //! nothing to the page's own world. The scripts only read the DOM and listen; the one that
 //! follows a link hint focuses or clicks the element the user picked, and while the mini player
-//! shows a page's video, the page carries a style sheet and marked elements that make the video
-//! fill it, taken away when it docks.
+//! shows a page's video, the page (and each frame on the way to the video) carries a style
+//! sheet and marked elements that make the video fill it, taken away when it docks.
 //!
-//! Here: the world, the focus reports, and the page text the agent reads. [`hints`]: the
-//! link-hint scripts and their answers. [`fullscreen`]: the Fullscreen API in the tab's own
-//! window, the one script that runs in the page's world. [`video`]: what the page's video
-//! does, and floating it for the mini player.
+//! Here: the world, running a script in a frame ([`evaluate`]), the focus reports, and the
+//! page text the agent reads. [`hints`]: the link-hint scripts and their answers.
+//! [`fullscreen`]: the Fullscreen API in the tab's own window, the one script that runs in the
+//! page's world. [`video`]: what the page's video does, in any of its frames, and floating it
+//! for the mini player.
 
 pub(crate) mod fullscreen;
 pub(crate) mod hints;
 pub(crate) mod video;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use block2::RcBlock;
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, NSObjectProtocol};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_foundation::NSString;
+use objc2_foundation::{NSError, NSString};
 use objc2_web_kit::{
-    WKContentWorld, WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKWebView,
+    WKContentWorld, WKFrameInfo, WKScriptMessage, WKScriptMessageHandler, WKUserContentController,
+    WKWebView,
 };
 
 /// The content world every Quickie script runs in.
 pub(crate) fn world(mtm: MainThreadMarker) -> Retained<WKContentWorld> {
     // SAFETY: a named world is created on first use and shared while it lives.
     unsafe { WKContentWorld::worldWithName(&NSString::from_str("quickie"), mtm) }
+}
+
+/// Runs `script` in `world` of `view`'s `frame`, the main frame when `None`; `done` gets its
+/// string answer, empty for anything else or an error (a frame that went away).
+pub(crate) fn evaluate(
+    view: &WKWebView,
+    world: &WKContentWorld,
+    frame: Option<&WKFrameInfo>,
+    script: &str,
+    done: impl FnOnce(String) + 'static,
+) {
+    let done = Cell::new(Some(done));
+    let block = RcBlock::new(move |answer: *mut AnyObject, _error: *mut NSError| {
+        // SAFETY: WebKit passes a valid object or null for the duration of the call.
+        let answer = unsafe { answer.as_ref() }
+            .and_then(|answer| answer.downcast_ref::<NSString>())
+            .map_or_else(String::new, NSString::to_string);
+        if let Some(done) = done.take() {
+            done(answer);
+        }
+    });
+    // SAFETY: a frame of this view or none (the main frame); WebKit calls the block once on
+    // the main thread, where its captures live, with an error for a frame that is gone.
+    unsafe {
+        view.evaluateJavaScript_inFrame_inContentWorld_completionHandler(
+            &NSString::from_str(script),
+            frame,
+            world,
+            Some(&block),
+        );
+    }
 }
 
 /// Reads the main frame's rendered text, as the user sees it (`innerText`: no hidden elements,

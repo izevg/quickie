@@ -84,7 +84,9 @@ impl Browser {
         }
     }
 
-    /// A button of the player: play or pause, back to the tab, or close.
+    /// A button of the player, or a click on its video: play or pause, back to the tab (its
+    /// window comes forward, and switching to the tab ends the player as coming back always
+    /// does), or close.
     fn player_request(&self, request: PlayerRequest) {
         let outcome = match request {
             PlayerRequest::PlayPause => {
@@ -100,6 +102,10 @@ impl Browser {
                 let shown = self.navigation.playback.borrow().shown();
                 self.navigation.player.hide(Trigger::Pointer);
                 if let Some(window) = shown.and_then(|tab| self.run(|b| b.activate(tab))) {
+                    // The tab's window comes forward with it, wherever the player was.
+                    if let Some(ns_window) = self.window(window) {
+                        ns_window.makeKeyAndOrderFront(None);
+                    }
                     self.settle(window);
                 }
                 Ok(())

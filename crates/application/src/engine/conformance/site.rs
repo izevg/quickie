@@ -101,9 +101,16 @@ pub enum Act {
     /// Adds a frame showing a path, without moving focus; its title becomes `framed:` and the
     /// path once the frame has loaded.
     AddFrame(&'static str),
+    /// Adds a frame showing a path of another origin: the same server under the other of its
+    /// two loopback names (`localhost` for `127.0.0.1`, and back), so the page cannot look
+    /// into it. Its title becomes `framed:` and the path once the frame has loaded.
+    AddForeignFrame(&'static str),
     /// Adds a muted video and plays it: a canvas's moving colors as a stream, so no file and
     /// no codec is needed, and a muted video plays without the user's gesture.
     PlayVideo,
+    /// The same video, in an open shadow root inside another one, as a player built of web
+    /// components has it.
+    PlayVideoInShadow,
     /// Asks for its text's paragraph to go full screen; its title becomes `fullscreen:filled`
     /// once the paragraph fills the page view, `fullscreen:denied` when the engine refused
     /// (the Fullscreen API needs the user's click), and `fullscreen:none` once it left. With
@@ -145,17 +152,23 @@ impl Act {
                  frame.onload=()=>{{document.title='framed:{path}'}};\
                  frame.src='{path}';document.body.appendChild(frame);"
             ),
-            Self::PlayVideo => "const canvas=document.createElement('canvas');\
-                                canvas.width=64;canvas.height=36;\
-                                const paint=canvas.getContext('2d');let hue=0;\
-                                setInterval(()=>{hue=(hue+10)%360;\
-                                paint.fillStyle='hsl('+hue+',80%,50%)';\
-                                paint.fillRect(0,0,64,36)},30);\
-                                const video=document.createElement('video');\
-                                video.muted=true;video.playsInline=true;\
-                                video.srcObject=canvas.captureStream(30);\
-                                document.body.appendChild(video);video.play();"
-                .to_owned(),
+            Self::AddForeignFrame(path) => format!(
+                "{{const frame=document.createElement('iframe');\
+                 frame.onload=()=>{{document.title='framed:{path}'}};\
+                 const host=location.hostname==='localhost'?'127.0.0.1':'localhost';\
+                 frame.src=location.protocol+'//'+host+':'+location.port+'/{path}';\
+                 document.body.appendChild(frame);}}"
+            ),
+            Self::PlayVideo => {
+                format!("{{{VIDEO}document.body.appendChild(video);video.play();}}")
+            }
+            Self::PlayVideoInShadow => format!(
+                "{{{VIDEO}const outer=document.createElement('div');\
+                 const inner=document.createElement('div');\
+                 outer.attachShadow({{mode:'open'}}).appendChild(inner);\
+                 inner.attachShadow({{mode:'open'}}).appendChild(video);\
+                 document.body.appendChild(outer);video.play();}}"
+            ),
             Self::Fullscreen { leave } => format!(
                 "document.onfullscreenchange=()=>{{const shown=document.fullscreenElement;\
                  if(!shown){{document.title='fullscreen:none';return;}}\
@@ -171,6 +184,18 @@ impl Act {
         }
     }
 }
+
+/// Makes `video`, muted, showing a canvas's moving colors as a stream, so no file and no codec
+/// is needed, and a muted video plays without the user's gesture.
+const VIDEO: &str = "const canvas=document.createElement('canvas');\
+                     canvas.width=64;canvas.height=36;\
+                     const paint=canvas.getContext('2d');let hue=0;\
+                     setInterval(()=>{hue=(hue+10)%360;\
+                     paint.fillStyle='hsl('+hue+',80%,50%)';\
+                     paint.fillRect(0,0,64,36)},30);\
+                     const video=document.createElement('video');\
+                     video.muted=true;video.playsInline=true;\
+                     video.srcObject=canvas.captureStream(30);";
 
 impl TestPage {
     /// The page as HTML, for an engine that runs it.
@@ -315,6 +340,14 @@ pub const SITE: &[(&str, Resource)] = &[
         Resource::Page(acting("Field", &[Act::FocusField, Act::AddFrame("plain")])),
     ),
     ("video", Resource::Page(acting("Video", &[Act::PlayVideo]))),
+    (
+        "video-framed",
+        Resource::Page(acting("Video", &[Act::AddForeignFrame("video")])),
+    ),
+    (
+        "video-shadow",
+        Resource::Page(acting("Video", &[Act::PlayVideoInShadow])),
+    ),
     (
         "fullscreen",
         Resource::Page(TestPage {
