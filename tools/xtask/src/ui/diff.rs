@@ -19,6 +19,7 @@ use std::time::Instant;
 
 use super::STORY_CRATES;
 use super::base::{self, Need};
+use super::git;
 use super::report::{self, Renders};
 
 pub const USAGE: &str = "cargo xtask ui diff [--base <rev>] [--when-foreign]";
@@ -234,8 +235,8 @@ fn render_base(
     checkout(root, &worktree, commit)?;
     remove(renders)?;
     for (package, _) in STORY_CRATES {
-        let out = Command::new(cargo)
-            .current_dir(&worktree)
+        // The base's build scripts and tests may run git too.
+        let out = git::in_dir(&mut Command::new(cargo), &worktree)
             .env("CARGO_TARGET_DIR", work.join("target"))
             .args(story_args(package))
             .arg("render")
@@ -375,23 +376,9 @@ fn sw_vers(flag: &str) -> Result<String, String> {
     }
 }
 
+/// Runs git in `dir`, or where xtask was started; never on a hook's repository ([`git`]).
 fn git(dir: Option<&Path>, args: &[&str]) -> Result<String, String> {
-    let mut command = Command::new("git");
-    if let Some(dir) = dir {
-        command.current_dir(dir);
-    }
-    let out = command
-        .args(args)
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "git {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    String::from_utf8(out.stdout).map_err(|e| e.to_string())
+    git::run(dir.unwrap_or_else(|| Path::new(".")), args)
 }
 
 #[cfg(test)]

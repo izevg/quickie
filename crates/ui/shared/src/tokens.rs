@@ -219,6 +219,21 @@ pub mod color {
     pub fn on_accent() -> Retained<NSColor> {
         NSColor::alternateSelectedControlTextColor()
     }
+
+    /// The load glow's light, once round: blue, purple, pink, orange, mint, and back to blue,
+    /// so a turning gradient of them has no seam. System colors, so light and dark mode and
+    /// Increase Contrast tune each of them.
+    #[must_use]
+    pub fn spectrum() -> [Retained<NSColor>; 6] {
+        [
+            NSColor::systemBlueColor(),
+            NSColor::systemPurpleColor(),
+            NSColor::systemPinkColor(),
+            NSColor::systemOrangeColor(),
+            NSColor::systemMintColor(),
+            NSColor::systemBlueColor(),
+        ]
+    }
 }
 
 /// Whether `view` is drawn with Increase Contrast on: borders that carry meaning get heavier.

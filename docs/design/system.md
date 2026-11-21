@@ -21,6 +21,7 @@ Contrast, and the Clear/Tinted glass setting without any work on our side.
 | `destructive` | `#FF3B30` | `NSColor.systemRed` | Block, deny, revoke, conflicts, `PROD` environment |
 | `agent` | `#FF9F0A` | `NSColor.systemOrange` | Everything an agent does: border, badge, progress |
 | `success` | `#34C759` | `NSColor.systemGreen` | Protection on, download done, `LOCAL` environment |
+| `spectrum` | none | `systemBlue`, `systemPurple`, `systemPink`, `systemOrange`, `systemMint`, back to `systemBlue` | The load glow only |
 | `label` / `secondary-label` | `#1D1D1F` / `#6E6E73` | `labelColor` / `secondaryLabelColor` | Text on glass |
 | `separator` | `#D2D2D7` / `#48484A` | `separatorColor` | Hairlines inside overlays |
 | `surface*` | `#F5F5F7` … `#3A3A3C` | none: glass materials (see Elevation) | — |
@@ -82,6 +83,9 @@ material and each pane's title in the titlebar's band, no glass (it floats above
 | E2 | 28 px blur, 180 % saturation | `NSGlassEffectView` `.regular` in an `NSGlassEffectContainerView` | `0 20 48 -10` black 22 % + 1 px white ring 20 % | 10 % |
 | E3 | 36 px blur | `.regular` with a tint | `0 32 72 -12` black 45 % + 1 px white ring 25 % | 30 % |
 
+The white rings are for the macOS 15 fallback only: Liquid Glass lights its own edge with a
+specular rim, and a ring over it would flatten it into a line.
+
 Rules: never glass on glass; one E2 or E3 at a time (an E3 collapses the E2 under it); glass only
 where something floats above the page. On macOS 15 the fallback is `NSVisualEffectView`
 (`.popover` for E2, `.hudWindow` for E3) with the same shadows and dimming.
@@ -93,13 +97,15 @@ top, so the window buttons sit in the band above it. Corners 12 (continuous), a 
 chrome and moves it; the card never does. Full screen, the window's or a page's, drops the
 inset.
 
-**Load glow** (E1, never a click): while the page loads, a faint 1.5 pt `accent` ring (22 %)
-marks the page's edge and a comet of `accent` light runs round it clockwise with a 5 pt halo.
-It turns at 0.35 turns a second when loading starts and speeds up with the engine's progress
-to 1.1; a speed change carries the comet on from where it is. It fades in and out with
-`fade-fast`. Edge to edge it runs along the window's inner edge (corners 16); with *Inset page*
-it runs around the card, under it, as its box shadow. Reduce Motion: no comet, a still ring at
-60 %, opacity only. Core Animation: a conic gradient turning under a stroked mask.
+**Load glow** (E1, never a click): while the page loads, a thin 1.5 pt line of the `spectrum`
+(system blue, purple, pink, orange, mint, round to blue, so it has no seam) runs round the
+page's edge with a soft bloom of the same colors, 9 pt, at 45 % over the page and 70 % around a
+card. The colors turn clockwise at 0.2 turns a second when loading starts and speed up with the
+engine's progress to 0.55; a speed change carries them on from where they are. It fades in and
+out with `fade-fast`. Edge to edge it runs along the window's inner edge (corners 16); with
+*Inset page* it runs around the card, under it. Reduce Motion: the same line and bloom standing
+still, opacity only. Core Animation: a conic gradient turning under a stroked mask (the line),
+and a copy under a wider stroke feathered by the mask's own shadow (the bloom).
 
 ## Motion
 
