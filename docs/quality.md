@@ -88,7 +88,10 @@ The table lives in `tools/xtask/src/layers/policy.rs`; change it together with A
 - Only the code changed since the base is mutated (`--in-diff`). The base is the merge-base
   `cargo xtask base` prints, the same one `ui diff` uses: with the upstream branch, else with
   the newest `origin/release/X.Y.Z`, else with `origin/main`; only without any of them does the
-  whole scope run. `--iterate` reuses earlier results.
+  whole scope run. `--iterate` reuses earlier results. The base reads the local
+  remote-tracking branches, and a deleted release branch stays among them until pruned, so
+  fetch with `git fetch --prune` (or set `fetch.prune`); a stale one makes an old commit the
+  base.
 - The engine conformance suite (`application/src/engine/conformance`) is application code, so its
   checks are mutated too: they run against the in-memory reference engine, and against broken
   variants of it that each check must fail. The WebKit adapter runs the same suite in
