@@ -3,9 +3,9 @@
 //!
 //! **Developer tools.** How they open is the engine's capability ([`Inspector`]). On `WebKit`
 //! (`Inspector::FromContextMenu`) `WKWebView` has no public call that opens Web Inspector, only
-//! `isInspectable`, which every page sets; Quickie calls no private API, so the developer
-//! tools' commands say where Web Inspector is: right-click → Inspect Element, or Safari's
-//! Develop menu. On Chromium (P1, `Inspector::Programmatic`) they open `DevTools` docked in the
+//! `isInspectable`, which every page sets. That lets Safari's Develop menu attach Web Inspector;
+//! the page's own context menu offers Inspect Element only with a private preference. Quickie
+//! calls no private API, so the developer tools' commands point to Safari's Develop menu. On Chromium (P1, `Inspector::Programmatic`) they open `DevTools` docked in the
 //! window and on the asked panel, through the bridge.
 
 use quickie_application::{Downloads, Engine, EngineError, Inspector, PageSurface};
@@ -57,7 +57,7 @@ impl Browser {
 pub(super) fn inspector_told<E: Engine>(inspected: Result<(), EngineError>) -> Option<String> {
     match (E::CAPS.inspector, inspected) {
         (Inspector::FromContextMenu, Ok(())) => {
-            Some("Right-click → Inspect Element opens Web Inspector".to_owned())
+            Some("Web Inspector opens from Safari: Develop → Quickie → this page".to_owned())
         }
         (Inspector::FromContextMenu, Err(EngineError(why))) => Some(why),
         (Inspector::Programmatic, Ok(())) => None,
