@@ -76,6 +76,8 @@ jobs:
     if: needs.version.outputs.version != ''
     permissions:
       contents: write
+      actions: read
+      attestations: read
     uses: ./.github/workflows/release.yml
     # The signing and notarization secrets, when the repository has them.
     secrets: inherit
