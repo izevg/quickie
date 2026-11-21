@@ -1,15 +1,17 @@
-//! The load glow: while the page loads, a soft light in the accent color runs along the page's
-//! edge (E1: no glass, no dimming, never a click). It replaces a progress bar: a thin, faint ring
-//! marks the edge, and a comet of light travels around it, faster as the engine's progress
-//! grows. When loading ends it fades out with `fade-fast`.
+//! The load glow: while the page loads, a thin line of turning color runs round the page's
+//! edge with a soft bloom of the same colors (E1: no glass, no dimming, never a click). It
+//! replaces a progress bar: the colors turn faster as the engine's progress grows. When loading
+//! ends it fades out with `fade-fast`.
 //!
 //! - Edge to edge it runs along the window's inner edge, over the page. Inset, it runs around
-//!   the card as its box shadow: under the card, so only its outer half and its halo show.
-//! - Core Animation only, all of it on the render server: a conic gradient (the comet) turns
-//!   under a mask that is the rounded edge stroked, and the halo is that layer's shadow. The main
-//!   thread only starts, re-times, and stops one animation; a speed change keeps the comet where
-//!   it is (the layer's own time is carried over, never restarted).
-//! - Reduce Motion: no comet, a static thin edge that fades in and out.
+//!   the card, under it, so only the line's outer half and the outer bloom show.
+//! - Core Animation only, all of it on the render server. A conic gradient of the spectrum
+//!   turns under a mask that is the rounded edge stroked thin: the line. A copy of it turns
+//!   under the same edge stroked wider and feathered by the mask's own shadow: the bloom, which
+//!   keeps the line's colors where a layer shadow would have one. The main thread only starts,
+//!   re-times, and stops one animation per gradient; a speed change keeps the colors where they
+//!   are (the layers' own time is carried over, never restarted).
+//! - Reduce Motion: the same line and bloom, standing still, fading in and out.
 
 use std::cell::Cell;
 use std::f64::consts::TAU;
@@ -21,7 +23,7 @@ use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{NSAppearanceCustomization, NSAutoresizingMaskOptions, NSColor, NSView};
 use objc2_core_foundation::CGFloat;
-use objc2_core_graphics::{CGColor, CGPath};
+use objc2_core_graphics::CGPath;
 use objc2_foundation::{NSArray, NSNumber, NSPoint, NSRect, NSSize, NSString};
 use objc2_quartz_core::{
     CABasicAnimation, CACurrentMediaTime, CAGradientLayer, CALayer, CAMediaTiming,
@@ -30,34 +32,34 @@ use objc2_quartz_core::{
 use quickie_ui_shared::motion::{self, FADE_FAST};
 use quickie_ui_shared::tokens::color;
 
-/// The edge's width, in points: thin.
+/// The line's width, in points: thin.
 const LINE: CGFloat = 1.5;
-/// How far the halo spreads from the edge.
-const HALO: CGFloat = 5.0;
-/// The halo's strength: low, it lights the edge without covering the page.
-const HALO_OPACITY: f32 = 0.7;
-/// The faint ring under the comet; with Reduce Motion, the static edge.
-const RING_OPACITY: f32 = 0.22;
-const STILL_RING_OPACITY: f32 = 0.6;
-/// Turns per second at the start of a load and near its end.
-const SPIN_SLOW: f64 = 0.35;
-const SPIN_FAST: f64 = 1.1;
+/// The bloom's core, stroked under the line, and how far it feathers out from it.
+const BLOOM_CORE: CGFloat = 3.0;
+const BLOOM: CGFloat = 9.0;
+/// The bloom's strength. Over the page it stays low, so it lights the edge without covering
+/// the page; around a card it shows only outside it, on the window's background.
+const BLOOM_OVER_PAGE: f32 = 0.45;
+const BLOOM_AROUND_CARD: f32 = 0.7;
+/// Turns per second at the start of a load and near its end: slow enough to read as light, not
+/// as a spinner.
+const SPIN_SLOW: f64 = 0.2;
+const SPIN_FAST: f64 = 0.55;
 const SPIN: &str = "spin";
 
-/// How fast the comet goes round at `progress` (`0.0 ..= 1.0`), in turns per second.
+/// How fast the colors go round at `progress` (`0.0 ..= 1.0`), in turns per second.
 #[must_use]
 pub(super) fn spin_speed(progress: f64) -> f64 {
     SPIN_SLOW + (SPIN_FAST - SPIN_SLOW) * progress.clamp(0.0, 1.0)
 }
 
-/// How the ring looks while a page loads: the static ring's opacity, and whether the comet
-/// runs.
+/// How strong the bloom is along `edge`.
 #[must_use]
-pub(super) fn ring(reduce_motion: bool) -> (f32, bool) {
-    if reduce_motion {
-        (STILL_RING_OPACITY, false)
+pub(super) fn bloom_opacity(edge: Edge) -> f32 {
+    if edge.around {
+        BLOOM_AROUND_CARD
     } else {
-        (RING_OPACITY, true)
+        BLOOM_OVER_PAGE
     }
 }
 
@@ -70,13 +72,62 @@ pub(super) struct Edge {
     pub around: bool,
 }
 
+/// One turning gradient of the spectrum under its mask.
+struct Band {
+    layer: Retained<CALayer>,
+    mask: Retained<CAShapeLayer>,
+    spectrum: Retained<CAGradientLayer>,
+}
+
+impl Band {
+    fn new() -> Self {
+        let mask = CAShapeLayer::new();
+        mask.setFillColor(None);
+        // Only the mask's alpha counts: opaque black.
+        mask.setStrokeColor(Some(&NSColor::blackColor().CGColor()));
+        let spectrum = CAGradientLayer::new();
+        // SAFETY: an immutable string exported by Core Animation.
+        spectrum.setType(unsafe { kCAGradientLayerConic });
+        spectrum.setStartPoint(NSPoint::new(0.5, 0.5));
+        spectrum.setEndPoint(NSPoint::new(0.5, 1.0));
+        let layer = CALayer::new();
+        layer.addSublayer(&spectrum);
+        // SAFETY: the mask is new and in no other layer tree.
+        unsafe { layer.setMask(Some(&mask)) };
+        Self {
+            layer,
+            mask,
+            spectrum,
+        }
+    }
+
+    /// Lays the band out over `bounds` along `path`, stroked `width` wide.
+    fn shape(&self, bounds: NSRect, path: &CGPath, width: CGFloat) {
+        let side = bounds.size.width.hypot(bounds.size.height);
+        self.layer.setFrame(bounds);
+        self.mask.setFrame(bounds);
+        self.mask.setPath(Some(path));
+        self.mask.setLineWidth(width);
+        self.spectrum
+            .setBounds(NSRect::new(NSPoint::ZERO, NSSize::new(side, side)));
+        self.spectrum.setPosition(NSPoint::new(
+            bounds.size.width / 2.0,
+            bounds.size.height / 2.0,
+        ));
+    }
+}
+
 /// The layers, kept by the view so a resize can shape them.
 pub(super) struct Ivars {
-    ring: Retained<CAShapeLayer>,
-    halo: Retained<CALayer>,
-    mask: Retained<CAShapeLayer>,
-    comet: Retained<CAGradientLayer>,
+    line: Band,
+    bloom: Band,
     edge: Cell<Edge>,
+}
+
+impl Ivars {
+    fn spectra(&self) -> [&CAGradientLayer; 2] {
+        [&self.line.spectrum, &self.bloom.spectrum]
+    }
 }
 
 define_class!(
@@ -119,7 +170,9 @@ impl GlowView {
         let ivars = self.ivars();
         let bounds = self.bounds();
         let edge = ivars.edge.get();
-        let (rect, width) = if edge.around {
+        // Around a card the path is the card's edge and the strokes are doubled, as their
+        // inner halves hide under it; inside the view the line's outer side touches its edge.
+        let (rect, line) = if edge.around {
             (bounds, LINE * 2.0)
         } else {
             let half = LINE / 2.0;
@@ -141,52 +194,36 @@ impl GlowView {
             .max(0.0);
         // SAFETY: a null transform means identity; the radius fits the rect (clamped above).
         let path = unsafe { CGPath::with_rounded_rect(rect, radius, radius, std::ptr::null()) };
-        let side = bounds.size.width.hypot(bounds.size.height);
+        let core = if edge.around {
+            BLOOM_CORE * 2.0
+        } else {
+            BLOOM_CORE
+        };
         transaction(0.0, || {
-            for shape in [&ivars.ring, &ivars.mask] {
-                shape.setFrame(bounds);
-                shape.setPath(Some(&path));
-                shape.setLineWidth(width);
-            }
-            ivars.halo.setFrame(bounds);
-            ivars
-                .comet
-                .setBounds(NSRect::new(NSPoint::ZERO, NSSize::new(side, side)));
-            ivars.comet.setPosition(NSPoint::new(
-                bounds.size.width / 2.0,
-                bounds.size.height / 2.0,
-            ));
+            ivars.line.shape(bounds, &path, line);
+            ivars.bloom.shape(bounds, &path, core);
+            ivars.bloom.layer.setOpacity(bloom_opacity(edge));
         });
     }
 
-    /// The accent color in the ring, the halo, and the comet, resolved under the view's
-    /// appearance.
+    /// The spectrum in both gradients, resolved under the view's appearance.
     fn paint(&self) {
         let ivars = self.ivars();
-        let (ring, halo, comet) = (ivars.ring.clone(), ivars.halo.clone(), ivars.comet.clone());
+        let spectra = [ivars.line.spectrum.clone(), ivars.bloom.spectrum.clone()];
         let apply = RcBlock::new(move || {
-            let accent = color::accent();
-            let at = |alpha: CGFloat| accent.colorWithAlphaComponent(alpha).CGColor();
+            let colors = color::spectrum().map(|color| color.CGColor());
+            let objects: Vec<&AnyObject> = colors.iter().map(|color| (**color).as_ref()).collect();
+            let array = NSArray::from_slice(&objects);
             transaction(0.0, || {
-                ring.setStrokeColor(Some(&at(1.0)));
-                halo.setShadowColor(Some(&at(1.0)));
-                // The head at the start of the turn, the tail fading behind it: the gradient's
-                // angle grows the other way from the clockwise turn.
-                let stops = [at(0.0), at(1.0), at(0.45), at(0.0), at(0.0)];
-                set_colors(&comet, &stops);
+                for spectrum in &spectra {
+                    // SAFETY: every element is a `CGColor`, which is what the gradient takes.
+                    unsafe { spectrum.setColors(Some(&array)) };
+                }
             });
         });
         self.effectiveAppearance()
             .performAsCurrentDrawingAppearance(&apply);
     }
-}
-
-/// The comet's colors, from its tail round to its head.
-fn set_colors(comet: &CAGradientLayer, colors: &[Retained<CGColor>]) {
-    let objects: Vec<&AnyObject> = colors.iter().map(|color| (***color).as_ref()).collect();
-    let array = NSArray::from_slice(&objects);
-    // SAFETY: every element is a `CGColor`, which is what the gradient layer takes.
-    unsafe { comet.setColors(Some(&array)) };
 }
 
 /// The glow over (or under) one page frame's card.
@@ -195,42 +232,25 @@ pub(super) struct Glow {
     /// Counts each start and finish, so a fade that ends after a new load began leaves it.
     generation: Rc<Cell<u64>>,
     loading: Cell<bool>,
-    /// The comet's turn is on the layer.
+    /// The gradients' turn is on their layers.
     spinning: Rc<Cell<bool>>,
 }
 
 impl Glow {
     pub(super) fn new(mtm: MainThreadMarker) -> Self {
-        let ring = CAShapeLayer::new();
-        ring.setFillColor(None);
-        let mask = CAShapeLayer::new();
-        mask.setFillColor(None);
-        // Only the mask's alpha counts: opaque black.
-        mask.setStrokeColor(Some(&NSColor::blackColor().CGColor()));
-        let comet = CAGradientLayer::new();
-        // SAFETY: an immutable string exported by Core Animation.
-        comet.setType(unsafe { kCAGradientLayerConic });
-        comet.setStartPoint(NSPoint::new(0.5, 0.5));
-        comet.setEndPoint(NSPoint::new(0.5, 1.0));
-        let stops: Vec<Retained<NSNumber>> = [0.0, 0.015, 0.14, 0.5, 1.0]
-            .into_iter()
-            .map(NSNumber::new_f64)
-            .collect();
-        comet.setLocations(Some(&NSArray::from_retained_slice(&stops)));
-        let masked = CALayer::new();
-        masked.addSublayer(&comet);
-        // SAFETY: the mask is new and in no other layer tree.
-        unsafe { masked.setMask(Some(&mask)) };
-        let halo = CALayer::new();
-        halo.addSublayer(&masked);
-        halo.setShadowOpacity(HALO_OPACITY);
-        halo.setShadowRadius(HALO);
-        halo.setShadowOffset(NSSize::ZERO);
+        let line = Band::new();
+        let bloom = Band::new();
+        // The mask's shadow is part of its alpha: it feathers the bloom's core into a soft
+        // light that keeps the spectrum's colors.
+        bloom
+            .mask
+            .setShadowColor(Some(&NSColor::blackColor().CGColor()));
+        bloom.mask.setShadowOpacity(1.0);
+        bloom.mask.setShadowRadius(BLOOM);
+        bloom.mask.setShadowOffset(NSSize::ZERO);
         let this = GlowView::alloc(mtm).set_ivars(Ivars {
-            ring,
-            halo,
-            mask,
-            comet,
+            line,
+            bloom,
             edge: Cell::new(Edge {
                 radius: 0.0,
                 around: false,
@@ -246,8 +266,8 @@ impl Glow {
                 | NSAutoresizingMaskOptions::ViewHeightSizable,
         );
         if let Some(layer) = view.layer() {
-            layer.addSublayer(&view.ivars().ring);
-            layer.addSublayer(&view.ivars().halo);
+            layer.addSublayer(&view.ivars().bloom.layer);
+            layer.addSublayer(&view.ivars().line.layer);
             layer.setOpacity(0.0);
         }
         Self {
@@ -272,10 +292,10 @@ impl Glow {
         self.loading.get()
     }
 
-    /// The comet's speed now, in turns per second; zero while it does not run.
+    /// How fast the colors turn now, in turns per second; zero while they stand still.
     pub(super) fn speed(&self) -> f64 {
         if self.spinning.get() {
-            f64::from(self.view.ivars().comet.speed())
+            f64::from(self.view.ivars().line.spectrum.speed())
         } else {
             0.0
         }
@@ -303,29 +323,28 @@ impl Glow {
         let ivars = self.view.ivars();
         if !self.loading.replace(true) {
             self.generation.set(self.generation.get() + 1);
-            let (ring_opacity, spins) = ring(motion::reduce_motion());
+            let spins = !motion::reduce_motion();
             self.view.paint();
             self.view.setHidden(false);
-            transaction(0.0, || {
-                ivars.ring.setOpacity(ring_opacity);
-                ivars.halo.setHidden(!spins);
-            });
-            if spins {
-                ivars.comet.setSpeed(as_speed(spin_speed(fraction)));
-                ivars.comet.setTimeOffset(0.0);
-                ivars.comet.setBeginTime(0.0);
-                ivars
-                    .comet
-                    .addAnimation_forKey(&spin(), Some(&NSString::from_str(SPIN)));
-            } else {
-                ivars.comet.removeAnimationForKey(&NSString::from_str(SPIN));
+            let key = NSString::from_str(SPIN);
+            for spectrum in ivars.spectra() {
+                spectrum.removeAnimationForKey(&key);
+                if spins {
+                    spectrum.setSpeed(as_speed(spin_speed(fraction)));
+                    spectrum.setTimeOffset(0.0);
+                    spectrum.setBeginTime(0.0);
+                    spectrum.addAnimation_forKey(&spin(), Some(&key));
+                }
             }
             self.spinning.set(spins);
             if let Some(layer) = self.view.layer() {
                 transaction(FADE_FAST.duration, || layer.setOpacity(1.0));
             }
         } else if self.speed() > 0.0 {
-            retime(&ivars.comet, spin_speed(fraction));
+            let now = CACurrentMediaTime();
+            for spectrum in ivars.spectra() {
+                retime(spectrum, now, spin_speed(fraction));
+            }
         }
     }
 
@@ -338,11 +357,11 @@ impl Glow {
         };
         let generation = self.generation.get();
         let shared = Rc::clone(&self.generation);
-        let (view, comet) = (self.view.clone(), self.view.ivars().comet.clone());
+        let view = self.view.clone();
         let spinning = Rc::clone(&self.spinning);
         let hide = RcBlock::new(move || {
             if shared.get() == generation {
-                comet.removeAnimationForKey(&NSString::from_str(SPIN));
+                halt(&view);
                 spinning.set(false);
                 view.setHidden(true);
             }
@@ -358,10 +377,7 @@ impl Glow {
     }
 
     fn stop(&self) {
-        self.view
-            .ivars()
-            .comet
-            .removeAnimationForKey(&NSString::from_str(SPIN));
+        halt(&self.view);
         self.spinning.set(false);
         if let Some(layer) = self.view.layer() {
             transaction(0.0, || layer.setOpacity(0.0));
@@ -369,7 +385,15 @@ impl Glow {
     }
 }
 
-/// The comet's turn: one turn a second at speed 1, clockwise, for ever.
+/// Takes the turn off both gradients.
+fn halt(view: &GlowView) {
+    let key = NSString::from_str(SPIN);
+    for spectrum in view.ivars().spectra() {
+        spectrum.removeAnimationForKey(&key);
+    }
+}
+
+/// The gradients' turn: one turn a second at speed 1, clockwise, for ever.
 fn spin() -> Retained<CABasicAnimation> {
     let spin =
         CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str("transform.rotation.z")));
@@ -384,10 +408,10 @@ fn spin() -> Retained<CABasicAnimation> {
     spin
 }
 
-/// Changes how fast `layer`'s animations run without a jump: its own time now becomes the
-/// offset it continues from.
-fn retime(layer: &CALayer, speed: f64) {
-    let now = CACurrentMediaTime();
+/// Changes how fast `layer`'s animations run without a jump: its own time at `now` becomes the
+/// offset it continues from. Both gradients are re-timed at the same `now`, so they stay
+/// together.
+fn retime(layer: &CALayer, now: f64, speed: f64) {
     let local = layer.convertTime_fromLayer(now, None);
     layer.setTimeOffset(local);
     layer.setBeginTime(
@@ -427,10 +451,11 @@ fn curve() -> Retained<CAMediaTimingFunction> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SPIN_FAST, SPIN_SLOW, ring, spin_speed};
+    use super::spin_speed;
+    use super::{BLOOM_AROUND_CARD, BLOOM_OVER_PAGE, Edge, SPIN_FAST, SPIN_SLOW, bloom_opacity};
 
     #[test]
-    fn the_comet_speeds_up_as_the_page_loads() {
+    fn the_colors_turn_faster_as_the_page_loads() {
         assert!((spin_speed(0.0) - SPIN_SLOW).abs() < 1e-9);
         assert!((spin_speed(1.0) - SPIN_FAST).abs() < 1e-9);
         assert!(spin_speed(0.3) < spin_speed(0.7));
@@ -439,12 +464,18 @@ mod tests {
     }
 
     #[test]
-    fn reduce_motion_keeps_a_still_edge() {
-        let (still, spins) = ring(true);
-        let (moving, runs) = ring(false);
+    fn the_bloom_is_quieter_over_the_page_than_around_a_card() {
+        let over = bloom_opacity(Edge {
+            radius: 16.0,
+            around: false,
+        });
+        let around = bloom_opacity(Edge {
+            radius: 12.0,
+            around: true,
+        });
 
-        assert!(!spins);
-        assert!(runs);
-        assert!(still > moving);
+        assert!((over - BLOOM_OVER_PAGE).abs() < f32::EPSILON);
+        assert!((around - BLOOM_AROUND_CARD).abs() < f32::EPSILON);
+        assert!(over < around);
     }
 }
