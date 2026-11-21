@@ -4,7 +4,7 @@ pub(crate) mod columns;
 mod migrations;
 
 use quickie_application::StoreError;
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 
 use crate::failed;
 pub(crate) use migrations::MIGRATIONS;
@@ -12,9 +12,16 @@ pub(crate) use migrations::MIGRATIONS;
 /// The schema version this build writes.
 pub(crate) const VERSION: usize = MIGRATIONS.len();
 
-/// Applies the migrations the database has not seen yet, each in its own transaction.
+/// Applies the migrations the database has not seen yet, all in one transaction.
+///
+/// The transaction takes the write lock before it reads the version, so of two connections
+/// migrating the same file at once, the second waits for the first and then finds nothing left
+/// to do (#76).
 pub(crate) fn migrate(db: &mut Connection) -> Result<(), StoreError> {
-    let current: i64 = db
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(failed)?;
+    let current: i64 = tx
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(failed)?;
     let current = usize::try_from(current)
@@ -26,11 +33,9 @@ pub(crate) fn migrate(db: &mut Connection) -> Result<(), StoreError> {
             ))
         })?;
     for (version, migration) in MIGRATIONS.iter().enumerate().skip(current) {
-        let tx = db.transaction().map_err(failed)?;
         tx.execute_batch(migration).map_err(failed)?;
         tx.pragma_update(None, "user_version", columns::ordinal(version + 1)?)
             .map_err(failed)?;
-        tx.commit().map_err(failed)?;
     }
-    Ok(())
+    tx.commit().map_err(failed)
 }

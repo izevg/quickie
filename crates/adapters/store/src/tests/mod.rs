@@ -231,3 +231,33 @@ fn a_seventh_version_database_gains_an_empty_agent_endpoint_and_no_site_zooms() 
     assert_eq!(store.load_endpoint(), Ok(None));
     assert_eq!(store.load_site_zooms(), Ok(SiteZoomsSnapshot::default()));
 }
+
+/// Two connections opening a new file at once, as two launches of the app do: both get the
+/// whole schema and neither runs a migration the other already ran (#76). Repeated, since one
+/// round may not interleave.
+#[test]
+fn two_connections_migrating_a_new_database_at_once_both_succeed() {
+    for _ in 0..32 {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shell.sqlite");
+        let start = std::sync::Barrier::new(2);
+
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let openers: Vec<_> = (0..2)
+                .map(|_| {
+                    scope.spawn(|| {
+                        start.wait();
+                        SqliteStore::open(&path).map(|store| user_version(&store.db))
+                    })
+                })
+                .collect();
+            openers
+                .into_iter()
+                .map(|opener| opener.join().unwrap())
+                .collect()
+        });
+
+        let version = i64::try_from(VERSION).unwrap();
+        assert_eq!(results, [Ok(version), Ok(version)]);
+    }
+}
