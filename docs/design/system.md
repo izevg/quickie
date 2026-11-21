@@ -82,6 +82,9 @@ material and each pane's title in the titlebar's band, no glass (it floats above
 | E2 | 28 px blur, 180 % saturation | `NSGlassEffectView` `.regular` in an `NSGlassEffectContainerView` | `0 20 48 -10` black 22 % + 1 px white ring 20 % | 10 % |
 | E3 | 36 px blur | `.regular` with a tint | `0 32 72 -12` black 45 % + 1 px white ring 25 % | 30 % |
 
+The white rings are for the macOS 15 fallback only: Liquid Glass lights its own edge with a
+specular rim, and a ring over it would flatten it into a line.
+
 Rules: never glass on glass; one E2 or E3 at a time (an E3 collapses the E2 under it); glass only
 where something floats above the page. On macOS 15 the fallback is `NSVisualEffectView`
 (`.popover` for E2, `.hudWindow` for E3) with the same shadows and dimming.
