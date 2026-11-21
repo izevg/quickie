@@ -322,6 +322,7 @@ impl Glow {
         let fraction = fraction.clamp(0.0, 1.0);
         let ivars = self.view.ivars();
         if !self.loading.replace(true) {
+            trace("start");
             self.generation.set(self.generation.get() + 1);
             let spins = !motion::reduce_motion();
             self.view.paint();
@@ -352,6 +353,7 @@ impl Glow {
         if !self.loading.replace(false) {
             return;
         }
+        trace("fade");
         let Some(layer) = self.view.layer() else {
             return;
         };
@@ -361,6 +363,7 @@ impl Glow {
         let spinning = Rc::clone(&self.spinning);
         let hide = RcBlock::new(move || {
             if shared.get() == generation {
+                trace("hidden");
                 halt(&view);
                 spinning.set(false);
                 view.setHidden(true);
@@ -382,6 +385,17 @@ impl Glow {
         if let Some(layer) = self.view.layer() {
             transaction(0.0, || layer.setOpacity(0.0));
         }
+    }
+}
+
+/// EXPERIMENT (never merged): marks the glow's changes on stderr while `QUICKIE_TRACE` is set.
+#[expect(clippy::print_stderr, reason = "experiment trace, never merged")]
+fn trace(what: &str) {
+    if std::env::var_os("QUICKIE_TRACE").is_some() {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0);
+        eprintln!("QTRACE {ms:.2} glow {what}");
     }
 }
 

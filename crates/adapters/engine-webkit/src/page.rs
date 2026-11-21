@@ -9,6 +9,7 @@ mod find;
 pub(crate) mod inspector;
 mod observer;
 pub(crate) mod scripts;
+pub mod trace;
 
 use std::cell::Cell;
 use std::rc::Rc;

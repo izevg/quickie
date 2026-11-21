@@ -59,6 +59,8 @@ mod extensions;
 mod inbox;
 mod network;
 mod page;
+/// EXPERIMENT (never merged): the frame-timing trace (`QUICKIE_TRACE`).
+pub use page::trace;
 mod scheme;
 mod shields;
 mod thumbnails;
@@ -151,6 +153,7 @@ impl WebKitEngine {
         let inbox = Rc::<Inbox>::default();
         page::install_scripts(&content, &inbox.reports, mtm);
         page::install_scripts(&throwaway_content, &inbox.reports, mtm);
+        page::trace::install(&content, mtm);
         let videos = &inbox.reports.videos;
         page::install_video_script(&content, videos, Inbox::video_reports(&inbox), mtm);
         page::install_video_script(
