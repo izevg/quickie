@@ -8,11 +8,16 @@ pub const DEFAULT_ID: &str = "dev.quickie.Quickie";
 /// The version of an untagged build.
 const UNTAGGED: &str = "0.0.0";
 
-/// What varies between bundles: the id (a test build registers under its own) and the version.
+/// The oldest macOS the app runs on, on the system `WebKit`.
+pub const SYSTEM_MINIMUM: &str = "15.0";
+
+/// What varies between bundles: the id (a test build registers under its own), the version,
+/// and the oldest macOS (a bundle of our `WebKit` fork needs the one the fork was built for).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bundle {
     pub id: String,
     pub version: String,
+    pub minimum: String,
 }
 
 /// A property list value; enough of the format for an `Info.plist`.
@@ -94,7 +99,10 @@ pub fn info_plist(bundle: &Bundle) -> String {
             "LSApplicationCategoryType",
             Value::Text("public.app-category.productivity"),
         ),
-        ("LSMinimumSystemVersion", Value::Text("15.0")),
+        (
+            "LSMinimumSystemVersion",
+            Value::Owned(bundle.minimum.clone()),
+        ),
         (
             "NSCameraUsageDescription",
             Value::Text("A website you visit asks to use the camera."),
@@ -187,6 +195,7 @@ mod tests {
         info_plist(&Bundle {
             id: id.to_owned(),
             version: "1.2.3".to_owned(),
+            minimum: "26.5".to_owned(),
         })
     }
 
@@ -256,7 +265,7 @@ mod tests {
         assert_eq!(after(&xml, "CFBundlePackageType"), "<string>APPL</string>");
         assert_eq!(
             after(&xml, "LSMinimumSystemVersion"),
-            "<string>15.0</string>"
+            "<string>26.5</string>"
         );
         assert_eq!(after(&xml, "NSHighResolutionCapable"), "<true/>");
         assert_eq!(
