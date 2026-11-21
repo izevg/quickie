@@ -21,6 +21,10 @@ on:
         description: Fork commit to build instead of the pin (40 hex characters; empty builds the pin)
         default: ""
         type: string
+      rebuild:
+        description: Build even when the webkit-<commit12> prerelease already holds this commit's build
+        default: false
+        type: boolean
   push:
     branches: [main, "release/**"]
     paths:
@@ -40,8 +44,44 @@ defaults:
     shell: bash
 
 jobs:
+  # A build takes hours even from the compilation cache; a commit already kept as the
+  # webkit-<commit12> prerelease (the Keep step) is not built again, as when only this workflow
+  # changed. A manual run of another commit, or with `rebuild`, always builds.
+  needed:
+    name: build needed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          sparse-checkout: engine/webkit/webkit.pin
+      - name: Check the kept builds
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ inputs.commit }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: |
+          commit=${COMMIT:-$(sed -n 's/^WEBKIT_COMMIT=//p' engine/webkit/webkit.pin)}
+          tag="webkit-${commit:0:12}"
+          if [ "$REBUILD" != true ] && gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' 2>/dev/null | grep -q '\.tar\.gz$'; then
+            echo "$tag holds this commit's build already; nothing to build" >>"$GITHUB_STEP_SUMMARY"
+            echo build=false >>"$GITHUB_OUTPUT"
+          else
+            echo build=true >>"$GITHUB_OUTPUT"
+          fi
+
   webkit-macos:
     name: webkit (macOS arm64)
+    needs: needed
+    if: needs.needed.outputs.build == 'true'
     # macos-26: macOS 26 with Xcode 26 on arm64 (Apple silicon), free for public repositories.
     # The fork follows the webkitglib/2.54 series, whose Cocoa code does not build against the
     # macOS 27 SDK (Xcode 27); frameworks built with SDK 26 run on macOS 26 and 27. Move to

@@ -143,7 +143,8 @@ gh workflow run webkit.yml --repo izevg/quickie --ref release/0.1.0 -f commit="$
 
 1. **Fetch and verify.** `engine/webkit/scripts/fetch` (`mise run webkit-fetch`) takes the
    archive of the pinned commit from the `webkit-<commit12>` prerelease, where `webkit.yml` keeps
-   every build of a pushed branch (artifacts expire after 30 days), else from the newest
+   every build of a pushed branch (artifacts expire after 30 days; a commit kept there is not built
+   again, see the `needed` job), else from the newest
    unexpired artifact. It checks the sha256, `gh attestation verify <archive> --repo
    izevg/quickie`, and that `BUILD-INFO` names the pin, then unpacks it into
    `.build/webkit-frameworks/`.
