@@ -6,6 +6,28 @@ starts there, and its first commit `02fa3f47` is a Cocoa build fix. CI builds it
 with Xcode 26.6 ([engine/README.md](../README.md)); [webkit.pin](webkit.pin) names the commit
 that is built.
 
+## Carried on quickie/2.54
+
+Each patch is developed on its own fork branch `quickie/patch/<name>` and merged into
+`quickie/2.54` with a merge commit, after a CI build of all of them together is green.
+
+| Patch | Fork branch | Section |
+|---|---|---|
+| P1 privacy defaults: Safe Browsing, PCM, prefetch off; `SpeculationRulesPrefetchEnabled` is an embedder feature | `quickie/patch/privacy-defaults` | §2.4 |
+| P2 GPC on by default; `GlobalPrivacyControlEnabled` is an embedder feature | `quickie/patch/privacy-gpc` | §2.4 |
+| I1 inspector tab and dock side by API | `quickie/patch/inspector-tabs-and-dock` | §2.2 |
+| A1 in-process automation client | `quickie/patch/automation-local-channel` | §2.1 |
+| W1 own WebAuthn manager, keychain group from Info.plist | `quickie/patch/webauthn-own-manager` | §2.5 |
+
+The Rust side of A1, I1 and W1 is not written yet: the app does not call the new SPI.
+
+Planned next: **V1 `media/fullscreen-in-window`**. Element full screen already stays in the tab's
+window through a page-script shim of the Fullscreen API (quickie #74), but the native fullscreen
+button of `<video controls>` still opens WebKit's own full-screen window. The patch gives
+`WKFullScreenWindowController` (`UIProcess/mac/WKFullScreenWindowController.mm`) an in-window mode
+behind a `WKWebViewConfiguration` SPI flag: the element fills the web view's own window and the
+shim goes away.
+
 The research below was done on WebKit main at `a6331649580b` (2026-11-20), before the base moved
 to the stable branch; file paths are at that commit
 (`https://github.com/WebKit/WebKit/blob/a6331649580b67f2af8a827f0eb89f73422fea55/<path>`). Line
