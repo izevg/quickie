@@ -27,7 +27,8 @@ pub enum Elevation {
     E3,
 }
 
-/// A CSS-style box shadow (`0 offset_y blur spread`) plus a 1 px white ring.
+/// A CSS-style box shadow (`0 offset_y blur spread`) plus a 1 px white ring, drawn only where
+/// the material has no specular rim of its own (the fallback, a story's stand-in).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
     pub offset_y: CGFloat,
@@ -209,7 +210,11 @@ impl GlassSurface {
         }
         if let (Some(view), Some(shadow)) = (&self.shadow, self.elevation.shadow()) {
             layout_shadow(view, shadow, size, corner);
-            ring(&self.content, shadow, corner);
+            // Liquid Glass lights its own edge with a specular rim; a ring of ours over it
+            // would flatten it into a line. Only the materials without one get the ring.
+            if !matches!(self.material, Material::Glass(_)) {
+                ring(&self.content, shadow, corner);
+            }
         }
     }
 }
