@@ -75,22 +75,24 @@ fn shown(scene: &mut Scene, playing: bool) -> Rc<MiniPlayer> {
     player
 }
 
-/// Plays, then each control: play or pause, back to the tab, close.
+/// What the video is named, after its tab.
+const VIDEO: &str = "Video of Rust in 100 Seconds — YouTube";
+
+/// Plays, then each control: play or pause, back to the tab, close; then a click on the
+/// video, which goes back to the tab too.
 fn playing(scene: &mut Scene) {
     let player = shown(scene, true);
     let asked = Rc::new(RefCell::new(Vec::new()));
     let heard = Rc::clone(&asked);
     player.on_request(move |request| heard.borrow_mut().push(request));
     scene.check(
-        scene
-            .accessibility()
-            .contains("Video of Rust in 100 Seconds"),
+        scene.accessibility().contains(VIDEO),
         "the video is named after its tab",
     );
-    for label in ["Pause", "Back to Tab", "Close"] {
+    for label in ["Pause", "Back to Tab", "Close", VIDEO] {
         match scene.view_labelled(label) {
-            Some(button) => scene.click(&button),
-            None => scene.check(false, format!("no {label} button")),
+            Some(view) => scene.click(&view),
+            None => scene.check(false, format!("nothing labelled {label}")),
         }
     }
     scene.check_eq(
@@ -99,8 +101,9 @@ fn playing(scene: &mut Scene) {
             PlayerRequest::PlayPause,
             PlayerRequest::BackToTab,
             PlayerRequest::Close,
+            PlayerRequest::BackToTab,
         ],
-        "each control asks the browser",
+        "each control asks the browser, and a click on the video goes back to its tab",
     );
     scene.check_eq(
         player.corner(),
