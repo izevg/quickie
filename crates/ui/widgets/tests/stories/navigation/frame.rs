@@ -119,6 +119,15 @@ fn inset(scene: &mut Scene) {
         NSSize::new(624.0, 384.0),
         "the page fills the card",
     );
+    // A window passing through a size smaller than the inset, as on the way into full screen.
+    let whole = scene.host().bounds().size;
+    scene.host().setFrameSize(NSSize::new(4.0, 4.0));
+    scene.host().setFrameSize(whole);
+    scene.check_eq(
+        card(&frame),
+        NSRect::new(NSPoint::new(8.0, 8.0), NSSize::new(624.0, 384.0)),
+        "a resize through a tiny window keeps the inset",
+    );
     scene.keep(frame);
 }
 
