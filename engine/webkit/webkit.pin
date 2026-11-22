@@ -16,5 +16,5 @@
 
 WEBKIT_REPO=https://github.com/izevg/WebKit.git
 WEBKIT_BRANCH=quickie/inspector-stitch-fidelity
-WEBKIT_COMMIT=4e7f97a8b956332c697bcd5f8ccdd8ddcf36c77a
+WEBKIT_COMMIT=2658f6b95ac71de32e26ff1e855f56e4fbe13b3c
 WEBKIT_CHECKED=2026-11-22
