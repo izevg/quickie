@@ -181,11 +181,16 @@ jobs:
           if [ -n "$IDENTITY" ]; then sign=(--sign "$IDENTITY"); fi
           cargo xtask bundle --release --version "${VERSION%%-*}" \
             --webkit .build/webkit-frameworks --dmg "${sign[@]}"
-          dmg="$RUNNER_TEMP/Quickie-$VERSION.dmg"
+          # The publish job expects the DMG, checksum, and notes at the artifact root.
+          release_dir="$RUNNER_TEMP/quickie-macos-release"
+          mkdir -p "$release_dir"
+          dmg="$release_dir/Quickie-$VERSION.dmg"
           mv "target/release/Quickie-${VERSION%%-*}.dmg" "$dmg"
+          mv notes.md "$release_dir/notes.md"
           codesign --verify --deep --strict target/release/Quickie.app
           hdiutil verify "$dmg"
           echo "path=$dmg" >> "$GITHUB_OUTPUT"
+          echo "directory=$release_dir" >> "$GITHUB_OUTPUT"
 
       - name: Notarize
         if: steps.identity.outputs.identity != ''
@@ -227,16 +232,13 @@ jobs:
               # shellcheck disable=SC2016 # Markdown backticks, not a command substitution
               echo '`xattr -dr com.apple.quarantine /Applications/Quickie.app` once.'
             fi
-          } >> notes.md
+          } >> "$(dirname "$DMG")/notes.md"
 
       # actions/upload-artifact v7.0.2
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: quickie-macos-${{ steps.mode.outputs.version }}
-          path: |
-            ${{ steps.dmg.outputs.path }}
-            ${{ steps.dmg.outputs.path }}.sha256
-            notes.md
+          path: ${{ steps.dmg.outputs.directory }}
           if-no-files-found: error
           retention-days: 14
 
@@ -266,7 +268,13 @@ jobs:
       # actions/download-artifact v8.0.2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          pattern: quickie-*
+          name: quickie-macos-${{ needs.macos.outputs.version }}
+          path: release/quickie-macos-${{ needs.macos.outputs.version }}
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: needs.linux.result == 'success'
+        with:
+          pattern: quickie-linux-*
           path: release
 
       - name: Tag and publish
