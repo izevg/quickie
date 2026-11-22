@@ -36,6 +36,8 @@ use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use tempfile::TempDir;
 use url::Url;
 
+mod automation;
+
 /// How long a check waits for what it expects before it fails.
 const PATIENCE: Duration = Duration::from_secs(20);
 
@@ -54,6 +56,20 @@ fn main() -> ExitCode {
         Ok(base) => base,
         Err(why) => return failed(&why),
     };
+    if std::env::args().any(|argument| argument == "--automation-only") {
+        return match automation::check(mtm, &base) {
+            Ok(what) => {
+                print(&format!("automation: passed ({what})\n"));
+                ExitCode::SUCCESS
+            }
+            Err(why) => failed(&why),
+        };
+    }
+    let automated = automation::check(mtm, &base);
+    match &automated {
+        Ok(what) => print(&format!("automation: passed ({what})\n")),
+        Err(why) => print(&format!("automation: FAILED: {why}\n")),
+    }
     let mut harness = WebKit {
         mtm,
         base,
@@ -70,7 +86,7 @@ fn main() -> ExitCode {
         Err(why) => print(&format!("inspector: FAILED: {why}\n")),
     }
 
-    if report.passed() && inspected.is_ok() {
+    if report.passed() && inspected.is_ok() && automated.is_ok() {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -495,7 +511,14 @@ fn answer(stream: TcpStream) {
         return;
     }
     let mut header = String::new();
+    let mut automation_cookie = false;
     while reader.read_line(&mut header).is_ok_and(|read| read > 2) {
+        if let Some((name, value)) = header.split_once(':')
+            && name.eq_ignore_ascii_case("cookie")
+            && value.trim() == automation::COOKIE
+        {
+            automation_cookie = true;
+        }
         header.clear();
     }
     let path = request.split_whitespace().nth(1).unwrap_or_default();
@@ -504,8 +527,12 @@ fn answer(stream: TcpStream) {
         .next()
         .unwrap_or_default()
         .trim_start_matches('/');
-    let found = SITE.iter().find(|(served, _)| *served == path);
     let mut stream = reader.into_inner();
+    if let Some(route) = path.strip_prefix("automation/") {
+        automation::answer(&mut stream, route, automation_cookie);
+        return;
+    }
+    let found = SITE.iter().find(|(served, _)| *served == path);
     let Some((path, resource)) = found else {
         let _ = write!(
             stream,

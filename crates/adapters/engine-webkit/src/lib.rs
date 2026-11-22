@@ -54,6 +54,7 @@
               delegate, tabs and windows need classes; content rule lists cross threads"
 )]
 
+mod automation;
 mod downloads;
 mod extensions;
 mod inbox;
@@ -83,6 +84,7 @@ use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
+pub use automation::{AutomationError, BrowsingContext, LocalAutomation};
 use downloads::DownloadCenter;
 pub use extensions::WebKitExtensions;
 pub use inbox::OpenedPage;
