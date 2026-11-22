@@ -1,0 +1,52 @@
++++
+title = "Quickie guide"
+description = "Use Quickie’s keyboard controls, Shields, agent, and developer tools."
++++
+
+Quickie gives the whole window to the page. On macOS, open the address bar, tab switcher, or command palette when you need it. The shortcuts below are the defaults.
+
+## Find your way around
+
+| Shortcut | Action |
+| --- | --- |
+| `⌘L` | Open an address or search the web |
+| `⌘⇧P` or `⌘K` | Search Quickie’s commands |
+| `⌘P` | Find an open tab, bookmark, or page from history |
+| `⌘F` | Find text on the current page |
+| `Esc` | Dismiss the address bar or command palette |
+
+## Work with tabs and links
+
+- Press `⌘T` for a new tab or `⌘⇧N` for a throwaway tab. A throwaway tab keeps its site data separate and its visits out of your normal history.
+- Tap `Ctrl+Tab` to return to the last-used tab. Keep the shortcut held to see thumbnails. Use `⌘W` to close a tab and `⌘⇧T` to reopen it.
+- Press `⌘D` to bookmark the page. Use `⌘P` to find it again.
+- Press `⌥F` and type a link’s hint to follow it. Start with `⇧⌥F` to open the link in a background tab.
+- Open **Settings → Keyboard** to review or change shortcuts.
+
+## Turn on Shields {#shields}
+
+1. Open **Settings → Privacy & Shields** with `⌘,`.
+2. Switch on the filter lists you want, or click **Enable** to fetch all offered lists. Use **Refresh Filter Lists** in the command palette to update them manually.
+3. On a site, open Shields with `⌥⌘S`. If blocking interferes with the page, switch Shields off for that site and reload. The same panel lets you turn it back on.
+
+Filter lists and scheduled list updates are off in a fresh profile. Enabling a list downloads it from its publisher.
+
+## AI integration {#ai-integration}
+
+Open **Settings → Agent** and configure an OpenAI-compatible endpoint and model. Use a local endpoint such as Ollama or LM Studio, or a hosted service you trust. Open the page you want to ask about, press `⌘⇧P`, and type `?` followed by a question. Quickie sends the question and relevant page text to the configured endpoint. Press `⌘.` to stop the answer.
+
+To open a link from the page, type a request such as `?open first video` and choose **Act on this page**. The model receives link labels and picks one. Quickie verifies that the link is still on the page and uses Web Automation to open it in an isolated **Quickie Agent** window. The window starts with fresh site data. This action supports links and redirects within the original site origin. Press `⌘.` to cancel while Quickie is choosing or opening the link.
+
+For scripts, the macOS build with Quickie’s WebKit fork accepts `--automation-check` and an HTTP or HTTPS URL. It checks navigation in a temporary session and exits.
+
+## For developers {#developers}
+
+Use `F12` or `⌥⌘I` to show or hide Web Inspector and `⌥⌘J` to jump to Console. To open a specific tool, search the command palette for **Inspect Element**, **Network**, **Sources**, or **Performance**.
+
+To call the isolated navigation check from a script, run this with the app installed in Applications:
+
+```sh
+/Applications/Quickie.app/Contents/MacOS/quickie --automation-check https://example.com/
+```
+
+Exit status zero means navigation completed. Use a local HTTP test page if the workflow must run offline. For the smaller Linux feature set and help with installation, see the [FAQ](../faq/).

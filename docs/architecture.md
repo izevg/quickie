@@ -249,6 +249,11 @@ browser's own traffic bypassed the engine's network stack.
   before the DOM action (form submit, a destructive button) and says that it cannot see the
   request. Both follow the shape of Playwright's WebKit protocol (`Input`, `Network` interception,
   `Page`), so the system-WebKit stopgap and the fork expose the same port.
+- The macOS release exposes one Act action through the palette. The engine reads a bounded
+  link snapshot from the main document in an isolated script world. The model selects a number
+  from the ordered labels, and Quickie rechecks its destination in the live document. The
+  async fork transport opens the link in an Agent window with its own process pool and
+  nonpersistent data store. Navigation is limited to ordinary same-origin GET requests.
 - **Engine choice is a cargo feature at the composition root**: one alias per profile. The shell's
   `main-webkit` (default) and `main-chromium` features pick `MainEngine` in
   `crates/shell/src/main.rs`, and `compile_error!` refuses both or neither; no `cfg` exists
@@ -379,11 +384,10 @@ Inspector on the active tab: `-[WKWebView _inspector]` → `_WKInspector` `show`
 (the toggle), `toggleElementSelection` (Inspect Element), and I1's `showTab:` with the panel's
 tab (`elements`, `console`, `network`, `sources`; Performance and Memory are `timeline`,
 Application is `storage`). Pages run with `_setDeveloperExtrasEnabled:` so the inspector may
-open and the page's context menu offers Inspect Element. Web Inspector docks at the bottom of
-the page, whichever way it opened: the page's UI delegate calls I1's `attachToSide:` from
-`_webView:didAttachLocalInspector:`, before it shows; the design system names no side, and
-bottom keeps the page's full width. It docks inside the page's own frame view, so it leaves
-the window with its tab and comes back with it. The adapter asks first whether `_WKInspector`
+open and the page's context menu offers Inspect Element. Web Inspector opens at the bottom
+the first time and remembers the user's dock or detach choice. The dock floats above the live
+page in the tab's own frame view. Its gutters pass clicks to the page, the page keeps its viewport,
+and the dock follows its tab. The adapter asks first whether `_WKInspector`
 answers I1's selectors; on the system `WebKit` (a plain `cargo run`) it calls none of this,
 every page stays `isInspectable` for Safari's Develop menu, and the command's toast says so.
 On Chromium the bridge opens `DevTools` docked in the window

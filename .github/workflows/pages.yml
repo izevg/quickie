@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - site/**
+      - docs/assets/app-icon.png
       - .github/workflows/pages.yml
   push:
     branches: [main]
     paths:
       - site/**
+      - docs/assets/app-icon.png
       - .github/workflows/pages.yml
   workflow_dispatch:
 
