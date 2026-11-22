@@ -18,7 +18,8 @@ mod shields;
 mod site;
 
 pub use agent::{
-    Agent, AnswerEvent, AskError, Asking, LocalFound, PageReader, detect_local, list_models,
+    Agent, AgentLink, AgentLinks, AnswerEvent, AskError, Asking, LocalFound, PageReader,
+    SelectingLink, SelectionError, detect_local, list_models,
 };
 pub use browsing::{Browsing, Playback};
 #[cfg(any(test, feature = "conformance"))]

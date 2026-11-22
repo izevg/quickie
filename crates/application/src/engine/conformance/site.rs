@@ -96,8 +96,8 @@ pub enum Act {
     /// Its title becomes `width:` and how wide its viewport is in CSS pixels, which a zoom
     /// divides: the page view's width at 100 %, half of it at 200 %.
     ShowWidth,
-    /// Puts a text field on the page and gives it focus, so a key typed now is the page's.
-    FocusField,
+    /// Focuses a text field on a click, then optionally adds an iframe.
+    FocusField { frame: Option<&'static str> },
     /// Adds a frame showing a path, without moving focus; its title becomes `framed:` and the
     /// path once the frame has loaded.
     AddFrame(&'static str),
@@ -144,9 +144,13 @@ impl Act {
             Self::ShowCookies => "document.title='cookies:'+document.cookie;".to_owned(),
             Self::ShowScripts => "document.title='scripts:'+(window.ran||'');".to_owned(),
             Self::ShowWidth => "document.title='width:'+innerWidth;".to_owned(),
-            Self::FocusField => "const field=document.createElement('input');\
-                                 document.body.appendChild(field);field.focus();"
-                .to_owned(),
+            Self::FocusField { frame } => format!(
+                "const field=document.createElement('input');\
+                 document.body.appendChild(field);field.focus();{}",
+                frame
+                    .map_or(Self::Retitle("Focused"), Self::AddFrame)
+                    .script()
+            ),
             Self::AddFrame(path) => format!(
                 "const frame=document.createElement('iframe');\
                  frame.onload=()=>{{document.title='framed:{path}'}};\
@@ -333,11 +337,19 @@ pub const SITE: &[(&str, Resource)] = &[
     ),
     (
         "field",
-        Resource::Page(acting("Field", &[Act::FocusField, Act::Retitle("Focused")])),
+        Resource::Page(TestPage {
+            controls: &[Control::Button(Act::FocusField { frame: None })],
+            ..plain("Field", "")
+        }),
     ),
     (
         "field-framed",
-        Resource::Page(acting("Field", &[Act::FocusField, Act::AddFrame("plain")])),
+        Resource::Page(TestPage {
+            controls: &[Control::Button(Act::FocusField {
+                frame: Some("plain"),
+            })],
+            ..plain("Field", "")
+        }),
     ),
     ("video", Resource::Page(acting("Video", &[Act::PlayVideo]))),
     (

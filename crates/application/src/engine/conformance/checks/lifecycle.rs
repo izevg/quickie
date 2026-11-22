@@ -251,6 +251,8 @@ fn field_focused<H: Harness>(run: &mut Run<'_, H>) -> Checked {
         .show(WINDOW, tab(2))
         .map_err(|error| format!("showing failed: {error}"))?;
     run.wait_visit(1, "plain", "Plain")?;
+    run.wait_visit(2, "field", "Field")?;
+    click_focus_button(run, 2)?;
     run.wait_title(2, "Focused")?;
 
     let focused = run
@@ -270,6 +272,8 @@ fn field_focused_past_frame<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     run.engine
         .show(WINDOW, tab(1))
         .map_err(|error| format!("showing failed: {error}"))?;
+    run.wait_visit(1, "field-framed", "Field")?;
+    click_focus_button(run, 1)?;
     run.wait_title(1, "framed:plain")?;
 
     run.harness.idle(&mut run.engine);
@@ -277,6 +281,17 @@ fn field_focused_past_frame<H: Harness>(run: &mut Run<'_, H>) -> Checked {
     ensure(run.engine.input_focused(tab(1)), || {
         "a frame loaded while a text field has focus took the focus report from it".to_owned()
     })
+}
+
+fn click_focus_button<H: Harness>(run: &mut Run<'_, H>, serial: u64) -> Checked {
+    // An unshown WebKit view can suppress programmatic focus events outside a user gesture.
+    let button = run
+        .targets(serial)?
+        .first()
+        .ok_or("the focus button is missing")?
+        .frame;
+    run.harness
+        .click(&mut run.engine, tab(serial), button, false)?
 }
 
 fn commit_before_title<H: Harness>(run: &mut Run<'_, H>) -> Checked {

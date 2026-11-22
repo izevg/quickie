@@ -5,7 +5,8 @@
 //! Quickie.app/Contents/Frameworks/
 //!   WebKit.framework/Versions/A/XPCServices/*.xpc   the helper processes, moved in from <dir>
 //!   WebCore, JavaScriptCore, WebKitLegacy, WebGPU, WebInspectorUI, _WebKit_SwiftUI .framework
-//!   libwebrtc, libANGLE-shared, libWebKitSwift .dylib
+//!   libwebrtc.dylib, libANGLE-shared.dylib
+//!   libWebKitSwift.dylib (older builds) or WebKit.framework/Versions/A/Frameworks/libWebKitSwift.dylib
 //! ```
 //!
 //! The build links everything by the system's install names (`/System/Library/...`). Here each
@@ -34,11 +35,9 @@ const FRAMEWORKS: [&str; 7] = [
     "_WebKit_SwiftUI",
 ];
 /// Its libraries the app carries.
-const DYLIBS: [&str; 3] = [
-    "libwebrtc.dylib",
-    "libANGLE-shared.dylib",
-    "libWebKitSwift.dylib",
-];
+const DYLIBS: [&str; 2] = ["libwebrtc.dylib", "libANGLE-shared.dylib"];
+const SWIFT_DYLIB: &str = "libWebKitSwift.dylib";
+const NESTED_SWIFT_DYLIB: &str = "WebKit.framework/Versions/A/Frameworks/libWebKitSwift.dylib";
 /// What a framework holds for building against it, not for running it.
 const LEFT_OUT: [&str; 4] = ["Headers", "PrivateHeaders", "Modules", "Helpers"];
 /// From a helper's binary (`<x>.xpc/Contents/MacOS/<x>`) up to `Contents/Frameworks`:
@@ -49,7 +48,14 @@ const DEBUGGING: &str = "com.apple.security.get-task-allow";
 
 /// The install name the app's copy of `dependency` has, when it is one of the fork's.
 #[must_use]
-pub fn rewritten(dependency: &str) -> Option<String> {
+fn rewritten(dependency: &str, swift_dylib: &str) -> Option<String> {
+    if dependency
+        .strip_suffix(SWIFT_DYLIB)
+        .is_some_and(|head| head.ends_with('/'))
+    {
+        let name = format!("@rpath/{swift_dylib}");
+        return (dependency != name).then_some(name);
+    }
     if dependency.starts_with("@rpath/") {
         return None;
     }
@@ -113,6 +119,10 @@ pub fn embed(source: &Path, app: &Path) -> Result<(), String> {
     for lib in DYLIBS {
         ditto(&source.join(lib), &frameworks.join(lib))?;
     }
+    let swift_dylib = swift_dylib_path(source);
+    if swift_dylib == SWIFT_DYLIB {
+        ditto(&source.join(swift_dylib), &frameworks.join(swift_dylib))?;
+    }
     let services = helpers_dir(app);
     fs::remove_dir_all(&services).map_err(|e| format!("{}: {e}", services.display()))?;
     fs::create_dir_all(&services).map_err(|e| format!("{}: {e}", services.display()))?;
@@ -126,22 +136,28 @@ pub fn embed(source: &Path, app: &Path) -> Result<(), String> {
         relink(
             &binary,
             Some(&format!("@rpath/{name}.framework/Versions/A/{name}")),
+            swift_dylib,
         )?;
         add_rpath(&binary, "@loader_path/../../..")?;
     }
-    for lib in DYLIBS {
+    for lib in DYLIBS.into_iter().chain([swift_dylib]) {
         let binary = frameworks.join(lib);
-        relink(&binary, Some(&format!("@rpath/{lib}")))?;
-        add_rpath(&binary, "@loader_path")?;
+        relink(&binary, Some(&format!("@rpath/{lib}")), swift_dylib)?;
+        let rpath = if lib == NESTED_SWIFT_DYLIB {
+            "@loader_path/../../../.."
+        } else {
+            "@loader_path"
+        };
+        add_rpath(&binary, rpath)?;
     }
     for helper in helpers(&services)? {
         for binary in executables(&helper.join("Contents/MacOS"))? {
-            relink(&binary, None)?;
+            relink(&binary, None, swift_dylib)?;
             add_rpath(&binary, HELPER_RPATH)?;
         }
     }
     let main = app.join("Contents/MacOS/quickie");
-    relink(&main, None)?;
+    relink(&main, None, swift_dylib)?;
     add_rpath(&main, "@executable_path/../Frameworks")
 }
 
@@ -153,7 +169,7 @@ pub fn sign(app: &Path, identity: Option<&str>, out: &Path) -> Result<(), String
         let entitlements = helper_entitlements(&helper, identity.is_some(), out)?;
         codesign(&helper, identity, entitlements.as_deref())?;
     }
-    for lib in DYLIBS {
+    for lib in DYLIBS.into_iter().chain([swift_dylib_path(&frameworks)]) {
         codesign(&frameworks.join(lib), identity, None)?;
     }
     for name in FRAMEWORKS {
@@ -164,6 +180,14 @@ pub fn sign(app: &Path, identity: Option<&str>, out: &Path) -> Result<(), String
         )?;
     }
     Ok(())
+}
+
+fn swift_dylib_path(frameworks: &Path) -> &'static str {
+    if frameworks.join(NESTED_SWIFT_DYLIB).is_file() {
+        NESTED_SWIFT_DYLIB
+    } else {
+        SWIFT_DYLIB
+    }
 }
 
 fn helpers_dir(app: &Path) -> PathBuf {
@@ -219,7 +243,7 @@ fn leave_out(framework: &Path) -> Result<(), String> {
 
 /// Gives `binary` the install name `id` (a library's own), and the app's names for every fork
 /// binary it links.
-fn relink(binary: &Path, id: Option<&str>) -> Result<(), String> {
+fn relink(binary: &Path, id: Option<&str>, swift_dylib: &str) -> Result<(), String> {
     let path = binary.to_string_lossy();
     let listed = output("otool", &["-L", &path])?;
     let mut args: Vec<String> = Vec::new();
@@ -232,7 +256,7 @@ fn relink(binary: &Path, id: Option<&str>) -> Result<(), String> {
         .filter_map(|line| line.split(" (").next())
     {
         let dependency = dependency.trim();
-        if let Some(new) = rewritten(dependency) {
+        if let Some(new) = rewritten(dependency, swift_dylib) {
             args.extend(["-change".to_owned(), dependency.to_owned(), new]);
         }
     }
@@ -325,7 +349,7 @@ fn output(program: &str, args: &[&str]) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{deployment_target, rewritten};
+    use super::{NESTED_SWIFT_DYLIB, SWIFT_DYLIB, deployment_target, rewritten};
 
     #[test]
     fn the_minimum_macos_is_the_builds_deployment_target() {
@@ -356,21 +380,31 @@ mod tests {
             ),
         ];
         for (system, ours) in cases {
-            assert_eq!(rewritten(system).as_deref(), Some(ours), "{system}");
+            assert_eq!(
+                rewritten(system, SWIFT_DYLIB).as_deref(),
+                Some(ours),
+                "{system}"
+            );
         }
     }
 
     #[test]
     fn its_libraries_are_found_by_name() {
         assert_eq!(
-            rewritten("@loader_path/../../../libwebrtc.dylib").as_deref(),
+            rewritten("@loader_path/../../../libwebrtc.dylib", SWIFT_DYLIB).as_deref(),
             Some("@rpath/libwebrtc.dylib")
         );
         assert_eq!(
-            rewritten("/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/libWebKitSwift.dylib")
+            rewritten("/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/libWebKitSwift.dylib", SWIFT_DYLIB)
                 .as_deref(),
             Some("@rpath/libWebKitSwift.dylib")
         );
+        let nested = format!("@rpath/{NESTED_SWIFT_DYLIB}");
+        assert_eq!(
+            rewritten("@rpath/libWebKitSwift.dylib", NESTED_SWIFT_DYLIB).as_deref(),
+            Some(nested.as_str())
+        );
+        assert_eq!(rewritten(&nested, NESTED_SWIFT_DYLIB), None);
     }
 
     #[test]
@@ -384,7 +418,7 @@ mod tests {
             "@rpath/WebKit.framework/Versions/A/WebKit",
             "@rpath/libWebCoreTestSupport.dylib",
         ] {
-            assert_eq!(rewritten(other), None, "{other}");
+            assert_eq!(rewritten(other, SWIFT_DYLIB), None, "{other}");
         }
     }
 }

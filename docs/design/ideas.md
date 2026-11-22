@@ -32,6 +32,14 @@ phase given; the rest stay here as a record.
 | **Search shortcuts** | user decision | `!` in the palette runs a keyword search (`!gh quickie`); bookmarklets become commands | P3 |
 | **Sync between Macs** | user decision | None at first: a one-time import from Chrome (bookmarks, history, passwords as CSV). Passwords and passkeys stay with the macOS Passwords app or a password manager. Later, only if needed: an end-to-end encrypted log of the library in a folder you choose, key in the Keychain, no server. Chrome Sync is out: it needs Google keys and hands Google the data | P5 |
 
+## 0.3.0 ideas
+
+- **Inspector accessibility audits.** Add an axe-core suite to the existing Web Inspector
+  Audit tab. Start with the open document and link findings to their DOM nodes. Run checks
+  on request and keep reports local. Surface findings that need manual review.
+  [WebKit Audit](https://webkit.org/web-inspector/audit-tab/) ·
+  [axe-core](https://github.com/dequelabs/axe-core)
+
 ## Later
 
 | Idea | Note |

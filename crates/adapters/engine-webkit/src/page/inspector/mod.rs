@@ -23,9 +23,6 @@ use objc2_foundation::NSString;
 use objc2_web_kit::{WKPreferences, WKWebView};
 use quickie_application::{DevTools, DevToolsPanel, EngineError};
 
-/// `_WKInspectorAttachmentSideBottom`, the fork's `NSInteger` for docking under the page.
-const BOTTOM: isize = 0;
-
 /// Whether the running `WebKit` is our fork: its `_WKInspector` answers I1's `showTab:` and
 /// `attachToSide:`. Asking the runtime calls nothing of the system `WebKit`'s.
 pub(crate) fn on_fork() -> bool {
@@ -73,22 +70,23 @@ pub(crate) fn open(view: &WKWebView, asked: DevTools) -> Result<(), EngineError>
             }
         }
         DevTools::Panel(panel) => {
-            let tab = NSString::from_str(tab_identifier(panel));
-            // SAFETY: I1's `showTab:` takes any string and ignores one it does not know.
-            let () = unsafe { msg_send![&inspector, showTab: &*tab] };
+            show_panel(&inspector, panel);
         }
     }
     Ok(())
 }
 
-/// Docks `inspector` under its page, as it opens: called from the page's UI delegate when
-/// `WebKit` connects a local inspector, before it shows. `WebKit` refuses it, and opens the
-/// inspector in a window of its own, when the page is too small to share.
-pub(crate) fn dock(inspector: &AnyObject) {
-    if on_fork() {
-        // SAFETY: the fork's `_WKInspector` answers `attachToSide:` with an `NSInteger` side;
-        // `BOTTOM` is one of its values.
-        let () = unsafe { msg_send![inspector, attachToSide: BOTTOM] };
+fn show_panel(inspector: &AnyObject, panel: DevToolsPanel) {
+    // SAFETY: _WKInspector inherits NSObject's selector query, which has no preconditions.
+    let has_heap_view: bool =
+        unsafe { msg_send![inspector, respondsToSelector: sel!(showHeapAllocations)] };
+    if panel == DevToolsPanel::Memory && has_heap_view {
+        // SAFETY: the checked selector opens the existing Heap Allocations timeline.
+        let () = unsafe { msg_send![inspector, showHeapAllocations] };
+    } else {
+        let tab = NSString::from_str(tab_identifier(panel));
+        // SAFETY: I1's `showTab:` takes any string and ignores one it does not know.
+        let () = unsafe { msg_send![inspector, showTab: &*tab] };
     }
 }
 

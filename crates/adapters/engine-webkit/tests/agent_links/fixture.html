@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Agent link selection fixture</title>
+<base href="/videos/">
+<style>
+  .gap { height: 1200px; }
+  .transparent { opacity: 0; }
+  .invisible { visibility: hidden; }
+</style>
+<div class="gap"></div>
+<a href="below">Below the viewport</a>
+<a id="first" style="position: fixed; top: 20px" href="/watch?v=first"
+   title=" First video " onclick="window.linkClicks = (window.linkClicks || 0) + 1">
+  <span>Watch first</span>
+</a>
+<a id="duplicate" style="position: fixed; top: 50px" href="/watch?v=first">Duplicate thumbnail</a>
+<a style="position: fixed; top: 80px" href="/watch?v=second"
+   aria-label="Second video">Watch second</a>
+<section hidden><a href="/hidden">Hidden by ancestor</a></section>
+<section class="transparent"><a href="/transparent">Transparent ancestor</a></section>
+<section class="invisible"><a href="/invisible">Hidden by CSS</a></section>
+<section aria-hidden="true"><a href="/aria-hidden">Hidden from accessibility</a></section>
+<section inert><a href="/inert">Inert by ancestor</a></section>
+<a href="https://outside.example/">External link</a>
+<a href="https://user@outside.example/">Credentials</a>
+<a href="javascript:void(0)">Script link</a>
+<a href="/download" download>Download</a>
+<a href="#chapter">Local anchor</a>
+<button onclick="window.linkClicks = 999">Button</button>

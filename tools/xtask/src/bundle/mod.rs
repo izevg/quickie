@@ -8,7 +8,7 @@
 //!   Info.plist           plist.rs
 //!   PkgInfo
 //!   MacOS/quickie        the shell binary, built with Cargo
-//!   Resources/Quickie.icns   from docs/assets/logo.png with sips and iconutil
+//!   Resources/Quickie.icns   from docs/assets/app-icon.png with sips and iconutil
 //!   Frameworks/          with --webkit: our WebKit fork (webkit.rs)
 //! ```
 //!
@@ -143,7 +143,7 @@ pub fn run(
     write(&contents.join("Info.plist"), &info_plist(&bundle))?;
     write(&contents.join("PkgInfo"), "APPL????")?;
     icon(
-        &root.join("docs/assets/logo.png"),
+        &root.join("docs/assets/app-icon.png"),
         &out.join("Quickie.iconset"),
         &resources.join("Quickie.icns"),
     )?;
@@ -155,7 +155,7 @@ pub fn run(
     let mut made = vec![app.clone()];
     if options.dmg {
         let image = out.join(format!("Quickie-{}.dmg", bundle.version));
-        dmg::create(&app, &image, options.sign.as_deref())?;
+        dmg::create(root, &app, &image, options.sign.as_deref())?;
         made.push(image);
     }
     Ok(made)

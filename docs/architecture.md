@@ -249,6 +249,11 @@ browser's own traffic bypassed the engine's network stack.
   before the DOM action (form submit, a destructive button) and says that it cannot see the
   request. Both follow the shape of Playwright's WebKit protocol (`Input`, `Network` interception,
   `Page`), so the system-WebKit stopgap and the fork expose the same port.
+- The macOS release exposes one Act action through the palette. The engine reads a bounded
+  link snapshot from the main document in an isolated script world. The model selects a number
+  from the ordered labels, and Quickie rechecks its destination in the live document. The
+  async fork transport opens the link in an Agent window with its own process pool and
+  nonpersistent data store. Navigation is limited to ordinary same-origin GET requests.
 - **Engine choice is a cargo feature at the composition root**: one alias per profile. The shell's
   `main-webkit` (default) and `main-chromium` features pick `MainEngine` in
   `crates/shell/src/main.rs`, and `compile_error!` refuses both or neither; no `cfg` exists
@@ -297,20 +302,19 @@ What we accept:
   what Web Extensions on WebKit run.
 
 How it is built:
-- **One pinned WebKit revision for both platforms**: the WebKitGTK/WPE stable series
-  (`webkitglib/2.54` today, release tags `webkitgtk-2.54.N`), the one branch both ports build
-  from, so one patch set serves macOS and Linux. Apple's Mac-only security fixes are
-  cherry-picked from each Apple security note; the base moves to the next stable series about
-  every six months. Decided 2026-11-20 over two bases (a Safari branch for macOS, the stable
-  series for Linux), which would double every patch and rebase.
-- **Patches as commits in the fork**, one branch per patch (`quickie/patch/<area>-<name>`) merged
-  into `quickie/2.54`, whose commit `engine/webkit/webkit.pin` names; no patch files here. What
-  each patch is for, its size, its tests and its order:
+- **One pinned WebKit revision for both platforms.** Quickie follows upstream `main` and
+  pins an exact reviewed fork commit for each release. Refresh the upstream base every one
+  or two weeks, with an out-of-cycle update for urgent security fixes. A candidate has its
+  own branch until the macOS and GTK checks pass.
+- **Patches as commits in the fork.** Keep topic patches small and drop them once their
+  behavior is covered upstream. `engine/webkit/webkit.pin` names the verified candidate.
+  The fork patch inventory records each patch and its tests.
   [engine/webkit/PATCHES.md](../engine/webkit/PATCHES.md). The macOS
   port links the result into the app bundle (frameworks and their XPC services, as Playwright and
   Safari Technology Preview do), the Linux port into the GTK build.
-- **Built on CI, never on the developer's laptop**, for macOS (arm64) and Linux (x86_64, arm64);
-  each build carries a sha256 and an attestation from the same runner that built it. The engine
+- **Release builds run on CI** for macOS and GTK. Local optimized builds support development
+  and performance measurement. The CI artifacts carry
+  a SHA-256 and an attestation from the same runner that built them. The engine
   conformance suite runs against the fork on both platforms before a release.
 - **Linux is a first-class target of the fork**: every patch is checked on WebKitGTK too, and a
   patch that only works on one port says so and is kept small.
@@ -380,11 +384,10 @@ Inspector on the active tab: `-[WKWebView _inspector]` → `_WKInspector` `show`
 (the toggle), `toggleElementSelection` (Inspect Element), and I1's `showTab:` with the panel's
 tab (`elements`, `console`, `network`, `sources`; Performance and Memory are `timeline`,
 Application is `storage`). Pages run with `_setDeveloperExtrasEnabled:` so the inspector may
-open and the page's context menu offers Inspect Element. Web Inspector docks at the bottom of
-the page, whichever way it opened: the page's UI delegate calls I1's `attachToSide:` from
-`_webView:didAttachLocalInspector:`, before it shows; the design system names no side, and
-bottom keeps the page's full width. It docks inside the page's own frame view, so it leaves
-the window with its tab and comes back with it. The adapter asks first whether `_WKInspector`
+open and the page's context menu offers Inspect Element. Web Inspector opens at the bottom
+the first time and remembers the user's dock or detach choice. The dock floats above the live
+page in the tab's own frame view. Its gutters pass clicks to the page, the page keeps its viewport,
+and the dock follows its tab. The adapter asks first whether `_WKInspector`
 answers I1's selectors; on the system `WebKit` (a plain `cargo run`) it calls none of this,
 every page stays `isInspectable` for Safari's Develop menu, and the command's toast says so.
 On Chromium the bridge opens `DevTools` docked in the window
