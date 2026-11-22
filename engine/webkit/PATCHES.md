@@ -20,9 +20,10 @@ the main-based candidate along with the native Inspector redesign.
 The app calls I1's SPI through the `quickie.devtools.*` commands. The first
 Inspector opens at the bottom, and later launches respect the saved dock choice.
 
-Planned next: **V1 `media/fullscreen-in-window`**. Element full screen already stays in the tab's
-window through a page-script shim of the Fullscreen API (quickie #74), but the native fullscreen
-button of `<video controls>` still opens WebKit's own full-screen window. The patch gives
+Planned next: **V1 `media/fullscreen-in-window`**. Page Fullscreen API calls (quickie #74)
+and a site's `webkitSetPresentationMode("fullscreen")` call from inline playback expand
+within the tab's window. The fullscreen button in WebKit's native `<video controls>` still
+opens the engine's own full-screen window. The patch gives
 `WKFullScreenWindowController` (`UIProcess/mac/WKFullScreenWindowController.mm`) an in-window mode
 behind a `WKWebViewConfiguration` SPI flag: the element fills the web view's own window and the
 shim goes away.

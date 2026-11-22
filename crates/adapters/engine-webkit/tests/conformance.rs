@@ -38,6 +38,7 @@ use url::Url;
 
 mod agent_links;
 mod automation;
+mod fullscreen;
 
 /// How long a check waits for what it expects before it fails.
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -73,6 +74,15 @@ fn main() -> ExitCode {
         windows: Vec::new(),
         blockers: Vec::new(),
     };
+    if std::env::args().any(|argument| argument == "--video-fullscreen-only") {
+        return match fullscreen::check(&mut harness) {
+            Ok(()) => {
+                print("video fullscreen: passed (same page and inline restoration)\n");
+                ExitCode::SUCCESS
+            }
+            Err(why) => failed(&why),
+        };
+    }
     if std::env::args().any(|argument| argument == "--agent-links-only") {
         return match agent_links::check(&mut harness) {
             Ok(()) => {
@@ -100,6 +110,11 @@ fn main() -> ExitCode {
 
     let report = conformance::run(&mut harness);
     print(&report.to_string());
+    let fullscreen = fullscreen::check(&mut harness);
+    match &fullscreen {
+        Ok(()) => print("video fullscreen: passed (same page and inline restoration)\n"),
+        Err(why) => print(&format!("video fullscreen: FAILED: {why}\n")),
+    }
     let links = agent_links::check(&mut harness);
     match &links {
         Ok(()) => print("agent links: passed (ordered, read-only, isolated and current)\n"),
@@ -111,7 +126,12 @@ fn main() -> ExitCode {
         Err(why) => print(&format!("inspector: FAILED: {why}\n")),
     }
 
-    if report.passed() && inspected.is_ok() && automated.is_ok() && links.is_ok() {
+    if report.passed()
+        && inspected.is_ok()
+        && automated.is_ok()
+        && links.is_ok()
+        && fullscreen.is_ok()
+    {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -210,7 +230,9 @@ mod inspector {
         engine
             .show(WINDOW, first)
             .map_err(|error| error.to_string())?;
-        if std::env::var("QUICKIE_INSPECTOR_WINDOW_STORIES").as_deref() == Ok("1") {
+        let window_stories =
+            std::env::var("QUICKIE_INSPECTOR_WINDOW_STORIES").as_deref() == Ok("1");
+        if window_stories {
             stories::check(&mut engine, first)?;
         }
 
@@ -223,9 +245,11 @@ mod inspector {
         if !closed {
             return Err("the toggle left Web Inspector open".to_owned());
         }
-        Ok(
-            "floating dock and tab ownership, detached Console and source links, responsive Network and Requests return, and close",
-        )
+        Ok(if window_stories {
+            "floating dock and tab ownership, detached Console and source links, responsive Network and Requests return, and close"
+        } else {
+            "floating dock and tab ownership, panel selection, and close"
+        })
     }
 
     /// Makes a page of the suite's `path` in `tab`, shows it, and waits until it committed.
@@ -625,6 +649,10 @@ fn answer(stream: TcpStream) {
     }
     if path == agent_links::ROUTE {
         agent_links::answer(&mut stream);
+        return;
+    }
+    if path == fullscreen::ROUTE {
+        fullscreen::answer(&mut stream);
         return;
     }
     let found = SITE.iter().find(|(served, _)| *served == path);
