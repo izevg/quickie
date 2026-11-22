@@ -22,7 +22,7 @@ case "${1:-}" in
     dnf -y install \
       binutils bison bubblewrap ccache clang cmake dbus-daemon desktop-file-utils diffutils findutils \
       flex gcc-c++ gettext git gperf gzip ninja-build pkgconf-pkg-config python3 python3-packaging python3-pyyaml \
-      perl-English perl-FindBin perl-JSON-PP perl-bignum perl-version ripgrep rpm-build ruby shadow-utils unifdef util-linux \
+      perl ripgrep rpm-build ruby shadow-utils unifdef util-linux \
       wayland-devel wayland-protocols-devel xdg-dbus-proxy xorg-x11-server-Xvfb xorg-x11-xauth \
       at-spi2-core-devel cairo-devel enchant2-devel expat-devel flite-devel fontconfig-devel freetype-devel \
       glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-bad-free-devel \

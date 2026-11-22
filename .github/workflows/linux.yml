@@ -33,7 +33,8 @@ permissions:
 
 concurrency:
   group: linux-packages-${{ github.ref }}
-  cancel-in-progress: true
+  # Let an active WebKitGTK compile finish and save its cache for the queued revision.
+  cancel-in-progress: false
 
 defaults:
   run:
