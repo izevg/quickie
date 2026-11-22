@@ -574,7 +574,9 @@ fn a_download_that_fails_instead_of_finishing_fails() {
 }
 
 /// The checks that click a page where a target says a control is.
-const CLICKS: [&str; 5] = [
+const CLICKS: [&str; 7] = [
+    "a_page_says_when_a_text_field_has_focus",
+    "a_frame_added_while_a_field_has_focus_keeps_it_focused",
     "a_command_click_opens_in_the_background",
     "a_clicked_page_fills_its_view_in_full_screen",
     "the_browser_takes_a_page_out_of_full_screen",
@@ -584,12 +586,14 @@ const CLICKS: [&str; 5] = [
 
 /// What targets without an area fail: the targets check, and every click where a target
 /// claims to be.
-const MISPLACED: [&str; 6] = [
+const MISPLACED: [&str; 8] = [
     CLICKS[0],
     CLICKS[1],
     CLICKS[2],
     CLICKS[3],
     CLICKS[4],
+    CLICKS[5],
+    CLICKS[6],
     "the_targets_are_the_links_and_controls_in_order",
 ];
 
