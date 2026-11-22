@@ -35,5 +35,10 @@ if [[ -z $port ]]; then
   exit 1
 fi
 
-timeout 60s dbus-run-session -- xvfb-run -a "$binary" --smoke-test "http://127.0.0.1:$port/"
-printf 'Smoke test passed for %s\n' "$binary"
+if timeout 60s dbus-run-session -- xvfb-run -a "$binary" --smoke-test "http://127.0.0.1:$port/"; then
+  printf 'Smoke test passed for %s\n' "$binary"
+else
+  status=$?
+  sed -n '1,40p' "$server_log" >&2
+  exit "$status"
+fi

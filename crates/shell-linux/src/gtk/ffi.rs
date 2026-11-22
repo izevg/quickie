@@ -17,7 +17,13 @@ pub const ALT: c_uint = 1 << 3;
 pub const KEY_ESCAPE: c_uint = 0xff1b;
 pub const KEY_LEFT: c_uint = 0xff51;
 pub const KEY_RIGHT: c_uint = 0xff53;
-pub const LOAD_FINISHED: c_int = 3;
+
+#[repr(C)]
+pub struct GError {
+    pub domain: c_uint,
+    pub code: c_int,
+    pub message: *mut c_char,
+}
 
 #[link(name = "gtk-4")]
 unsafe extern "C" {

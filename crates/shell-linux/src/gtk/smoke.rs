@@ -5,15 +5,18 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-/// Checks that the fixture loaded with the installed libraries and helpers.
+/// Whether the loopback fixture's script set its completion title.
+#[must_use]
+pub fn fixture_title(title: Option<&CStr>) -> bool {
+    title == Some(c"Quickie smoke test")
+}
+
+/// Checks that the browser is using the installed libraries and helpers.
 ///
 /// # Errors
 ///
-/// Returns an error when the fixture title, runtime paths, or renderer confinement differs.
-pub fn verify(title: &CStr, prefix: &Path) -> Result<(), String> {
-    if title != c"Quickie smoke test" {
-        return Err(format!("unexpected smoke page title: {title:?}"));
-    }
+/// Returns an error when the runtime paths or renderer confinement differ.
+pub fn verify_runtime(prefix: &Path) -> Result<(), String> {
     verify_library_paths(&prefix.join("lib"))?;
     let host = fs::read_to_string("/proc/self/status").map_err(|error| error.to_string())?;
     let host_filters =
@@ -127,7 +130,14 @@ fn sandboxed(status: &str, host_filters: u32) -> bool {
 mod tests {
     use std::path::Path;
 
-    use super::{sandboxed, verify_helpers};
+    use super::{fixture_title, sandboxed, verify_helpers};
+
+    #[test]
+    fn waits_for_the_fixture_script_title() {
+        assert!(!fixture_title(None));
+        assert!(!fixture_title(Some(c"Quickie smoke fixture")));
+        assert!(fixture_title(Some(c"Quickie smoke test")));
+    }
 
     #[test]
     fn requires_both_packaged_helpers_and_renderer_confinement() {

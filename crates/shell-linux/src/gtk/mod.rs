@@ -5,9 +5,9 @@
 mod ffi;
 mod smoke;
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell};
 use std::env;
-use std::ffi::{CStr, CString, c_int, c_uint};
+use std::ffi::{CStr, CString, c_char, c_int, c_uint};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr;
@@ -20,7 +20,7 @@ struct App {
     options: Options,
     prefix: PathBuf,
     widgets: Cell<Option<Widgets>>,
-    smoke: RefCell<Result<(), String>>,
+    smoke: OnceCell<Result<(), String>>,
 }
 
 #[derive(Clone, Copy)]
@@ -47,7 +47,7 @@ pub fn run(options: Options) -> Result<(), String> {
         options,
         prefix,
         widgets: Cell::new(None),
-        smoke: RefCell::new(Err("the smoke page did not finish loading".into())),
+        smoke: OnceCell::new(),
     };
     let data = ptr::from_ref(&app).cast_mut().cast();
     connect(application, c"activate", activate as *const _, data);
@@ -64,7 +64,9 @@ pub fn run(options: Options) -> Result<(), String> {
         return Err(format!("GTK exited with status {status}"));
     }
     if matches!(app.options, Options::Smoke(_)) {
-        app.smoke.into_inner()
+        app.smoke
+            .into_inner()
+            .unwrap_or_else(|| Err("the smoke fixture did not report its completion title".into()))
     } else {
         Ok(())
     }
@@ -129,7 +131,13 @@ extern "C" fn activate(application: Object, data: Object) {
         Options::Empty => {}
         Options::Navigate(uri) => load(view, uri),
         Options::Smoke(uri) => {
-            connect(view, c"load-changed", smoke_finished as *const _, data);
+            connect(
+                view,
+                c"notify::title",
+                smoke_title_changed as *const _,
+                data,
+            );
+            connect(view, c"load-failed", smoke_load_failed as *const _, data);
             load(view, uri);
         }
     }
@@ -240,21 +248,57 @@ extern "C" fn key_pressed(
     ffi::TRUE
 }
 
-extern "C" fn smoke_finished(view: Object, event: c_int, data: Object) {
-    if event != ffi::LOAD_FINISHED {
-        return;
-    }
-    // SAFETY: GTK passed our live App reference from run, and this runs on the GTK main thread.
-    let app = unsafe { &*data.cast::<App>() };
-    // SAFETY: The view is live during the callback and owns the borrowed title, if non-null.
+extern "C" fn smoke_title_changed(view: Object, _property: Object, data: Object) {
+    // SAFETY: WebKit owns the live view and its NUL-terminated title, if non-null.
     let title = unsafe { ffi::webkit_web_view_get_title(view) };
-    let result = if title.is_null() {
-        Err("the smoke page returned no title".into())
+    // SAFETY: The non-null pointer remains valid for this synchronous notification.
+    let title = (!title.is_null()).then(|| unsafe { CStr::from_ptr(title) });
+    if smoke::fixture_title(title) {
+        // SAFETY: GTK passed our live App reference and invokes this on the GTK main thread.
+        let app = unsafe { &*data.cast::<App>() };
+        complete_smoke(app, smoke::verify_runtime(&app.prefix));
+    }
+}
+
+extern "C" fn smoke_load_failed(
+    _view: Object,
+    _event: c_int,
+    failing_uri: *const c_char,
+    error: *const ffi::GError,
+    data: Object,
+) -> Bool {
+    // SAFETY: GTK passed our live App reference and invokes this on the GTK main thread.
+    let app = unsafe { &*data.cast::<App>() };
+    let uri = if failing_uri.is_null() {
+        "unknown URI".into()
     } else {
-        // SAFETY: WebKit returns a NUL-terminated title owned by the live view.
-        smoke::verify(unsafe { CStr::from_ptr(title) }, &app.prefix)
+        // SAFETY: The signal supplies a NUL-terminated URI for the duration of this call.
+        unsafe { CStr::from_ptr(failing_uri) }.to_string_lossy()
     };
-    *app.smoke.borrow_mut() = result;
-    // SAFETY: This is the live application that owns all the callback state.
-    unsafe { ffi::g_application_quit(app.application) };
+    // SAFETY: A non-null GError is owned by the signal emitter and lives through this call.
+    let error = unsafe { error.as_ref() };
+    let detail = error.map_or_else(
+        || "unknown WebKit error".to_owned(),
+        |error| {
+            let message = if error.message.is_null() {
+                "no error message".into()
+            } else {
+                // SAFETY: GError's message is a NUL-terminated string owned by the emitter.
+                unsafe { CStr::from_ptr(error.message) }.to_string_lossy()
+            };
+            format!("{message} (domain {}, code {})", error.domain, error.code)
+        },
+    );
+    complete_smoke(
+        app,
+        Err(format!("could not load smoke fixture at {uri}: {detail}")),
+    );
+    ffi::TRUE
+}
+
+fn complete_smoke(app: &App, result: Result<(), String>) {
+    if app.smoke.set(result).is_ok() {
+        // SAFETY: This is the live application that owns the callback state.
+        unsafe { ffi::g_application_quit(app.application) };
+    }
 }
