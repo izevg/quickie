@@ -33,7 +33,7 @@ Filter lists and scheduled list updates are off in a fresh profile. Enabling a l
 
 ## AI integration {#ai-integration}
 
-Open **Settings → Agent** and configure an OpenAI-compatible endpoint and model. Use a local endpoint such as Ollama or LM Studio, or a hosted service you trust. Open the page you want to ask about, press `⌘⇧P`, and type `?` followed by a question. Quickie sends the question and relevant page text to the configured endpoint. Press `⌘.` to stop the answer.
+Open **Settings → Agent** and configure an OpenAI-compatible endpoint and model. Use a local endpoint such as Ollama or LM Studio, or a hosted service you trust. Open the page you want to ask about, press `⌘P`, and type `?` followed by a question. Quickie sends the question and relevant page text to the configured endpoint. Press `⌘.` to stop the answer.
 
 To open a link from the page, type a request such as `?open first video` and choose **Act on this page**. The model receives link labels and picks one. Quickie verifies that the link is still on the page and uses Web Automation to open it in an isolated **Quickie Agent** window. The window starts with fresh site data. This action supports links and redirects within the original site origin. Press `⌘.` to cancel while Quickie is choosing or opening the link.
 
