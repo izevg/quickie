@@ -36,6 +36,7 @@ use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use tempfile::TempDir;
 use url::Url;
 
+mod agent_links;
 mod automation;
 
 /// How long a check waits for what it expects before it fails.
@@ -65,11 +66,6 @@ fn main() -> ExitCode {
             Err(why) => failed(&why),
         };
     }
-    let automated = automation::check(mtm, &base);
-    match &automated {
-        Ok(what) => print(&format!("automation: passed ({what})\n")),
-        Err(why) => print(&format!("automation: FAILED: {why}\n")),
-    }
     let mut harness = WebKit {
         mtm,
         base,
@@ -77,16 +73,45 @@ fn main() -> ExitCode {
         windows: Vec::new(),
         blockers: Vec::new(),
     };
+    if std::env::args().any(|argument| argument == "--agent-links-only") {
+        return match agent_links::check(&mut harness) {
+            Ok(()) => {
+                print("agent links: passed (ordered, read-only, isolated and current)\n");
+                ExitCode::SUCCESS
+            }
+            Err(why) => failed(&why),
+        };
+    }
+    if std::env::args().any(|argument| argument == "--inspector-only") {
+        return match inspector::check(&mut harness) {
+            Ok(what) => {
+                print(&format!("inspector: passed ({what})\n"));
+                ExitCode::SUCCESS
+            }
+            Err(why) => failed(&why),
+        };
+    }
+
+    let automated = automation::check(mtm, &harness.base);
+    match &automated {
+        Ok(what) => print(&format!("automation: passed ({what})\n")),
+        Err(why) => print(&format!("automation: FAILED: {why}\n")),
+    }
 
     let report = conformance::run(&mut harness);
     print(&report.to_string());
+    let links = agent_links::check(&mut harness);
+    match &links {
+        Ok(()) => print("agent links: passed (ordered, read-only, isolated and current)\n"),
+        Err(why) => print(&format!("agent links: FAILED: {why}\n")),
+    }
     let inspected = inspector::check(&mut harness);
     match &inspected {
         Ok(what) => print(&format!("inspector: passed ({what})\n")),
         Err(why) => print(&format!("inspector: FAILED: {why}\n")),
     }
 
-    if report.passed() && inspected.is_ok() && automated.is_ok() {
+    if report.passed() && inspected.is_ok() && automated.is_ok() && links.is_ok() {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -94,9 +119,13 @@ fn main() -> ExitCode {
 }
 
 /// Web Inspector, which the suite leaves to the harness: on our fork a developer tools'
-/// command opens it docked under the page on the panel asked, it stays with its tab, and the
-/// toggle closes it; on the system `WebKit` the command fails and says why.
+/// command opens it over the page on the requested panel, it stays with its tab, and the toggle
+/// closes it. The system `WebKit` reports that this command is unavailable.
 mod inspector {
+    mod stories;
+
+    pub(super) use stories::answer;
+
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -104,8 +133,8 @@ mod inspector {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject};
     use objc2::{msg_send, sel};
-    use objc2_app_kit::NSView;
-    use objc2_foundation::{NSError, NSString};
+    use objc2_app_kit::{NSApplication, NSView};
+    use objc2_foundation::{NSError, NSPoint, NSRect, NSString};
     use objc2_web_kit::WKWebView;
     use quickie_application::conformance::{Harness, PageSource, WINDOW};
     use quickie_application::{
@@ -118,6 +147,7 @@ mod inspector {
 
     /// What was checked, or why it failed.
     pub(super) fn check(harness: &mut WebKit) -> Result<&'static str, String> {
+        let _app = NSApplication::sharedApplication(harness.mtm);
         let mut engine = harness.engine();
         let first = TabId::new(Profile::Main, 1);
         open(harness, &mut engine, first, "plain")?;
@@ -132,19 +162,24 @@ mod inspector {
             };
         }
 
+        let page_frame = engine.view(first).ok_or("the page has no view")?.frame();
         engine
             .inspect(first, network)
             .map_err(|error| format!("Network: {error}"))?;
+        let controller = inspector_for(&engine, first).ok_or("Web Inspector has no controller")?;
+        if !harness.pump(&mut engine, &mut |_| frontend(&controller).is_some()) {
+            return Err("Web Inspector did not create its frontend".into());
+        }
+        // SAFETY: `_WKInspectorAttachmentSideBottom` is the first NSInteger enum value.
+        // Request it explicitly so a previously saved detach preference cannot move this test.
+        let () = unsafe { msg_send![&*controller, attachToSide: 0_isize] };
+        let mut dock_result = Ok(());
         let docked = harness.pump(&mut engine, &mut |engine| {
-            page_height(engine, first) < HEIGHT && siblings(engine, first) == 2
+            dock_result = floats_over_page(engine, first, page_frame);
+            dock_result.is_ok()
         });
         if !docked {
-            return Err(format!(
-                "Web Inspector did not dock under the page: the page is {} high in a {HEIGHT} \
-                 window, beside {} views",
-                page_height(&engine, first),
-                siblings(&engine, first) - 1,
-            ));
+            dock_result?;
         }
         let shown = Rc::new(RefCell::new(String::new()));
         let selected = harness.pump(&mut engine, &mut |engine| {
@@ -175,6 +210,9 @@ mod inspector {
         engine
             .show(WINDOW, first)
             .map_err(|error| error.to_string())?;
+        if std::env::var("QUICKIE_INSPECTOR_WINDOW_STORIES").as_deref() == Ok("1") {
+            stories::check(&mut engine, first)?;
+        }
 
         engine
             .inspect(first, DevTools::Toggle)
@@ -185,7 +223,9 @@ mod inspector {
         if !closed {
             return Err("the toggle left Web Inspector open".to_owned());
         }
-        Ok("docked under the page on the Network tab, kept with its tab, closed by the toggle")
+        Ok(
+            "floating dock and tab ownership, detached Console and source links, responsive Network and Requests return, and close",
+        )
     }
 
     /// Makes a page of the suite's `path` in `tab`, shows it, and waits until it committed.
@@ -233,18 +273,54 @@ mod inspector {
             .map_or(0, |parent: Retained<NSView>| parent.subviews().len())
     }
 
+    fn floats_over_page(engine: &WebKitEngine, tab: TabId, original: NSRect) -> Result<(), String> {
+        let page = engine.view(tab).ok_or("the docked page has no view")?;
+        // SAFETY: the getter retains the view's live parent during this check.
+        let Some(parent) = (unsafe { page.superview() }) else {
+            return Err("the docked page has no superview".to_owned());
+        };
+        // SAFETY: the getter retains the ancestor used for point conversion below.
+        let enclosing = unsafe { parent.superview() };
+        let views = parent.subviews();
+        let Some(dock) = views.lastObject() else {
+            return Err("the docked page's superview has no children".to_owned());
+        };
+        if page.frame() != original
+            || views.len() != 2
+            || std::ptr::eq(page, Retained::as_ptr(&dock))
+        {
+            return Err(format!(
+                "Web Inspector did not float over the unchanged page: frame {:?} vs {original:?}, {} views",
+                page.frame(),
+                views.len(),
+            ));
+        }
+
+        let frame = dock.frame();
+        let middle_y = frame.origin.y + frame.size.height / 2.0;
+        let gutter = NSPoint::new(frame.origin.x + 6.0, middle_y);
+        let center = NSPoint::new(frame.origin.x + frame.size.width / 2.0, middle_y);
+        let [hit_page, hit_dock] = [(gutter, page), (center, &dock)].map(|(point, expected)| {
+            let translated = parent.convertPoint_toView(point, enclosing.as_deref());
+            parent.hitTest(translated).is_some_and(|hit| {
+                std::ptr::eq(expected, Retained::as_ptr(&hit)) || hit.isDescendantOf(expected)
+            })
+        });
+        if hit_page && hit_dock {
+            Ok(())
+        } else {
+            Err(format!(
+                "wrong hit targets for Inspector dock {frame:?}: page received gutter={hit_page}, Inspector received center={hit_dock}",
+            ))
+        }
+    }
+
     /// Asks the tab's Web Inspector which tab it shows; the answer lands in `shown`.
     fn selected_tab(engine: &WebKitEngine, tab: TabId, shown: &Rc<RefCell<String>>) {
-        let Some(view) = engine.view(tab) else {
+        let Some(inspector) = inspector_for(engine, tab) else {
             return;
         };
-        // SAFETY: on the fork a `WKWebView` answers `_inspector` with its inspector or nil.
-        let inspector: Option<Retained<AnyObject>> = unsafe { msg_send![view, _inspector] };
-        // SAFETY: `_WKInspector (WKTesting)` answers `inspectorWebView` with the frontend's view
-        // or nil; this test is its only caller.
-        let frontend: Option<Retained<WKWebView>> =
-            inspector.and_then(|inspector| unsafe { msg_send![&inspector, inspectorWebView] });
-        let Some(frontend) = frontend else {
+        let Some(frontend) = frontend(&inspector) else {
             return;
         };
         let shown = Rc::clone(shown);
@@ -259,6 +335,17 @@ mod inspector {
         let script = NSString::from_str("WI.tabBrowser.selectedTabContentView?.type ?? ''");
         // SAFETY: a script for the inspector's own page; the block is copied by `WebKit`.
         unsafe { frontend.evaluateJavaScript_completionHandler(&script, Some(&reply)) };
+    }
+
+    fn inspector_for(engine: &WebKitEngine, tab: TabId) -> Option<Retained<AnyObject>> {
+        let view = engine.view(tab)?;
+        // SAFETY: on the fork this getter returns the tab's live inspector or nil.
+        unsafe { msg_send![view, _inspector] }
+    }
+
+    fn frontend(inspector: &AnyObject) -> Option<Retained<WKWebView>> {
+        // SAFETY: `_WKInspector (WKTesting)` answers this getter with its frontend view or nil.
+        unsafe { msg_send![inspector, inspectorWebView] }
     }
 
     const _: () = assert!(
@@ -530,6 +617,14 @@ fn answer(stream: TcpStream) {
     let mut stream = reader.into_inner();
     if let Some(route) = path.strip_prefix("automation/") {
         automation::answer(&mut stream, route, automation_cookie);
+        return;
+    }
+    if path == "inspector/story.js" {
+        inspector::answer(&mut stream);
+        return;
+    }
+    if path == agent_links::ROUTE {
+        agent_links::answer(&mut stream);
         return;
     }
     let found = SITE.iter().find(|(served, _)| *served == path);
