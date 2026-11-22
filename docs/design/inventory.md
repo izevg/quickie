@@ -1,5 +1,9 @@
 # Component inventory (FSD)
 
+The Web Inspector uses the existing WebKit frontend and AppKit window.
+Its component ownership and responsive layouts have a separate specification.
+[Web Inspector](inspector/specification.md)
+
 Every component in the Stitch mockups ([mocks/](mocks/)), cut into Feature-Sliced Design layers.
 The `[FSD: …]` tags in the mockups were a first guess; this table is the decision. Names are the
 Rust module names in the `crates/ui/*` crates. Tokens: [system.md](system.md).

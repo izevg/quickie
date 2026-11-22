@@ -297,20 +297,19 @@ What we accept:
   what Web Extensions on WebKit run.
 
 How it is built:
-- **One pinned WebKit revision for both platforms**: the WebKitGTK/WPE stable series
-  (`webkitglib/2.54` today, release tags `webkitgtk-2.54.N`), the one branch both ports build
-  from, so one patch set serves macOS and Linux. Apple's Mac-only security fixes are
-  cherry-picked from each Apple security note; the base moves to the next stable series about
-  every six months. Decided 2026-11-20 over two bases (a Safari branch for macOS, the stable
-  series for Linux), which would double every patch and rebase.
-- **Patches as commits in the fork**, one branch per patch (`quickie/patch/<area>-<name>`) merged
-  into `quickie/2.54`, whose commit `engine/webkit/webkit.pin` names; no patch files here. What
-  each patch is for, its size, its tests and its order:
+- **One pinned WebKit revision for both platforms.** Quickie follows upstream `main` and
+  pins an exact reviewed fork commit for each release. Refresh the upstream base every one
+  or two weeks, with an out-of-cycle update for urgent security fixes. A candidate has its
+  own branch until the macOS and GTK checks pass.
+- **Patches as commits in the fork.** Keep topic patches small and drop them once their
+  behavior is covered upstream. `engine/webkit/webkit.pin` names the verified candidate.
+  The fork patch inventory records each patch and its tests.
   [engine/webkit/PATCHES.md](../engine/webkit/PATCHES.md). The macOS
   port links the result into the app bundle (frameworks and their XPC services, as Playwright and
   Safari Technology Preview do), the Linux port into the GTK build.
-- **Built on CI, never on the developer's laptop**, for macOS (arm64) and Linux (x86_64, arm64);
-  each build carries a sha256 and an attestation from the same runner that built it. The engine
+- **Release builds run on CI** for macOS and GTK. Local optimized builds support development
+  and performance measurement. The CI artifacts carry
+  a SHA-256 and an attestation from the same runner that built them. The engine
   conformance suite runs against the fork on both platforms before a release.
 - **Linux is a first-class target of the fork**: every patch is checked on WebKitGTK too, and a
   patch that only works on one port says so and is kept small.

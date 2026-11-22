@@ -1,12 +1,11 @@
-//! A page's `WKUIDelegate`: turns what the page asks into calls on its [`Hooks`]. Public
-//! delegate methods, and one of our `WebKit` fork's (`WKUIDelegatePrivate`), which docks Web
-//! Inspector as it opens; geolocation has none on macOS, so `WebKit` keeps refusing it.
+//! A page's `WKUIDelegate`: turns what the page asks into calls on its [`Hooks`].
+//! Geolocation has no delegate method on macOS, so `WebKit` keeps refusing it.
 
 use std::rc::Rc;
 
 use block2::DynBlock;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol};
+use objc2::runtime::{Bool, NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_foundation::NSString;
 use objc2_web_kit::{
@@ -18,7 +17,7 @@ use quickie_domain_browsing::Focus;
 use url::Url;
 
 use super::{Reply, link_focus};
-use crate::page::{Hooks, PageEvent, inspector};
+use crate::page::{Hooks, PageEvent};
 
 /// Where a page without a URL of its own is: never an empty address bar.
 pub(crate) const BLANK: &str = "about:blank";
@@ -36,16 +35,6 @@ define_class!(
     pub(crate) struct PageUi;
 
     unsafe impl NSObjectProtocol for PageUi {}
-
-    impl PageUi {
-        /// `WebKit` connected a Web Inspector to the page and is about to show it: it docks
-        /// under the page ([`inspector::dock`]), whichever way it was opened. Called only on
-        /// pages whose preferences allow the inspector, which only the fork's do.
-        #[unsafe(method(_webView:didAttachLocalInspector:))]
-        fn did_attach_inspector(&self, _view: &WKWebView, inspector: &AnyObject) {
-            inspector::dock(inspector);
-        }
-    }
 
     // SAFETY: every method matches the protocol's signature; the rest are optional.
     unsafe impl WKUIDelegate for PageUi {

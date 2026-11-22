@@ -1,15 +1,13 @@
 # Quickie WebKit fork: patch plan
 
-Written 2026-11-20. Fork: `github.com/izevg/WebKit`. Base: the WebKitGTK/WPE stable branch
-`webkitglib/2.54` (release tag `webkitgtk-2.54.3`, `eb74cd57`); the fork branch `quickie/2.54`
-starts there, and its first commit `02fa3f47` is a Cocoa build fix. CI builds it on `macos-26`
-with Xcode 26.6 ([engine/README.md](../README.md)); [webkit.pin](webkit.pin) names the commit
-that is built.
+Quickie pins a reviewed `izevg/WebKit` commit based on upstream `main`.
+The 0.2.0 candidate starts from `f4d12a5ac378` and includes the upstream
+fullscreen presentation fix. [Engine builds](../README.md) · [Current pin](webkit.pin)
 
-## Carried on quickie/2.54
+## Carried from quickie/2.54
 
-Each patch is developed on its own fork branch `quickie/patch/<name>` and merged into
-`quickie/2.54` with a merge commit, after a CI build of all of them together is green.
+The patch series below was first assembled on `quickie/2.54`. It was ported to
+the main-based candidate along with the native Inspector redesign.
 
 | Patch | Fork branch | Section |
 |---|---|---|
@@ -19,9 +17,8 @@ Each patch is developed on its own fork branch `quickie/patch/<name>` and merged
 | A1 in-process automation client | `quickie/patch/automation-local-channel` | §2.1 |
 | W1 own WebAuthn manager, keychain group from Info.plist | `quickie/patch/webauthn-own-manager` | §2.5 |
 
-The app calls I1's SPI: the `quickie.devtools.*` commands open Web Inspector by tab and dock it
-at the bottom (`crates/adapters/engine-webkit/src/page/inspector/`). The Rust side of A1 and W1
-is not written yet.
+The app calls I1's SPI through the `quickie.devtools.*` commands. The first
+Inspector opens at the bottom, and later launches respect the saved dock choice.
 
 Planned next: **V1 `media/fullscreen-in-window`**. Element full screen already stays in the tab's
 window through a page-script shim of the Fullscreen API (quickie #74), but the native fullscreen
@@ -345,35 +342,30 @@ the CG draft stabilises and a site we use depends on it.
 ## 3. Keeping the fork small
 
 **Where patches live: in the fork, not here.** Every patch is a commit (or a short series) on its
-own fork branch `quickie/patch/<area>-<name>` in `izevg/WebKit`, branched from `quickie/2.54`, for
+own fork branch `quickie/patch/<area>-<name>` in `izevg/WebKit`, based on the current candidate, for
 example `quickie/patch/automation-local-channel`, `quickie/patch/privacy-defaults`,
 `quickie/patch/webauthn-own-manager`. Areas are the groups of §2: `automation`, `inspector`,
 `shields`, `privacy`, `webauthn`, `extensions`, plus `build` for build fixes and configuration.
 
 - A patch branch is built before it merges: the `webkit` workflow takes the branch head as its
   `commit` input ([engine/README.md](../README.md), "Building a patch branch"). Reviewed and
-  green, it merges into `quickie/2.54`, and this repository pins the new head of `quickie/2.54`
-  in [webkit.pin](webkit.pin). No patch files, exported series or submodule are kept here.
+  green, it is included in the next candidate. [webkit.pin](webkit.pin) records
+  the fork revision built by the application.
 - One commit per patch, title `[quickie][area] what`, body with the product reason, upstream bug
-  link, and the WebKit tests that cover it, so `git log webkitglib/2.54..quickie/2.54` is the
-  whole fork diff.
+  link, and the WebKit tests that cover it. Review the series against its recorded
+  upstream base.
 - Build configuration (`HAVE_*` overrides in fork-local xcconfig files, `ENABLE_*` CMake options)
   is a fork commit like any other.
 - Prefer build flags over source edits (W1 is mostly configuration), new files over edits in hot
   files, and one seam per feature (S1 is a single call in `NetworkLoadChecker`).
 - Upstream first where marked: I1, A1, W2, E1. Every merged upstream patch deletes a fork patch.
 
-**Base and cadence.** One revision builds both ports: the WebKitGTK stable branch
-(`webkitglib/2.54` now, next in ~March 2027) is the only branch that is both
-([architecture.md](../../docs/architecture.md), "Decision: our own WebKit"). Igalia backports
-security fixes there and publishes WSA advisories; Apple's Cocoa-only fixes are not backported
-there, so on every Apple security note cherry-pick the listed bugs that touch
-`Source/WebKit/*/mac|cocoa` or `WebCore/platform/*/cocoa` onto `quickie/2.54`. On a new stable
-release, merge its tag into `quickie/2.54`; move to the next stable branch (`quickie/2.56`, with
-every patch branch rebased) every six months. The rebase runs on every WSA advisory and Apple
-security note; patch-gap target ≤ 72 h (architecture §7).
+**Base and cadence.** Rebase onto upstream `main` every one or two weeks. Update
+out of cycle for urgent Apple and WebKitGTK fixes and keep the patch-gap target
+in [architecture §7](../../docs/architecture.md). Test both ports on the
+candidate before changing the release pin.
 
-**Tests per patch** (run on the patch branch before it merges into `quickie/2.54`):
+**Tests per patch** run on the patch branch before it joins the candidate.
 
 | Patch | WebKit tests | Ours |
 |---|---|---|
