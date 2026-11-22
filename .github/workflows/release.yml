@@ -82,7 +82,7 @@ jobs:
       # jdx/mise-action v5.2.9
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
         with:
-          install_args: rust aqua:orhun/git-cliff
+          install_args: rust aqua:orhun/git-cliff pypi:dmgbuild
         env:
           MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
       # Swatinem/rust-cache v2.9.3

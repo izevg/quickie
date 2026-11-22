@@ -155,7 +155,7 @@ pub fn run(
     let mut made = vec![app.clone()];
     if options.dmg {
         let image = out.join(format!("Quickie-{}.dmg", bundle.version));
-        dmg::create(&app, &image, options.sign.as_deref())?;
+        dmg::create(root, &app, &image, options.sign.as_deref())?;
         made.push(image);
     }
     Ok(made)
