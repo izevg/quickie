@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fixtures=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ $# -ne 1 ]]; then
+  printf '%s\n' 'Supply the path to the installed Quickie or AppImage executable.' >&2
+  exit 1
+fi
+binary=$1
+work=$(mktemp -d)
+server=
+cleanup() {
+  if [[ -n $server ]]; then
+    kill "$server" 2>/dev/null || :
+    wait "$server" 2>/dev/null || :
+  fi
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
+mkdir -p "$work/cache" "$work/config" "$work/data" "$work/runtime"
+chmod 700 "$work/runtime"
+export XDG_CACHE_HOME="$work/cache" XDG_CONFIG_HOME="$work/config"
+export XDG_DATA_HOME="$work/data" XDG_RUNTIME_DIR="$work/runtime"
+server_log="$work/http.log"
+python3 -u -m http.server 0 --bind 127.0.0.1 --directory "$fixtures" > "$server_log" 2>&1 &
+server=$!
+port=
+for ((attempt = 0; attempt < 50; ++attempt)); do
+  port=$(sed -nE 's/^Serving HTTP on 127\.0\.0\.1 port ([0-9]+).*/\1/p' "$server_log")
+  [[ -z $port ]] || break
+  sleep 0.1
+done
+if [[ -z $port ]]; then
+  sed -n '1,20p' "$server_log" >&2
+  exit 1
+fi
+
+if timeout 60s dbus-run-session -- xvfb-run -a "$binary" --smoke-test "http://127.0.0.1:$port/"; then
+  printf 'Smoke test passed for %s\n' "$binary"
+else
+  status=$?
+  sed -n '1,40p' "$server_log" >&2
+  exit "$status"
+fi

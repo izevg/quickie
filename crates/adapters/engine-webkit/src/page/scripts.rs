@@ -13,6 +13,7 @@
 //! page's world. [`video`]: what the page's video does, in any of its frames, and floating it
 //! for the mini player.
 
+pub(crate) mod agent_links;
 pub(crate) mod fullscreen;
 pub(crate) mod hints;
 pub(crate) mod video;

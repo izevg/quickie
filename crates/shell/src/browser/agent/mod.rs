@@ -10,6 +10,8 @@
 //! No question and no answer is kept anywhere but on screen: none is written to the store,
 //! whichever jar the page is in, throwaway or not.
 
+#[cfg(feature = "main-webkit")]
+mod act;
 mod answer;
 mod settings;
 
@@ -20,6 +22,7 @@ use std::time::Instant;
 
 use dispatch2::{DispatchQueue, MainThreadBound};
 use objc2::MainThreadMarker;
+use objc2_app_kit::NSApplication;
 use quickie_application::StopSignal;
 use quickie_domain_agents::Request;
 use quickie_domain_browsing::TabId;
@@ -34,6 +37,8 @@ use crate::input::keystroke::OverlayKey;
 
 /// The agent's views and the answer in progress.
 pub struct AgentUi {
+    #[cfg(feature = "main-webkit")]
+    act: act::ActUi,
     panel: AgentAnswerPanel,
     badge: AgentBadge,
     /// The border around the window while the agent acts.
@@ -71,6 +76,8 @@ struct Running {
 impl AgentUi {
     pub fn new(secrets: KeychainSecrets, mtm: MainThreadMarker) -> Self {
         Self {
+            #[cfg(feature = "main-webkit")]
+            act: act::ActUi::default(),
             panel: AgentAnswerPanel::new(mtm),
             badge: AgentBadge::new(mtm),
             frame: AgentFrame::new(mtm),
@@ -164,10 +171,37 @@ impl Browser {
 
     /// `⌘.`: stops the answer; what came so far stays.
     pub(super) fn stop_agent(&self) {
+        #[cfg(feature = "main-webkit")]
+        if self.cancel_act("Agent action stopped") {
+            return;
+        }
         match self.agent_ui.running.borrow().as_ref() {
             Some(running) => running.stop.stop(),
             None => self.toast("The agent isn't running"),
         }
+    }
+
+    pub(super) fn close_focused_agent_window(&self) -> bool {
+        let key = NSApplication::sharedApplication(self.mtm).keyWindow();
+        let Some(window) = key.filter(|window| self.is_agent_window(window)) else {
+            return false;
+        };
+        window.performClose(None);
+        true
+    }
+
+    #[cfg(not(feature = "main-webkit"))]
+    pub(in crate::browser) fn act_on_page(&self, _question: quickie_domain_agents::Question) {
+        self.toast("Agent actions require the Quickie WebKit fork");
+    }
+
+    #[cfg(not(feature = "main-webkit"))]
+    #[expect(
+        clippy::unused_self,
+        reason = "shared window routing calls the active engine"
+    )]
+    pub(super) fn is_agent_window(&self, _window: &objc2_app_kit::NSWindow) -> bool {
+        false
     }
 
     /// Opens the panel over the current window, the only E2.

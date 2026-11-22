@@ -148,7 +148,7 @@ agent, CI) can see a widget in seconds, and so that a change in looks or behavio
 - **1×.** References are drawn at one pixel per point: a quarter of the bytes of 2×, and enough
   for layout, text, and colour. `render --scale 2` draws 2× for a closer look.
 - **CI is the source of truth.** Text rasterizes differently across macOS versions, so the
-  references record the renderer they come from (`tests/snapshots/.renderer`, `macos-<major>`).
+  references record their macOS version (`tests/snapshots/.renderer`, `macos-<major>.<minor>.<patch>`).
   Where it differs from the machine running the tests, the stories render and play but are not
   compared, and say so. The `ui stories` job runs strict (`QUICKIE_UI_STRICT=1`): there a
   missing reference or another renderer fails, and the renders are uploaded as `ui-renders`.
@@ -170,6 +170,15 @@ agent, CI) can see a widget in seconds, and so that a change in looks or behavio
   run and `cargo xtask ui accept --from <dir> [<widget>[/<state>]]`, then look at every changed
   PNG before committing it. `cargo xtask ui accept [<filter>]` without `--from` takes local
   renders, and is refused for a subset when the references come from another renderer.
+
+## Video diagnostics
+
+After a playback pass, collect Core Animation presentation counters for the
+test app and its GPU process with
+`bash tools/diagnostics/video-frames.sh QUICKIE_PID GPU_PID "YYYY-MM-DD HH:MM:SS"`.
+Write the command output outside the checkout. Compare sustained playback at
+the same resolution, frame rate, and visibility, and label transitions separately.
+The script is a developer tool with no build or packaging target.
 
 ## Agent harness
 

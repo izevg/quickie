@@ -276,6 +276,7 @@ impl Browser {
             Action::ShowAgentSettings => return self.open_agent_settings(),
             Action::ShowSettings => return self.open_settings(None),
             Action::DebugKeys => return self.toggle_key_log(),
+            Action::CloseWindow | Action::CloseTab if self.close_focused_agent_window() => return,
             Action::Cycle(direction) => {
                 if let Some((window, _)) = self.current() {
                     self.cycle(window, direction, holding(stroke));

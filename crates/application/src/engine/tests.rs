@@ -40,6 +40,16 @@ fn clearing_a_find_is_a_find_of_nothing() {
 }
 
 #[test]
+fn an_engine_without_agent_links_rejects_the_request_immediately() {
+    let tab = TabId::new(Profile::Main, 3);
+    let finds = Finds::default();
+
+    let request = finds.agent_links(tab, |_| panic!("unsupported requests have no completion"));
+
+    assert!(request.is_err());
+}
+
+#[test]
 fn every_download_event_names_its_download() {
     let token = DownloadToken::new(7);
     let url = Url::parse("https://example.com/a.zip").unwrap();

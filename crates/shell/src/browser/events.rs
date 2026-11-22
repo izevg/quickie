@@ -60,6 +60,8 @@ impl Browser {
     fn dispatch_event(&self, event: Event, drained: &mut Drained) {
         match event {
             EngineEvent::Committed { tab, url, title } => {
+                #[cfg(feature = "main-webkit")]
+                self.act_source_navigated(tab);
                 drained.committed.push(tab);
                 self.shields.borrow_mut().page_left(tab);
                 drained.blocked = true;

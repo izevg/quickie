@@ -60,7 +60,7 @@ const HINTS: &str = "quickie.hints.toggle";
 
 /// The macOS defaults as they were written before `mod` existed, row for row, plus the rows
 /// added since in their `cmd` form: the keymap of `mod` must stay exactly this on macOS.
-const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 54] = [
+const MACOS_DEFAULTS: [(&str, &str, Option<&str>); 55] = [
     ("cmd+shift+p", "quickie.palette.openCommands", None),
     ("cmd+k", "quickie.palette.openCommands", None),
     ("cmd+p", "quickie.palette.goto", None),
@@ -116,14 +116,15 @@ const MACOS_BEFORE_MOD: [(&str, &str, Option<&str>); 54] = [
     ("cmd+j", "quickie.downloads.show", None),
     ("alt+cmd+s", "quickie.shields.open", None),
     ("cmd+.", "quickie.agent.stop", None),
+    ("f12", "quickie.devtools.toggle", None),
     ("alt+cmd+i", "quickie.devtools.toggle", None),
     ("alt+cmd+j", "quickie.devtools.console", None),
     ("cmd+,", "quickie.app.settings", None),
 ];
 
 #[test]
-fn the_macos_defaults_are_the_same_strokes_as_before_mod() {
-    let before: Vec<KeyBinding> = MACOS_BEFORE_MOD
+fn the_macos_defaults_match_the_desktop_keymap() {
+    let expected: Vec<KeyBinding> = MACOS_DEFAULTS
         .into_iter()
         .map(|(key, command, when)| KeyBinding {
             chord: Chord::try_from(key).unwrap(),
@@ -132,9 +133,9 @@ fn the_macos_defaults_are_the_same_strokes_as_before_mod() {
         })
         .collect();
 
-    let after: Vec<KeyBinding> = Keymap::defaults(MAC).bindings().cloned().collect();
+    let bindings: Vec<KeyBinding> = Keymap::defaults(MAC).bindings().cloned().collect();
 
-    assert_eq!(after, before);
+    assert_eq!(bindings, expected);
 }
 
 #[test]

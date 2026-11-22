@@ -62,6 +62,7 @@ objc2-web-kit = { workspace = true, features = [
   "WKNavigationResponse",
   "WKPDFConfiguration",
   "WKPreferences",
+  "WKProcessPool",
   "WKScriptMessage",
   "WKScriptMessageHandler",
   "WKScriptMessageHandlerWithReply",
@@ -95,15 +96,18 @@ quickie-domain-browsing.workspace = true
 quickie-domain-settings.workspace = true
 quickie-domain-shields.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 url.workspace = true
 
 [dev-dependencies]
 # The conformance test's native clicks; the thumbnails test reads pictures' pixels.
 objc2-app-kit = { workspace = true, features = [
+  "NSApplication",
   "NSBitmapImageRep",
   "NSColor",
   "NSGraphicsContext",
   "NSImageRep",
+  "NSRunningApplication",
 ] }
 quickie-application = { workspace = true, features = ["conformance"] }
 tempfile.workspace = true

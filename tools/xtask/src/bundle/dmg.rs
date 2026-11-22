@@ -1,59 +1,86 @@
 //! `--dmg`: the signed app in a compressed disk image, the way a Mac app is handed out. The
-//! image holds `Quickie.app` and a link to `/Applications` to drag it onto. Notarizing the image
-//! needs Apple's service and the team's key, so the release workflow does that, not this tool.
+//! image holds `Quickie.app` and a link to `/Applications` laid out on a custom Finder background.
+//! The release workflow handles notarization with Apple's service.
 
 use std::fs;
-use std::os::unix::fs::symlink;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::{quiet, status};
 
 /// Packs `app` into the disk image `dmg`, replacing one already there, and signs the image with
 /// `identity` when there is one (an ad hoc build leaves it unsigned: Gatekeeper reads the app's
 /// signature, not the image's).
-pub fn create(app: &Path, dmg: &Path, identity: Option<&str>) -> Result<(), String> {
-    let staging = dmg.with_extension("staging");
-    if staging.exists() {
-        fs::remove_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
+pub fn create(root: &Path, app: &Path, dmg: &Path, identity: Option<&str>) -> Result<(), String> {
+    let staging = staging_dir(dmg)?;
+    let result = build(root, app, dmg, identity, &staging);
+    let cleanup = fs::remove_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()));
+    result.and(cleanup)
+}
+
+fn staging_dir(dmg: &Path) -> Result<PathBuf, String> {
+    let output = Command::new("mktemp")
+        .arg("-d")
+        .arg(dmg.with_extension("staging.XXXXXX"))
+        .output()
+        .map_err(|e| format!("mktemp: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "mktemp: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-    fs::create_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
-    let name = app.file_name().ok_or("the app has no file name")?;
-    // `ditto` keeps the signature, extended attributes, and links exactly as they are.
+    let path = String::from_utf8(output.stdout).map_err(|e| format!("mktemp: {e}"))?;
+    Ok(PathBuf::from(path.trim_end_matches('\n')))
+}
+
+fn build(
+    root: &Path,
+    app: &Path,
+    dmg: &Path,
+    identity: Option<&str>,
+    staging: &Path,
+) -> Result<(), String> {
+    let source = root.join("docs/assets/installer-background.png");
+    let standard = staging.join("installer-background.png");
+    let retina = staging.join("installer-background@2x.png");
+    // dmgbuild combines these into a Retina-aware TIFF using their filename suffixes.
+    fs::copy(&source, &retina).map_err(|e| format!("{}: {e}", source.display()))?;
     quiet(
-        "ditto",
+        "sips",
         &[
-            &app.to_string_lossy(),
-            &staging.join(name).to_string_lossy(),
+            "--resampleHeightWidth",
+            "512",
+            "768",
+            &source.to_string_lossy(),
+            "--out",
+            &standard.to_string_lossy(),
         ],
     )?;
-    let applications = staging.join("Applications");
-    symlink("/Applications", &applications)
-        .map_err(|e| format!("{}: {e}", applications.display()))?;
-    if dmg.exists() {
-        fs::remove_file(dmg).map_err(|e| format!("{}: {e}", dmg.display()))?;
-    }
+    // dmgbuild writes Finder's metadata headlessly and uses ditto to preserve the app signature.
+    let image = staging.join("Quickie.dmg");
+    let image_path = image.to_string_lossy();
     status(
-        "hdiutil",
+        "dmgbuild",
         &[
-            "create",
-            "-quiet",
-            "-volname",
+            "--settings",
+            &root
+                .join("tools/packaging/macos/installer.py")
+                .to_string_lossy(),
+            "-D",
+            &format!("app={}", app.display()),
+            "-D",
+            &format!("background={}", standard.display()),
             "Quickie",
-            "-fs",
-            "HFS+",
-            "-format",
-            "UDZO",
-            "-srcfolder",
-            &staging.to_string_lossy(),
-            &dmg.to_string_lossy(),
+            &image_path,
         ],
     )?;
-    fs::remove_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
     if let Some(identity) = identity {
         status(
             "codesign",
-            &["--sign", identity, "--timestamp", &dmg.to_string_lossy()],
+            &["--sign", identity, "--timestamp", &image_path],
         )?;
+        status("codesign", &["--verify", "--strict", &image_path])?;
     }
-    Ok(())
+    fs::rename(&image, dmg).map_err(|e| format!("{}: {e}", dmg.display()))
 }
