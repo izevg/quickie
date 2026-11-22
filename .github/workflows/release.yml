@@ -132,6 +132,15 @@ jobs:
             git-cliff --config .github/cliff.toml --unreleased --strip all > notes.md
           fi
           cat notes.md
+          mkdir -p "$RUNNER_TEMP/quickie-release-notes"
+          cp notes.md "$RUNNER_TEMP/quickie-release-notes/ReleaseNotes.md"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: steps.mode.outputs.mode != 'dry-run' && !contains(steps.mode.outputs.version, '-')
+        with:
+          name: quickie-release-notes
+          path: ${{ runner.temp }}/quickie-release-notes/ReleaseNotes.md
+          if-no-files-found: error
 
       - name: Signing identity
         id: identity
@@ -179,7 +188,8 @@ jobs:
         run: |
           sign=()
           if [ -n "$IDENTITY" ]; then sign=(--sign "$IDENTITY"); fi
-          cargo xtask bundle --release --version "${VERSION%%-*}" \
+          QUICKIE_RELEASE_VERSION="$VERSION" QUICKIE_RELEASE_NOTES="$PWD/notes.md" \
+            cargo xtask bundle --release --version "${VERSION%%-*}" \
             --webkit .build/webkit-frameworks --dmg "${sign[@]}"
           # The publish job expects the DMG, checksum, and notes at the artifact root.
           release_dir="$RUNNER_TEMP/quickie-macos-release"
@@ -188,9 +198,14 @@ jobs:
           mv "target/release/Quickie-${VERSION%%-*}.dmg" "$dmg"
           mv notes.md "$release_dir/notes.md"
           codesign --verify --deep --strict target/release/Quickie.app
+          test "$(target/release/Quickie.app/Contents/MacOS/quickie --version)" = "$VERSION"
+          test -s target/release/Quickie.app/Contents/Resources/ReleaseNotes.md
           hdiutil verify "$dmg"
           echo "path=$dmg" >> "$GITHUB_OUTPUT"
           echo "directory=$release_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Rehearse macOS update replacement
+        run: cargo test --locked -p quickie --bin quickie updates::install -- --include-ignored
 
       - name: Notarize
         if: steps.identity.outputs.identity != ''
@@ -254,6 +269,7 @@ jobs:
     with:
       version: ${{ needs.macos.outputs.version }}
       ref: ${{ inputs.ref || github.sha }}
+      release_notes: true
 
   publish:
     name: publish

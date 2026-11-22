@@ -250,6 +250,9 @@ impl Browser {
 
     /// Runs the command `id`. `stroke` is the key that asked, `None` for the palette.
     pub(super) fn dispatch(&self, id: &CommandId, stroke: Option<KeyStroke>) {
+        if self.updater.terminating() {
+            return;
+        }
         self.pending.take();
         // Nothing of the browser's shows over a page in full screen: the page leaves first.
         self.leave_page_fullscreen();
@@ -301,6 +304,11 @@ impl Browser {
             Action::CloseTab => return self.close_tab(window),
             _ => {}
         }
+        self.dispatch_in_window(window, action);
+        self.settle(window);
+    }
+
+    fn dispatch_in_window(&self, window: WindowId, action: Action) {
         match action {
             Action::NewTab => self.new_tab(window, JarChoice::Main),
             Action::NewThrowawayTab => self.new_tab(window, JarChoice::NewThrowaway),
@@ -350,7 +358,6 @@ impl Browser {
             | Action::DebugKeys
             | Action::Extensions(_) => {}
         }
-        self.settle(window);
     }
 
     fn extension_command(&self, action: ExtensionsAction) {

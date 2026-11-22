@@ -5,6 +5,7 @@ on:
     branches: ["release/**"]
     paths:
       - ".github/workflows/linux.yml"
+      - "crates/adapters/updater/**"
       - "crates/shell-linux/**"
       - "engine/webkit/webkit.pin"
       - "tools/packaging/linux/**"
@@ -27,6 +28,9 @@ on:
       ref:
         type: string
         required: true
+      release_notes:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -86,8 +90,19 @@ jobs:
         with:
           path: .build/gtk-ccache
           key: ${{ steps.engine-cache.outputs.cache-primary-key }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.release_notes
+        with:
+          name: quickie-release-notes
+          path: .build/release-notes
       - name: Build Quickie, the deb and the AppImage
+        env:
+          QUICKIE_RELEASE_NOTES: ${{ inputs.release_notes && format('{0}/.build/release-notes/ReleaseNotes.md', github.workspace) || '' }}
         run: bash tools/packaging/linux/package deb-and-appimage "$QUICKIE_VERSION"
+      - name: Rehearse native DEB and AppImage updates
+        run: |
+          sudo apt-get install -y --no-install-recommends squashfs-tools
+          bash tools/packaging/linux/tests/update-rehearsal deb-and-appimage "$QUICKIE_VERSION"
       - name: Checksums
         working-directory: .build/gtk-packages
         run: sha256sum ./*.deb ./*.AppImage > SHA256SUMS.ubuntu
@@ -133,8 +148,17 @@ jobs:
         with:
           path: .build/gtk-ccache
           key: ${{ steps.engine-cache.outputs.cache-primary-key }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.release_notes
+        with:
+          name: quickie-release-notes
+          path: .build/release-notes
       - name: Build Quickie and the rpm
+        env:
+          QUICKIE_RELEASE_NOTES: ${{ inputs.release_notes && format('{0}/.build/release-notes/ReleaseNotes.md', github.workspace) || '' }}
         run: bash tools/packaging/linux/package rpm "$QUICKIE_VERSION"
+      - name: Rehearse native RPM updates
+        run: bash tools/packaging/linux/tests/update-rehearsal rpm "$QUICKIE_VERSION"
       - name: Checksums
         working-directory: .build/gtk-packages
         run: sha256sum ./*.rpm > SHA256SUMS.fedora
@@ -176,12 +200,15 @@ jobs:
           fi
       - name: Run real browsers from both archives
         run: |
+          test "$(/usr/bin/quickie --version)" = "$QUICKIE_VERSION"
           bash tools/packaging/linux/tests/smoke /usr/bin/quickie
           appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
           chmod +x "$appimage"
           if [[ -c /dev/fuse && -r /dev/fuse && -w /dev/fuse ]]; then
+            test "$("$appimage" --version)" = "$QUICKIE_VERSION"
             bash tools/packaging/linux/tests/smoke "$appimage"
           else
+            test "$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version)" = "$QUICKIE_VERSION"
             APPIMAGE_EXTRACT_AND_RUN=1 bash tools/packaging/linux/tests/smoke "$appimage"
           fi
 
@@ -212,6 +239,7 @@ jobs:
       - name: Run the installed rpm as an unprivileged user
         run: |
           docker run --rm --privileged \
+            --env QUICKIE_VERSION \
             --volume "$PWD/.build/gtk-packages:/packages:ro" \
             --volume "$PWD/tools/packaging/linux/tests:/tests:ro" \
             fedora:43 bash -c '
@@ -219,6 +247,7 @@ jobs:
               dnf -y install /packages/*.rpm dbus-daemon python3 shadow-utils util-linux \
                 xorg-x11-server-Xvfb xorg-x11-xauth
               useradd --create-home quickie-test
+              test "$(runuser -u quickie-test -- /usr/bin/quickie --version)" = "$QUICKIE_VERSION"
               runuser -u quickie-test -- bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
               runuser -u quickie-test -- bash /tests/smoke /usr/bin/quickie
             '

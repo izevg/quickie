@@ -39,6 +39,9 @@ impl Browser {
     /// screen: the window titles, the zooms of committed pages, the downloads popover, the
     /// sheets of asks, the origin chip. Tells of a save that failed on a writer thread.
     pub fn drain(&self) {
+        if self.updater.terminating() {
+            return;
+        }
         let mut events = std::mem::take(&mut *self.events.borrow_mut());
         if let Ok(mut browsing) = self.browsing.try_borrow_mut() {
             browsing.engine_mut().drain(&mut events);
