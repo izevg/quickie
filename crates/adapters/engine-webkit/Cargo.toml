@@ -107,6 +107,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSColor",
   "NSGraphicsContext",
   "NSImageRep",
+  "NSRunningApplication",
 ] }
 quickie-application = { workspace = true, features = ["conformance"] }
 tempfile.workspace = true

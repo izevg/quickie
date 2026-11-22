@@ -35,11 +35,18 @@
             return selected("Console") || "the Console tab is not selected";
         },
 
-        watchConsoleErrors() {
+        observeFrontend() {
             const errors = window.inspectorStoryErrors = [];
             window.addEventListener("error", (event) => errors.push(event.message));
             window.addEventListener("unhandledrejection", (event) => errors.push(String(event.reason)));
+            window.inspectorStoryFrameReady = false;
+            requestAnimationFrame(() => { window.inspectorStoryFrameReady = true; });
             return true;
+        },
+
+        frontendReady() {
+            return (document.visibilityState === "visible" && window.inspectorStoryFrameReady)
+                || `visibility=${document.visibilityState}, focus=${document.hasFocus()}, animation frame=${window.inspectorStoryFrameReady}`;
         },
 
         consoleLayout() {

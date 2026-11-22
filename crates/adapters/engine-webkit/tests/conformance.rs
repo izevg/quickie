@@ -167,7 +167,7 @@ mod inspector {
 
     /// What was checked, or why it failed.
     pub(super) fn check(harness: &mut WebKit) -> Result<&'static str, String> {
-        let _app = NSApplication::sharedApplication(harness.mtm);
+        let app = NSApplication::sharedApplication(harness.mtm);
         let mut engine = harness.engine();
         let first = TabId::new(Profile::Main, 1);
         open(harness, &mut engine, first, "plain")?;
@@ -232,24 +232,31 @@ mod inspector {
             .map_err(|error| error.to_string())?;
         let window_stories =
             std::env::var("QUICKIE_INSPECTOR_WINDOW_STORIES").as_deref() == Ok("1");
-        if window_stories {
-            stories::check(&mut engine, first)?;
-        }
-
-        engine
-            .inspect(first, DevTools::Toggle)
-            .map_err(|error| format!("Toggle: {error}"))?;
-        let closed = harness.pump(&mut engine, &mut |engine| {
-            page_height(engine, first) >= HEIGHT && siblings(engine, first) == 1
-        });
-        if !closed {
-            return Err("the toggle left Web Inspector open".to_owned());
-        }
+        let story = if window_stories {
+            stories::check(&app, &mut engine, first)
+        } else {
+            Ok(())
+        };
+        let closed = close(harness, &mut engine, first);
+        story.and(closed)?;
         Ok(if window_stories {
             "floating dock and tab ownership, detached Console and source links, responsive Network and Requests return, and close"
         } else {
             "floating dock and tab ownership, panel selection, and close"
         })
+    }
+
+    fn close(harness: &mut WebKit, engine: &mut WebKitEngine, tab: TabId) -> Result<(), String> {
+        engine
+            .inspect(tab, DevTools::Toggle)
+            .map_err(|error| format!("Toggle: {error}"))?;
+        if harness.pump(engine, &mut |engine| {
+            page_height(engine, tab) >= HEIGHT && siblings(engine, tab) == 1
+        }) {
+            Ok(())
+        } else {
+            Err("the toggle left Web Inspector open".to_owned())
+        }
     }
 
     /// Makes a page of the suite's `path` in `tab`, shows it, and waits until it committed.

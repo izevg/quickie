@@ -7,10 +7,13 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use block2::RcBlock;
-use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
-use objc2_app_kit::{NSTitlebarSeparatorStyle, NSWindowButton, NSWindowTitleVisibility};
+use objc2::runtime::{AnyObject, Bool, NSObjectProtocol};
+use objc2::{msg_send, sel};
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy, NSTitlebarSeparatorStyle, NSWindowButton,
+    NSWindowTitleVisibility,
+};
 use objc2_foundation::{NSError, NSSize, NSString};
 use objc2_web_kit::WKWebView;
 use quickie_application::{DevTools, DevToolsPanel, PageSurface};
@@ -32,11 +35,35 @@ pub(in super::super) fn answer(stream: &mut TcpStream) {
     );
 }
 
-pub(super) fn check(engine: &mut WebKitEngine, tab: TabId) -> Result<(), String> {
+pub(super) fn check(
+    app: &NSApplication,
+    engine: &mut WebKitEngine,
+    tab: TabId,
+) -> Result<(), String> {
+    let previous = app.activationPolicy();
+    if !app.setActivationPolicy(NSApplicationActivationPolicy::Accessory) {
+        return Err("AppKit refused to make the Inspector story process activatable".to_owned());
+    }
+    app.activate();
+    let story = check_window(engine, tab);
+    if !app.setActivationPolicy(previous) && story.is_ok() {
+        return Err("AppKit did not restore the test process activation policy".to_owned());
+    }
+    story
+}
+
+fn check_window(engine: &mut WebKitEngine, tab: TabId) -> Result<(), String> {
     let inspector = inspector_for(engine, tab).ok_or("Inspector has no native controller")?;
     let frontend = frontend(&inspector).ok_or("Inspector has no frontend view")?;
     let tab_window = engine.view(tab).and_then(objc2_app_kit::NSView::window);
     let tab_window = tab_window.ok_or("the inspected page has no window")?;
+
+    if !frontend.respondsToSelector(sel!(_setWindowOcclusionDetectionEnabled:)) {
+        return Err("WebKit does not expose the test view occlusion setting".to_owned());
+    }
+    // SAFETY: the checked WKWebView selector takes a BOOL. Set it before the view moves to
+    // the new window so WebKit recomputes visibility without runner desktop occlusion.
+    let () = unsafe { msg_send![&*frontend, _setWindowOcclusionDetectionEnabled: Bool::NO] };
 
     engine
         .inspect(tab, DevTools::Panel(DevToolsPanel::Console))
@@ -69,8 +96,23 @@ pub(super) fn check(engine: &mut WebKitEngine, tab: TabId) -> Result<(), String>
         );
     }
     window.setContentSize(NSSize::new(1_000.0, 660.0));
+    if !window.isVisible() {
+        window.orderFrontRegardless();
+    }
+    window.makeKeyWindow();
+    if !window.makeFirstResponder(Some(&frontend)) {
+        return Err("the detached Inspector refused keyboard focus".to_owned());
+    }
     wait(&frontend, "consoleSelected")?;
-    action(&frontend, "watchConsoleErrors")?;
+    action(&frontend, "observeFrontend")?;
+    wait(&frontend, "frontendReady").map_err(|error| {
+        format!(
+            "{error}; native visible={}, key={}, occlusion={:?}",
+            window.isVisible(),
+            window.isKeyWindow(),
+            window.occlusionState(),
+        )
+    })?;
 
     // The browser loads and runs this script normally. Its Console entries and request must
     // reach the actual inspected-target agents through Inspector's protocol.
