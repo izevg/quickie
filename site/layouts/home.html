@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="{{ .Language.Lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{ .Description }}">
+  <meta name="theme-color" content="#17111b">
+  <meta property="og:title" content="{{ .Title }} — {{ delimit .Params.headline " " }}">
+  <meta property="og:description" content="{{ .Description }}">
+  <meta property="og:url" content="{{ .Permalink }}">
+  <meta property="og:image" content="{{ "media/quickie.png" | absURL }}">
+  <title>{{ .Title }} — {{ delimit .Params.headline " " }}</title>
+  <link rel="canonical" href="{{ .Permalink }}">
+  {{ range .AllTranslations }}
+  <link rel="alternate" hreflang="{{ .Language.Lang }}" href="{{ .Permalink }}">
+  {{ if eq .Language.Lang "en" }}<link rel="alternate" hreflang="x-default" href="{{ .Permalink }}">{{ end }}
+  {{ end }}
+  <link rel="icon" href="{{ "media/quickie.png" | relURL }}" type="image/png">
+  <link rel="stylesheet" href="{{ "css/quickie.css" | relURL }}">
+</head>
+<body>
+  <a class="skip-link" href="#main">{{ .Params.skip }}</a>
+  <header class="site-header wrap">
+    <a class="brand" href="{{ .RelPermalink }}">
+      <img src="{{ "media/quickie.png" | relURL }}" width="42" height="42" alt="">
+      Quickie
+    </a>
+    <nav class="site-nav">
+      <a class="section-link" href="#features">{{ .Params.featuresLink }}</a>
+      <a href="{{ site.Params.source }}">{{ .Params.sourceLink }} <span aria-hidden="true">↗</span></a>
+      {{ range .Translations }}
+      <a class="language-link" href="{{ .RelPermalink }}" lang="{{ .Language.Lang }}" hreflang="{{ .Language.Lang }}">
+        {{ if eq .Language.Lang "ru" }}Русский{{ else }}English{{ end }}
+      </a>
+      {{ end }}
+    </nav>
+  </header>
+
+  <main id="main" class="wrap" tabindex="-1">
+    {{ $inspector := fileExists "static/media/inspector.png" }}
+    <section class="hero" aria-labelledby="headline">
+      <div class="hero-copy">
+        <h1 id="headline">{{ range .Params.headline }}<span>{{ . }}</span>{{ end }}</h1>
+        <p class="intro">{{ .Params.intro }}</p>
+        <div class="actions">
+          <a class="button" href="{{ site.Params.download }}">{{ .Params.primary }} <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="{{ site.Params.releases }}">{{ .Params.releaseLink }} <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="platform">{{ .Params.platform }}</p>
+      </div>
+      <figure class="showcase">
+        {{ if $inspector }}
+        {{ $inspectorSize := imageConfig "static/media/inspector.png" }}
+        <img class="preview" src="{{ "media/inspector.png" | relURL }}" width="{{ $inspectorSize.Width }}" height="{{ $inspectorSize.Height }}" alt="{{ .Params.inspectorAlt }}" fetchpriority="high">
+        <figcaption>{{ .Params.inspectorLabel }}</figcaption>
+        {{ else }}
+        <img class="preview preview-palette" src="{{ "media/palette.png" | relURL }}" width="768" height="515" alt="{{ .Params.paletteAlt }}" fetchpriority="high">
+        <figcaption>{{ .Params.paletteLabel }}</figcaption>
+        {{ end }}
+      </figure>
+    </section>
+
+    <section class="features" id="features" aria-labelledby="features-title">
+      <div class="feature-heading">
+        <h2 id="features-title">{{ .Params.featuresTitle }}</h2>
+        <p>{{ .Params.featuresLead }}</p>
+      </div>
+      <div class="feature-grid">
+        {{ range .Params.features }}
+        <article>
+          {{ with .keys }}<p class="keycaps">{{ range . }}<kbd>{{ . }}</kbd>{{ end }}</p>{{ end }}
+          <h3>{{ .title }}</h3>
+          <p>{{ .text }}</p>
+        </article>
+        {{ end }}
+      </div>
+      {{ if $inspector }}
+      <figure class="palette-inset">
+        <img src="{{ "media/palette.png" | relURL }}" width="768" height="515" alt="{{ .Params.paletteAlt }}" loading="lazy">
+        <figcaption>{{ .Params.paletteLabel }}</figcaption>
+      </figure>
+      {{ end }}
+    </section>
+
+    <section class="download" aria-labelledby="download-title">
+      <div>
+        <h2 id="download-title">{{ .Params.downloadTitle }}</h2>
+        <p>{{ .Params.downloadText }}</p>
+      </div>
+      <a class="button download-button" href="{{ site.Params.releases }}">{{ .Params.releaseLink }} <span aria-hidden="true">↗</span></a>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <p><strong>Quickie.</strong> {{ .Params.footer }}</p>
+    <a href="{{ site.Params.privacy }}">{{ .Params.privacyLink }} <span aria-hidden="true">↗</span></a>
+  </footer>
+</body>
+</html>

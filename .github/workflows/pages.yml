@@ -1,0 +1,90 @@
+name: pages
+
+on:
+  pull_request:
+    paths:
+      - site/**
+      - .github/workflows/pages.yml
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  HUGO_VERSION: 0.157.0
+  HUGO_SHA256: 78e0a49ec4fb32bfac70a06028297f79b3273fb7e2475eb7ffa1bc208f4c2552
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # actions/configure-pages v6
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        id: pages
+
+      - name: Install Hugo
+        run: |
+          archive="$RUNNER_TEMP/hugo.tar.gz"
+          asset="hugo_${HUGO_VERSION}_linux-amd64.tar.gz"
+          url="https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/$asset"
+          curl --fail --silent --show-error --location --proto '=https' --retry 3 "$url" --output "$archive"
+          printf '%s  %s\n' "$HUGO_SHA256" "$archive" | sha256sum --check
+          tar --extract --gzip --file "$archive" --directory "$RUNNER_TEMP" hugo
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Build the English and Russian pages
+        env:
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          output="$RUNNER_TEMP/quickie-pages"
+          args=(--source site --destination "$output" --gc --minify --panicOnWarning)
+          if [[ -n "$PAGES_BASE_URL" ]]; then
+            args+=(--baseURL "${PAGES_BASE_URL%/}/")
+          fi
+          hugo "${args[@]}"
+          grep -Fq 'No foreplay.' "$output/index.html"
+          grep -Fq 'без прелюдий.' "$output/ru/index.html"
+
+      # actions/upload-pages-artifact v4
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          path: ${{ runner.temp }}/quickie-pages
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # actions/deploy-pages v4
+      - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
+        id: deployment
