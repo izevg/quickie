@@ -88,24 +88,6 @@ jobs:
           key: ${{ steps.engine-cache.outputs.cache-primary-key }}
       - name: Build Quickie, the deb and the AppImage
         run: bash tools/packaging/linux/package deb-and-appimage "$QUICKIE_VERSION"
-      - name: Install the available Ubuntu Bubblewrap profile
-        run: |
-          if ! bwrap --unshare-user --bind / / true; then
-            profile=$(dpkg-query --listfiles apparmor-profiles | awk '/\/bwrap-userns-restrict$/ { print; exit }')
-            test -n "$profile"
-            sudo apparmor_parser --replace "$profile"
-            bwrap --unshare-user --bind / / true
-          fi
-      - name: Run real browsers from both archives
-        run: |
-          sudo apt-get install -y "$PWD/.build/gtk-packages/quickie_${QUICKIE_VERSION}_amd64.deb"
-          bash tools/packaging/linux/tests/smoke /usr/bin/quickie
-          appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
-          if [[ -c /dev/fuse && -r /dev/fuse && -w /dev/fuse ]]; then
-            bash tools/packaging/linux/tests/smoke "$appimage"
-          else
-            APPIMAGE_EXTRACT_AND_RUN=1 bash tools/packaging/linux/tests/smoke "$appimage"
-          fi
       - name: Checksums
         working-directory: .build/gtk-packages
         run: sha256sum ./*.deb ./*.AppImage > SHA256SUMS.ubuntu
@@ -123,8 +105,6 @@ jobs:
     timeout-minutes: 350
     container:
       image: fedora:43
-      # Bubblewrap exercises a real nested user namespace inside this disposable CI VM.
-      options: --privileged
     steps:
       - name: Install build dependencies
         run: bash -c 'dnf -y install git tar gzip which xz curl-minimal'
@@ -155,11 +135,6 @@ jobs:
           key: ${{ steps.engine-cache.outputs.cache-primary-key }}
       - name: Build Quickie and the rpm
         run: bash tools/packaging/linux/package rpm "$QUICKIE_VERSION"
-      - name: Run the installed rpm as an unprivileged user
-        run: |
-          dnf -y install .build/gtk-packages/*.rpm
-          useradd --create-home quickie-test
-          runuser -u quickie-test -- bash tools/packaging/linux/tests/smoke /usr/bin/quickie
       - name: Checksums
         working-directory: .build/gtk-packages
         run: sha256sum ./*.rpm > SHA256SUMS.fedora
@@ -170,3 +145,80 @@ jobs:
           path: .build/gtk-packages/*
           if-no-files-found: error
           compression-level: 0
+
+  ubuntu-smoke:
+    name: Ubuntu 24.04 smoke (deb and AppImage)
+    needs: ubuntu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: quickie-linux-ubuntu
+          path: .build/gtk-packages
+      - name: Install the deb and prepare the runner
+        run: |
+          (cd .build/gtk-packages && sha256sum --check SHA256SUMS.ubuntu)
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apparmor-profiles dbus-x11 xauth xvfb \
+            "$PWD/.build/gtk-packages/quickie_${QUICKIE_VERSION}_amd64.deb"
+          if ! bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true; then
+            profile=$(dpkg-query --listfiles apparmor-profiles | awk '/\/bwrap-userns-restrict$/ { print; exit }')
+            test -n "$profile"
+            sudo apparmor_parser --replace "$profile"
+            bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
+          fi
+      - name: Run real browsers from both archives
+        run: |
+          bash tools/packaging/linux/tests/smoke /usr/bin/quickie
+          appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
+          chmod +x "$appimage"
+          if [[ -c /dev/fuse && -r /dev/fuse && -w /dev/fuse ]]; then
+            bash tools/packaging/linux/tests/smoke "$appimage"
+          else
+            APPIMAGE_EXTRACT_AND_RUN=1 bash tools/packaging/linux/tests/smoke "$appimage"
+          fi
+
+  fedora-smoke:
+    name: Fedora 43 smoke (rpm)
+    needs: fedora
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: quickie-linux-fedora
+          path: .build/gtk-packages
+      - name: Load the distribution Bubblewrap profile on the runner
+        run: |
+          (cd .build/gtk-packages && sha256sum --check SHA256SUMS.fedora)
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends apparmor-profiles
+          profile=$(dpkg-query --listfiles apparmor-profiles | awk '/\/bwrap-userns-restrict$/ { print; exit }')
+          test -n "$profile"
+          sudo apparmor_parser --replace "$profile"
+      - name: Run the installed rpm as an unprivileged user
+        run: |
+          docker run --rm --privileged \
+            --volume "$PWD/.build/gtk-packages:/packages:ro" \
+            --volume "$PWD/tools/packaging/linux/tests:/tests:ro" \
+            fedora:43 bash -c '
+              set -euo pipefail
+              dnf -y install /packages/*.rpm dbus-daemon python3 shadow-utils util-linux \
+                xorg-x11-server-Xvfb xorg-x11-xauth
+              useradd --create-home quickie-test
+              runuser -u quickie-test -- bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
+              runuser -u quickie-test -- bash /tests/smoke /usr/bin/quickie
+            '
