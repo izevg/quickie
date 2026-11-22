@@ -48,14 +48,14 @@ use std::ptr::NonNull;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use block2::RcBlock;
-use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification, NSImage,
     NSView,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter};
+use objc2_foundation::{NSBundle, NSNotification, NSNotificationCenter, ns_string};
 use quickie_application::{
     Agent, AppearanceSettings, Browsing, Clock, Downloads, Engine, EnginePort, Extensions, Library,
     Shields, Zoom,
@@ -172,6 +172,13 @@ fn main() -> ExitCode {
     }
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    let icon = NSBundle::mainBundle()
+        .URLForResource_withExtension(Some(ns_string!("Quickie")), Some(ns_string!("icns")))
+        .and_then(|url| NSImage::initWithContentsOfURL(NSImage::alloc(), &url));
+    if let Some(icon) = icon {
+        // SAFETY: a decoded, non-null icon is installed on the main thread.
+        unsafe { app.setApplicationIconImage(Some(&icon)) };
+    }
 
     let (browser, pending) = match start(mtm) {
         Ok(started) => started,
