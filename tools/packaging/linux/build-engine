@@ -17,7 +17,7 @@ fi
 
 cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  "-DCMAKE_C_COMPILER=${CC:-clang}" "-DCMAKE_CXX_COMPILER=${CXX:-clang++}" \
   -DCMAKE_INSTALL_PREFIX=/opt/quickie \
   -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_LIBEXECDIR=libexec \
   "-DCMAKE_INSTALL_RPATH=\$ORIGIN;\$ORIGIN/..;\$ORIGIN/../../lib" \

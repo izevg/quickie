@@ -75,6 +75,10 @@ jobs:
           key: webkitgtk-ubuntu24-x64-${{ inputs.webkit_commit || hashFiles('engine/webkit/webkit.pin') }}-${{ hashFiles('tools/packaging/linux/build-engine', 'tools/packaging/linux/dist/dependencies') }}
           restore-keys: webkitgtk-ubuntu24-x64-
       - name: Build pinned WebKitGTK
+        env:
+          # WebKit uses clang::suppress on function declarations.
+          CC: clang-20
+          CXX: clang++-20
         run: bash tools/packaging/linux/build-engine
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         if: always() && steps.engine-cache.outputs.cache-matched-key != steps.engine-cache.outputs.cache-primary-key && steps.engine-cache.outputs.cache-primary-key != ''
