@@ -26,6 +26,7 @@ Pull requests to a release branch run it when they touch the Linux packaging or 
 To run it manually, select a Git ref and a numeric package version, then download the
 `quickie-linux-ubuntu` and `quickie-linux-fedora` job artifacts. Each package contains the
 exact engine revision and corresponding source URL in `share/doc/quickie` in its private
-runtime. The workflow runs the installed browser and relocated AppImage against a local page,
-then checks whether the web and network processes use the packaged paths, a separate PID
-namespace, and an added seccomp filter.
+runtime. The workflow runs the installed browser and relocated AppImage against a local page
+and checks that the web and network processes use the packaged paths. The web process must
+also run in a separate PID namespace with an additional seccomp filter. WebKitGTK launches
+its network process directly.

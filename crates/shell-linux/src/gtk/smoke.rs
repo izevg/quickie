@@ -1,37 +1,57 @@
-//! The package smoke test checks the real, sandboxed `WebKit` subprocesses.
+//! The package smoke test checks the installed `WebKit` subprocesses and renderer sandbox.
 
 use std::ffi::{CStr, OsStr};
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+/// Checks that the fixture loaded with the installed libraries and helpers.
+///
+/// # Errors
+///
+/// Returns an error when the fixture title, runtime paths, or renderer confinement differs.
 pub fn verify(title: &CStr, prefix: &Path) -> Result<(), String> {
     if title != c"Quickie smoke test" {
         return Err(format!("unexpected smoke page title: {title:?}"));
     }
     verify_library_paths(&prefix.join("lib"))?;
-    let helpers = prefix.join("libexec/webkitgtk-6.0");
     let host = fs::read_to_string("/proc/self/status").map_err(|error| error.to_string())?;
     let host_filters =
         field(&host, "Seccomp_filters:").ok_or("the host has no Seccomp filter count")?;
-    let processes = descendants(std::process::id());
-    for helper in ["WebKitWebProcess", "WebKitNetworkProcess"] {
+    let mut processes = Vec::new();
+    for pid in descendants(std::process::id()) {
+        let process = format!("/proc/{pid}");
+        if let Ok(arguments) = fs::read(format!("{process}/cmdline")) {
+            let status = fs::read_to_string(format!("{process}/status")).ok();
+            processes.push((arguments, status));
+        }
+    }
+    verify_helpers(
+        &prefix.join("libexec/webkitgtk-6.0"),
+        host_filters,
+        &processes,
+    )
+}
+
+fn verify_helpers(
+    helpers: &Path,
+    host_filters: u32,
+    processes: &[(Vec<u8>, Option<String>)],
+) -> Result<(), String> {
+    // WebKitGTK starts its network helper directly and runs web content under Bubblewrap.
+    for (helper, needs_sandbox) in [("WebKitWebProcess", true), ("WebKitNetworkProcess", false)] {
         let executable = helpers.join(helper);
-        let found = processes.iter().any(|pid| {
-            let process = format!("/proc/{pid}");
-            let Ok(arguments) = fs::read(format!("{process}/cmdline")) else {
-                return false;
-            };
-            if arguments.split(|&byte| byte == 0).next() != Some(executable.as_os_str().as_bytes())
-            {
-                return false;
-            }
-            fs::read_to_string(format!("{process}/status"))
-                .is_ok_and(|status| sandboxed(&status, host_filters))
+        let found = processes.iter().any(|(arguments, status)| {
+            arguments.split(|&byte| byte == 0).next() == Some(executable.as_os_str().as_bytes())
+                && (!needs_sandbox
+                    || status
+                        .as_deref()
+                        .is_some_and(|status| sandboxed(status, host_filters)))
         });
         if !found {
+            let confinement = if needs_sandbox { "sandboxed " } else { "" };
             return Err(format!(
-                "no live sandboxed {helper} from {}",
+                "no live {confinement}{helper} from {}",
                 executable.display()
             ));
         }
@@ -105,7 +125,32 @@ fn sandboxed(status: &str, host_filters: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::sandboxed;
+    use std::path::Path;
+
+    use super::{sandboxed, verify_helpers};
+
+    #[test]
+    fn requires_both_packaged_helpers_and_renderer_confinement() {
+        let helpers = Path::new("/opt/quickie/libexec/webkitgtk-6.0");
+        let process = |name, status: &str| {
+            let argv = format!("{}\0--process-arguments\0", helpers.join(name).display());
+            (argv.into_bytes(), Some(status.to_owned()))
+        };
+        let outer = "NSpid: 714\nSeccomp: 2\nSeccomp_filters: 1\n";
+        let confined = "NSpid: 714 2\nSeccomp: 2\nSeccomp_filters: 2\n";
+        let renderer = process("WebKitWebProcess", confined);
+        let network = process("WebKitNetworkProcess", outer);
+
+        assert_eq!(
+            verify_helpers(helpers, 1, &[renderer.clone(), network.clone()]),
+            Ok(())
+        );
+        assert!(verify_helpers(helpers, 1, std::slice::from_ref(&renderer)).is_err());
+        let system_network = process("/usr/libexec/webkitgtk-6.0/WebKitNetworkProcess", outer);
+        assert!(verify_helpers(helpers, 1, &[renderer, system_network]).is_err());
+        let loose_renderer = process("WebKitWebProcess", outer);
+        assert!(verify_helpers(helpers, 1, &[loose_renderer, network]).is_err());
+    }
 
     #[test]
     fn requires_a_namespace_and_an_additional_seccomp_filter() {
