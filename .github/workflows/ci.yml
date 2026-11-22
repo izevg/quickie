@@ -50,7 +50,8 @@ jobs:
       # Swatinem/rust-cache v2.9.3
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - name: Gates
-        run: mise run ci
+        # Some Cargo commands replace binaries in the shared target directory.
+        run: mise run --jobs 1 ci
 
   # The engine conformance suite (crates/application/src/engine/conformance) on real WKWebViews,
   # as its own status: an engine that stops behaving as the application expects fails here by
@@ -100,6 +101,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: engine/webkit/scripts/fetch
       - name: Conformance suite on the fork
+        env:
+          QUICKIE_INSPECTOR_WINDOW_STORIES: "1"
         run: mise run conformance-fork
 
   # The UI stories (docs/quality.md, UI tests): every widget state rendered headless, its plays

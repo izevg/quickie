@@ -1,0 +1,26 @@
+baseURL = "https://izevg.github.io/quickie/"
+title = "Quickie"
+defaultContentLanguage = "en"
+disableKinds = ["taxonomy", "term", "RSS"]
+
+[languages.en]
+weight = 1
+
+[languages.ru]
+weight = 2
+
+[[module.mounts]]
+source = "static"
+target = "static"
+
+[[module.mounts]]
+source = "../docs/assets"
+target = "static/media"
+files = ["app-icon.png"]
+
+[params]
+source = "https://github.com/izevg/quickie"
+engineSource = "https://github.com/izevg/WebKit"
+releases = "https://github.com/izevg/quickie/releases"
+download = "https://github.com/izevg/quickie/releases/latest"
+privacy = "https://github.com/izevg/quickie/blob/main/docs/privacy.md"

@@ -21,6 +21,8 @@
   };
   const D = Document.prototype;
   const E = Element.prototype;
+  const Video = HTMLVideoElement;
+  const V = Video.prototype;
   const nativeEnabled = getter(D, 'fullscreenEnabled') || getter(D, 'webkitFullscreenEnabled');
   const activation = getter(Navigator.prototype, 'userActivation');
   const isActive = window.UserActivation ? getter(UserActivation.prototype, 'isActive') : null;
@@ -55,6 +57,7 @@
   const Err = window.TypeError;
   const resolved = Promise.resolve.bind(Promise);
   const rejected = Promise.reject.bind(Promise);
+  const catchPromise = uncurry(Promise.prototype.catch);
   const top = window.top === window;
   const doc = document;
   const MARK = 'quickieFullscreen';
@@ -182,6 +185,7 @@
       const target = element && isConnected(element) ? element : doc;
       dispatch(target, new Ev(name, { bubbles: true, composed: true }));
     }
+    if (element instanceof Video) dispatch(element, new Ev('webkitpresentationmodechanged'));
   };
 
   const tell = (state) => {
@@ -276,14 +280,38 @@
     read(D, name, visible);
   }
   for (const name of ['fullscreen', 'webkitIsFullScreen']) read(D, name, () => current !== null);
-  const V = HTMLVideoElement.prototype;
+  function requestVideoFullscreen(video) {
+    // The legacy video APIs return void, including when a gesture is missing.
+    catchPromise(requestFullscreen.call(video), () => {});
+  }
+
   for (const name of ['webkitEnterFullscreen', 'webkitEnterFullScreen']) {
-    define(V, name, function () { requestFullscreen.call(this); });
+    define(V, name, function () { requestVideoFullscreen(this); });
   }
   for (const name of ['webkitExitFullscreen', 'webkitExitFullScreen']) {
     define(V, name, function () { if (current === this) leave('here'); });
   }
   read(V, 'webkitDisplayingFullscreen', function () { return current === this; });
+
+  const nativePresentationMode = getter(V, 'webkitPresentationMode');
+  if (nativePresentationMode && V.webkitSetPresentationMode) {
+    const setNativePresentationMode = uncurry(V.webkitSetPresentationMode);
+    read(V, 'webkitPresentationMode', function () {
+      return current === this ? 'fullscreen' : nativePresentationMode(this);
+    });
+    define(V, 'webkitSetPresentationMode', function (mode) {
+      if (nativePresentationMode(this) === 'inline') {
+        if (mode === 'fullscreen') { requestVideoFullscreen(this); return; }
+        if (mode === 'inline' && current === this) { leave('here'); return; }
+      }
+      setNativePresentationMode(this, mode);
+    });
+    // WebKit owns picture-in-picture. Leave our fullscreen once the native handoff succeeds.
+    listen(doc, 'webkitpresentationmodechanged', (event) => {
+      if (current === event.target && current instanceof Video && nativePresentationMode(current) !== 'inline')
+        leave('here');
+    }, true);
+  }
 
   // A child frame entered or left, or the parent left.
   listen(window, 'message', (event) => {

@@ -102,30 +102,31 @@ the app bundle leaves it out.
 
 ## Bumping the pin
 
-1. Read the new commit off the fork:
-   `git ls-remote https://github.com/izevg/WebKit refs/heads/quickie/2.54`.
+1. Rebase the patch series onto a selected upstream `main` commit in a new candidate
+   branch. Refresh the base every one or two weeks, or immediately for an urgent security
+   fix. Record the exact upstream and fork commits.
 2. Put it into [webkit.pin](webkit/webkit.pin) as `WEBKIT_COMMIT`, with `WEBKIT_CHECKED` set to
-   today (UTC), and the subject line in the comment.
+   today (UTC), and the candidate branch as `WEBKIT_BRANCH`. Confirm the remote can fetch it.
 3. Open a pull request; once it lands on `release/**` or `main`, the push builds it. To build a
    branch before that, run the workflow by hand:
    `gh workflow run webkit.yml --repo izevg/quickie --ref <branch>`.
 
 `sync` prints whether the branch has moved past the pin, so a stale pin shows in every run.
 
-Our patches are commits in the fork: each on its own branch `quickie/patch/<area>-<name>`, built
-there first (below), then merged into `quickie/2.54`, whose new head the pin then names. No patch
-files are kept here, and no git submodule. What each patch is for and in which order they come:
+Patches live as commits in the fork. Build topic branches before adding them to a release
+candidate. Test macOS and GTK before promoting the application PR. Keep old pinned commits
+reachable for reproducing earlier builds.
 [webkit/PATCHES.md](webkit/PATCHES.md).
 
 ## Building a patch branch
 
-A patch branch of the fork is built before it merges into `quickie/2.54`, without touching the
-pin: the `webkit` workflow's `commit` input (a full 40-character fork commit) replaces
+A patch branch can be built without changing the pin. The `webkit` workflow's `commit`
+input (a full 40-character fork commit) replaces
 `WEBKIT_COMMIT` for that run.
 
 ```sh
 commit=$(git ls-remote https://github.com/izevg/WebKit refs/heads/quickie/patch/<area>-<name> | cut -f1)
-gh workflow run webkit.yml --repo izevg/quickie --ref release/0.1.0 -f commit="$commit"
+gh workflow run webkit.yml --repo izevg/quickie --ref release/0.2.0 -f commit="$commit"
 ```
 
 - `sync` reads the override from `QUICKIE_WEBKIT_COMMIT` (the workflow sets it from the input),
@@ -193,5 +194,3 @@ attestation. `sync` is already portable; `build` and `package` grow a GTK branch
    fork with `@rpath` install names would drop that step.
 4. ThinLTO for shipping builds: with 3.5 h of headroom it may fit; measure its time and memory
    first. It changes speed, not behaviour.
-5. Which Safari release branch the fork follows for macOS and which WebKitGTK stable branch for
-   Linux, so one patch series applies to both (the decision's "one pinned WebKit revision").

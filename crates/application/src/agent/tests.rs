@@ -3,6 +3,7 @@
 mod ask;
 mod fakes;
 mod local;
+mod selection;
 mod settings;
 
 use quickie_domain_agents::{ApiKey, BaseUrl, LlmEndpoint, ModelId, PageText, Question, Request};

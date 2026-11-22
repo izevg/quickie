@@ -143,6 +143,10 @@ impl Browser {
             NSApplication::sharedApplication(self.mtm).terminate(None);
             return Outcome::Quit;
         }
+        if self.is_agent_window(window) && is_close(stroke) {
+            window.performClose(None);
+            return Outcome::Overlay;
+        }
         if !self.is_settings_window(window) {
             return Outcome::Elsewhere;
         }

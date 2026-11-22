@@ -304,7 +304,7 @@ fn is_command_letter(stroke: KeyStroke, letter: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use quickie_domain_commands::{Key, KeyStroke, Keymap, Modifiers};
+    use quickie_domain_commands::{Key, KeyStroke, Keymap, Modifiers, Resolution, WhenContext};
 
     use super::{
         OverlayKey, Passed, Read, SheetKey, is_close, is_quit, key, key_of, overlay_key, read,
@@ -429,6 +429,25 @@ mod tests {
         assert_eq!(palette, parsed("cmd+shift+p"));
         assert!(Keymap::defaults(PLATFORM).is_reserved(palette));
         assert_eq!(read(0x0A, "", Modifiers::COMMAND, false), Read::Unnamed);
+    }
+
+    #[test]
+    fn f12_opens_the_inspector_from_a_page() {
+        let keymap = Keymap::defaults(PLATFORM);
+        let context = WhenContext::new()
+            .with_flag("pageFocused")
+            .with_flag("inputFocused");
+
+        for function in [false, true] {
+            let Read::Stroke(stroke) = read(0x6F, "\u{F70F}", Modifiers::NONE, function) else {
+                panic!("AppKit F12 must reach the keymap");
+            };
+            let resolution = keymap.resolve(stroke, None, &context);
+            assert!(
+                matches!(resolution, Resolution::Command(id) if id.as_str() == "quickie.devtools.toggle"),
+                "F12 with the function flag set to {function} did not resolve to Web Inspector",
+            );
+        }
     }
 
     #[test]

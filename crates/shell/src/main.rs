@@ -13,6 +13,7 @@
 //!
 //! As a bundle it opens the links and files other apps hand it (`application:openURLs:`), and
 //! the `App` commands ask macOS to make it the default browser or show the profile in Finder.
+//! The bundled executable accepts `--automation-check <url>` for an isolated navigation check.
 //!
 //! The session, the history, and the bookmarks live in
 //! `~/Library/Application Support/Quickie/shell.sqlite`. Every key is a command of the keymap
@@ -47,14 +48,14 @@ use std::ptr::NonNull;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use block2::RcBlock;
-use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationWillTerminateNotification, NSImage,
     NSView,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter};
+use objc2_foundation::{NSBundle, NSNotification, NSNotificationCenter, ns_string};
 use quickie_application::{
     Agent, AppearanceSettings, Browsing, Clock, Downloads, Engine, EnginePort, Extensions, Library,
     Shields, Zoom,
@@ -164,8 +165,20 @@ fn main() -> ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
         return ExitCode::FAILURE;
     };
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--automation-check") {
+        return automation_check(&args, mtm)
+            .map_or_else(|reason| fail(&reason), |()| ExitCode::SUCCESS);
+    }
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    let icon = NSBundle::mainBundle()
+        .URLForResource_withExtension(Some(ns_string!("Quickie")), Some(ns_string!("icns")))
+        .and_then(|url| NSImage::initWithContentsOfURL(NSImage::alloc(), &url));
+    if let Some(icon) = icon {
+        // SAFETY: a decoded, non-null icon is installed on the main thread.
+        unsafe { app.setApplicationIconImage(Some(&icon)) };
+    }
 
     let (browser, pending) = match start(mtm) {
         Ok(started) => started,
@@ -178,12 +191,51 @@ fn main() -> ExitCode {
     let _flush_on_quit = flush_on_quit(pending);
     let _shortcuts = install_shortcuts(&browser);
     browser.show();
-    let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
     browser.open_urls(launch_urls(&args, &cwd));
     app.activate();
     app.run();
     ExitCode::SUCCESS
+}
+
+#[cfg(feature = "main-webkit")]
+fn automation_check(args: &[String], mtm: MainThreadMarker) -> Result<(), String> {
+    use std::io::{self, Write};
+
+    use quickie_engine_webkit::LocalAutomation;
+
+    let address = match args {
+        [flag, address] if flag == "--automation-check" => address,
+        _ => {
+            return Err(String::from(
+                "usage: quickie --automation-check <http(s) URL>",
+            ));
+        }
+    };
+    let url = Url::parse(address).map_err(|error| error.to_string())?;
+    objc2::rc::autoreleasepool(|_| {
+        let app = NSApplication::sharedApplication(mtm);
+        app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
+        let mut automation = LocalAutomation::open(mtm).map_err(|error| error.to_string())?;
+        let [context] = &automation.contexts().map_err(|error| error.to_string())?[..] else {
+            return Err(String::from("expected one isolated browsing context"));
+        };
+        automation
+            .navigate(context, &url)
+            .map_err(|error| error.to_string())?;
+        writeln!(
+            io::stdout().lock(),
+            "Navigation completed in the isolated WebKit session"
+        )
+        .map_err(|error| error.to_string())
+    })
+}
+
+#[cfg(not(feature = "main-webkit"))]
+fn automation_check(_: &[String], _: MainThreadMarker) -> Result<(), String> {
+    Err(String::from(
+        "local automation requires the Quickie WebKit fork",
+    ))
 }
 
 /// Opens the store, restores the session and the library, loads the keymap, and puts it all

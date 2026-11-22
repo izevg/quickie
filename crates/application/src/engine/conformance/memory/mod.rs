@@ -246,7 +246,11 @@ impl MemoryEngine {
                 self.events
                     .titled(tab, format!("cookies:{}", cookies.unwrap_or_default()));
             }
-            Act::FocusField => page.field_focused = true,
+            Act::FocusField { frame } => {
+                page.field_focused = true;
+                page.acts
+                    .push_front(frame.map_or(Act::Retitle("Focused"), Act::AddFrame));
+            }
             Act::AddFrame(path) | Act::AddForeignFrame(path) => {
                 // A frame plays its page's video as the page's own: the page has a video.
                 let plays = matches!(resource(path), Some(Resource::Page(framed))

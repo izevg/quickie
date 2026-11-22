@@ -42,12 +42,15 @@ use objc2_web_kit::{
     WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebExtensionController,
     WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
 };
-use quickie_application::{AskKind, DevTools, EngineError, FindStep, Followed, LinkTarget};
+use quickie_application::{
+    AgentLinks, AskKind, DevTools, EngineError, FindStep, Followed, LinkTarget,
+};
 use quickie_domain_browsing::{FindMatches, Focus};
 use url::Url;
 
 pub(crate) use observer::PageEvent;
 use observer::PageObserver;
+use scripts::agent_links;
 use scripts::hints::{self, COLLECT_SCRIPT, follow_script};
 pub(crate) use scripts::video::{OnReport, Report};
 use scripts::video::{VIDEO_HANDLER, VIDEO_SCRIPT, VideoHandler};
@@ -476,6 +479,13 @@ impl WebPage {
         let size = self.view.bounds().size;
         self.evaluate(COLLECT_SCRIPT, move |answer| {
             done(hints::targets(&answer, size));
+        });
+    }
+
+    /// Reads links in the current main document without interacting with it.
+    pub(crate) fn agent_links(&self, done: impl FnOnce(Result<AgentLinks, EngineError>) + 'static) {
+        self.evaluate(agent_links::COLLECT_SCRIPT, move |answer| {
+            done(agent_links::parse(&answer));
         });
     }
 

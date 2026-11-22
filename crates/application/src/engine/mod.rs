@@ -30,7 +30,7 @@ pub use extensions::{
 };
 pub use queue::EventQueue;
 
-use crate::{ContentBlockerPort, EngineError, EnginePort, HttpPort};
+use crate::{AgentLinks, ContentBlockerPort, EngineError, EnginePort, HttpPort};
 
 /// What an engine can do that the UI only degrades without, declared once per engine as
 /// [`Engine::CAPS`], so the shell decides at compile time what to offer. A capability a use
@@ -278,6 +278,22 @@ pub trait PageContent {
     ///
     /// The tab has no page, or the engine cannot read pages.
     fn read_text(&mut self, tab: TabId, max_chars: usize) -> Result<Ticket, EngineError>;
+
+    /// Collects a bounded snapshot of the active document's links for Agent navigation.
+    /// The engine invokes the completion on its owning thread.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or the engine does not support Agent link snapshots.
+    fn agent_links(
+        &self,
+        _tab: TabId,
+        _done: impl FnOnce(Result<AgentLinks, EngineError>) + 'static,
+    ) -> Result<(), EngineError> {
+        Err(EngineError(
+            "agent link snapshots are unavailable".to_owned(),
+        ))
+    }
 
     /// Finds the links and controls the tab's page shows on screen, for link hints.
     /// [`EngineEvent::Targets`] with the ticket returned brings them in document order, placed

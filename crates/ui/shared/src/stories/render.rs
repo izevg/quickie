@@ -92,12 +92,14 @@ pub(super) fn start(mtm: MainThreadMarker) {
     STAND_IN.with(|on| on.set(true));
 }
 
-/// The renderer a reference was made with: the macOS major version. Text rasterizes the same
-/// within one, and differently across them.
+/// The macOS release used for a reference. `AppKit` can change rendering between point releases.
 #[must_use]
 pub fn renderer() -> String {
     let version = NSProcessInfo::processInfo().operatingSystemVersion();
-    format!("macos-{}", version.majorVersion)
+    format!(
+        "macos-{}.{}.{}",
+        version.majorVersion, version.minorVersion, version.patchVersion
+    )
 }
 
 /// An offscreen, borderless window of `size` whose content view is the page under the widget,

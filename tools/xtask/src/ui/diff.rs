@@ -124,11 +124,12 @@ pub fn run(cargo: &str, args: &[&str]) -> Result<(), String> {
 /// Whether this machine needs the diff: its renderer against the one each crate's references
 /// record.
 fn need_here(root: &Path) -> Need {
-    let host = sw_vers("-productVersion").ok().and_then(|version| {
-        version
-            .split('.')
-            .next()
-            .map(|major| format!("macos-{major}"))
+    let host = sw_vers("-productVersion").ok().map(|version| {
+        let mut parts = version.trim().split('.');
+        let major = parts.next().unwrap_or_default();
+        let minor = parts.next().unwrap_or("0");
+        let patch = parts.next().unwrap_or("0");
+        format!("macos-{major}.{minor}.{patch}")
     });
     let references: Vec<Option<String>> = STORY_CRATES
         .iter()

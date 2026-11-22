@@ -17,6 +17,8 @@ rust = { version = "stable", components = "rustfmt,clippy", profile = "minimal" 
 "aqua:rhysd/actionlint" = "1.7.12"
 # Versions and release notes from Conventional Commits (.github/cliff.toml).
 "aqua:orhun/git-cliff" = "2.14.2"
+# Finder layout and background for macOS installer images.
+"pypi:dmgbuild" = { version = "2.0.0", os = ["macos"] }
 
 # ---- one-time setup ----------------------------------------------------------------------------
 

@@ -1,0 +1,25 @@
+<!doctype html>
+<title>Video presentation</title>
+<button id="expand">Full screen</button>
+<video id="video" width="320" height="180"></video>
+<script>
+    const video = document.getElementById("video");
+    document.getElementById("expand").onclick = () => {
+        video.webkitSetPresentationMode("fullscreen");
+        if (document.fullscreenElement !== video || video.webkitPresentationMode !== "fullscreen") {
+            document.title = "not in page";
+            return;
+        }
+        const bounds = video.getBoundingClientRect();
+        if (Math.round(bounds.width) !== innerWidth || Math.round(bounds.height) !== innerHeight) {
+            document.title = "video did not fill the page";
+            return;
+        }
+        setTimeout(() => {
+            video.webkitSetPresentationMode("inline");
+            if (!document.fullscreenElement && video.webkitPresentationMode === "inline"
+                && video.getBoundingClientRect().width === 320)
+                document.title = "restored";
+        }, 200);
+    };
+</script>
