@@ -1,5 +1,5 @@
-//! Agent use cases: the endpoint settings, asking about pages in Ask mode, and finding a local
-//! LLM.
+//! Agent use cases: endpoint settings, asking about pages, and selecting links for user-requested
+//! navigation.
 //!
 //! The settings follow the transaction rule of the other use cases: a change is saved first
 //! and only then replaces the endpoint, so a failed save changes nothing. The key goes to the
@@ -16,6 +16,7 @@
 
 mod ask;
 mod local;
+mod navigation;
 #[cfg(test)]
 mod tests;
 
@@ -25,6 +26,7 @@ use quickie_domain_agents::{
 
 pub use ask::{AnswerEvent, AskError, Asking, PageReader};
 pub use local::{LocalFound, detect_local, list_models};
+pub use navigation::{AgentLink, AgentLinks, SelectingLink, SelectionError};
 
 use crate::{AgentRepo, AppError, Entropy, SecretStore};
 

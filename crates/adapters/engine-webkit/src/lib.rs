@@ -13,7 +13,8 @@
 //! the use cases: pages record what they did in one queue, the engine schedules the shell's
 //! waker ([`Engine::set_waker`]) on the main run loop, and the shell drains the queue
 //! ([`Engine::drain`]). Answers to requests (a find, link targets, page text, a picture)
-//! come the same way, never through a callback.
+//! come the same way. An explicit agent link read completes on the main thread with its own
+//! callback.
 //!
 //! Pages open pages of their own (`window.open`, `target=_blank`, `⌘`-click): the engine makes
 //! them at once, from the configuration `WebKit` passes, so they share the opener's process and
@@ -76,15 +77,15 @@ use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrdering
 use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
-    Answer, Capabilities, DevTools, DownloadToken, Downloads, Engine, EngineError, EngineEvent,
-    EnginePort, FindStep, Found, Inspector, Navigation, PageAsks, PageContent, PageSurface,
-    PageVideo, PageZoom, ReplyToken, Ticket,
+    AgentLinks, Answer, Capabilities, DevTools, DownloadToken, Downloads, Engine, EngineError,
+    EngineEvent, EnginePort, FindStep, Found, Inspector, Navigation, PageAsks, PageContent,
+    PageSurface, PageVideo, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
-pub use automation::{AutomationError, BrowsingContext, LocalAutomation};
+pub use automation::{AutomationError, BrowsingContext, InteractiveAutomation, LocalAutomation};
 use downloads::DownloadCenter;
 pub use extensions::WebKitExtensions;
 pub use inbox::OpenedPage;
@@ -417,6 +418,15 @@ impl EnginePort for WebKitEngine {
 /// isolated content world, never in the page's own. Every answer is queued when `WebKit` hands
 /// it over and reaches the shell through the waker.
 impl PageContent for WebKitEngine {
+    fn agent_links(
+        &self,
+        tab: TabId,
+        done: impl FnOnce(Result<AgentLinks, EngineError>) + 'static,
+    ) -> Result<(), EngineError> {
+        self.page(tab)?.agent_links(done);
+        Ok(())
+    }
+
     fn find(&mut self, tab: TabId, query: &str, step: FindStep) -> Result<(), EngineError> {
         let page = self.page(tab)?;
         let inbox = Rc::downgrade(&self.inbox);

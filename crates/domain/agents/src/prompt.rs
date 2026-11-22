@@ -22,6 +22,7 @@
 
 mod fence;
 mod page;
+mod selection;
 mod skill;
 #[cfg(test)]
 mod tests;

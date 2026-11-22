@@ -71,6 +71,8 @@ impl Browser {
             self.open_panel(Trigger::Keyboard);
             return;
         };
+        #[cfg(feature = "main-webkit")]
+        self.cancel_act("");
         self.cancel_answer();
         let tabs = {
             let browsing = self.browsing.borrow();
@@ -237,7 +239,7 @@ impl Browser {
     }
 
     /// A new ask replaces the answer running: it stops, and its last events are dropped.
-    fn cancel_answer(&self) {
+    pub(super) fn cancel_answer(&self) {
         if let Some(running) = self.agent_ui.running.borrow_mut().take() {
             running.stop.stop();
         }

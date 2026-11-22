@@ -1,5 +1,6 @@
-//! Typed in-process automation for a standalone, ephemeral `WebKit` session.
+//! Typed in-process automation in an isolated `WebKit` session.
 
+mod interactive;
 mod native;
 mod reply;
 #[cfg(test)]
@@ -17,6 +18,8 @@ use url::Url;
 
 use native::Session;
 use reply::Reply;
+
+pub use interactive::InteractiveAutomation;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const PAGE_TIMEOUT_MS: u32 = 9_000;
@@ -51,6 +54,9 @@ pub enum AutomationError {
     /// The explicitly requested navigation is not an ordinary web URL.
     #[error("automation requires an HTTP or HTTPS URL without credentials")]
     InvalidUrl,
+    /// The interactive session is already running a navigation.
+    #[error("local WebKit automation is already navigating")]
+    Busy,
 }
 
 /// Owns a separate process pool, a nonpersistent data store, and an offscreen view.
@@ -69,7 +75,7 @@ impl LocalAutomation {
     /// Returns an error if the loaded framework lacks the transport or the context cannot start.
     pub fn open(mtm: MainThreadMarker) -> Result<Self, AutomationError> {
         let reply = Rc::new(RefCell::new(Reply::default()));
-        let session = Session::new(mtm, Rc::clone(&reply))?;
+        let session = Session::new(mtm, Rc::clone(&reply), false)?;
         let mut automation = Self {
             session,
             reply,

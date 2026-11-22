@@ -407,6 +407,12 @@ impl Browser {
     /// The window commands act on: the key window, else the first one.
     fn current(&self) -> Option<(WindowId, Retained<NSWindow>)> {
         let key = NSApplication::sharedApplication(self.mtm).keyWindow();
+        if key
+            .as_deref()
+            .is_some_and(|window| self.is_agent_window(window))
+        {
+            return None;
+        }
         let windows = self.windows.borrow();
         key.and_then(|key| windows.iter().find(|(_, window)| ***window == *key))
             .or_else(|| windows.iter().next())
