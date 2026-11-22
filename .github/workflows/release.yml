@@ -1,7 +1,6 @@
 name: release
 
-# Builds Quickie for macOS as a DMG, creates the `vX.Y.Z` tag, and publishes the GitHub Release
-# with the DMG, its sha256, and notes from git-cliff.
+# Builds the macOS DMG and Linux packages, then publishes them with checksums and release notes.
 # Three ways in:
 #   - `workflow_call` from auto-release.yml: the normal path (version computed from Conventional
 #     Commits, .github/cliff.toml). This workflow creates the tag.
@@ -26,6 +25,15 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      candidate_version:
+        description: Candidate version (X.Y.Z or X.Y.Z-rc.N)
+        type: string
+        default: ""
+      ad_hoc:
+        description: Use ad-hoc signing for the candidate DMG
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       version:
@@ -50,23 +58,27 @@ defaults:
     shell: bash
 
 jobs:
-  publish:
-    name: publish
+  macos:
+    name: macOS DMG
     # macOS 26 with Xcode 26 on arm64, as the WebKit build.
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
-      contents: write
+      contents: read
       # read: the WebKit fork's build, a workflow artifact when no prerelease keeps it, and its
       # attestation.
       actions: read
       attestations: read
+    outputs:
+      version: ${{ steps.mode.outputs.version }}
+      mode: ${{ steps.mode.outputs.mode }}
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       # jdx/mise-action v5.2.9
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
         with:
@@ -82,18 +94,31 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
+          CANDIDATE_VERSION: ${{ inputs.candidate_version }}
         run: |
-          if [ "$EVENT" = push ] && [ "$REF_TYPE" = tag ]; then
-            echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
-            echo "mode=tagged" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = workflow_dispatch ]; then
+            version="$CANDIDATE_VERSION"
+            if [ -z "$version" ]; then
+              version="$(.github/scripts/next-version.sh || true)"
+            fi
+            version="${version:-0.0.0}"
+            mode=dry-run
+          elif [ "$EVENT" = push ] && [ "$REF_TYPE" = tag ]; then
+            version="${REF_NAME#v}"
+            mode=tagged
           elif [ -n "$INPUT_VERSION" ]; then
-            echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
-            echo "mode=called" >> "$GITHUB_OUTPUT"
+            version="$INPUT_VERSION"
+            mode=called
           else
-            version="$(.github/scripts/next-version.sh || true)"
-            echo "version=${version:-0.0.0}" >> "$GITHUB_OUTPUT"
-            echo "mode=dry-run" >> "$GITHUB_OUTPUT"
+            echo "::error::a called release requires a version"
+            exit 1
           fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "::error::invalid release version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
       - name: Release notes
         env:
           MODE: ${{ steps.mode.outputs.mode }}
@@ -110,6 +135,7 @@ jobs:
 
       - name: Signing identity
         id: identity
+        if: github.event_name != 'workflow_dispatch' || !inputs.ad_hoc
         env:
           P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
           P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
@@ -157,6 +183,8 @@ jobs:
             --webkit .build/webkit-frameworks --dmg "${sign[@]}"
           dmg="$RUNNER_TEMP/Quickie-$VERSION.dmg"
           mv "target/release/Quickie-${VERSION%%-*}.dmg" "$dmg"
+          codesign --verify --deep --strict target/release/Quickie.app
+          hdiutil verify "$dmg"
           echo "path=$dmg" >> "$GITHUB_OUTPUT"
 
       - name: Notarize
@@ -212,25 +240,58 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Tag and publish
-        if: steps.mode.outputs.mode != 'dry-run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MODE: ${{ steps.mode.outputs.mode }}
-          VERSION: ${{ steps.mode.outputs.version }}
-          SHA: ${{ inputs.ref || github.sha }}
-          DMG: ${{ steps.dmg.outputs.path }}
-        run: |
-          tag="v$VERSION"
-          if [ "$MODE" = called ]; then
-            git tag "$tag" "$SHA"
-            git push origin "$tag"
-          fi
-          prerelease=()
-          case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac
-          gh release create "$tag" --verify-tag --title "$tag" --notes-file notes.md \
-            "${prerelease[@]}" "$DMG" "$DMG.sha256"
-
       - name: Remove the signing keychain
         if: always() && steps.identity.outputs.identity != ''
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+  linux:
+    name: Linux packages
+    needs: macos
+    if: needs.macos.outputs.mode != 'dry-run' && !contains(needs.macos.outputs.version, '-')
+    uses: ./.github/workflows/linux.yml
+    with:
+      version: ${{ needs.macos.outputs.version }}
+      ref: ${{ inputs.ref || github.sha }}
+
+  publish:
+    name: publish
+    needs: [macos, linux]
+    if: ${{ !cancelled() && needs.macos.result == 'success' && needs.macos.outputs.mode != 'dry-run' &&
+      (needs.linux.result == 'success' || needs.linux.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: quickie-*
+          path: release
+
+      - name: Tag and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.macos.outputs.mode }}
+          VERSION: ${{ needs.macos.outputs.version }}
+          SHA: ${{ inputs.ref || github.sha }}
+        run: |
+          tag="v$VERSION"
+          macos="release/quickie-macos-$VERSION"
+          dmg="Quickie-$VERSION.dmg"
+          (cd "$macos" && sha256sum --check "$dmg.sha256")
+          assets=("$macos/$dmg" "$macos/$dmg.sha256")
+          flags=()
+          if [ "$MODE" = tagged ]; then flags+=(--verify-tag); else flags+=(--target "$SHA"); fi
+          if [[ "$VERSION" == *-* ]]; then
+            flags+=(--prerelease)
+          else
+            ubuntu=release/quickie-linux-ubuntu
+            fedora=release/quickie-linux-fedora
+            (cd "$ubuntu" && sha256sum --check SHA256SUMS.ubuntu)
+            (cd "$fedora" && sha256sum --check SHA256SUMS.fedora)
+            assets+=("$ubuntu/"*.deb "$ubuntu/"*.AppImage "$ubuntu/SHA256SUMS.ubuntu"
+                     "$fedora/"*.rpm "$fedora/SHA256SUMS.fedora")
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" \
+            --notes-file "$macos/notes.md" "${flags[@]}" "${assets[@]}"

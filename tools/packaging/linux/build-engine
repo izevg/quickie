@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)
+cd -- "$root"
+build_dir=${QUICKIE_BUILD_DIR:-"$root/.build"}
+stage="$build_dir/gtk-stage"
+
+engine/webkit/scripts/sync
+revision=$(git -C "$build_dir/webkit" rev-parse HEAD)
+printf '%s\n' "$revision" > "$build_dir/gtk-revision"
+if ! rg -q 'WEBKIT_OPTION_DEFINE\(ENABLE_QUICKIE_RELOCATABLE_GTK' \
+  "$build_dir/webkit/Source/cmake/OptionsGTK.cmake"; then
+  printf '%s\n' 'The selected WebKit revision lacks the relocatable Quickie GTK runtime.' >&2
+  exit 1
+fi
+
+cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
+  -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_INSTALL_PREFIX=/opt/quickie \
+  -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_LIBEXECDIR=libexec \
+  "-DCMAKE_INSTALL_RPATH=\$ORIGIN;\$ORIGIN/..;\$ORIGIN/../../lib" \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DENABLE_QUICKIE_RELOCATABLE_GTK=ON -DENABLE_BUBBLEWRAP_SANDBOX=ON \
+  -DDEVELOPER_MODE=OFF -DENABLE_API_TESTS=OFF -DENABLE_LAYOUT_TESTS=OFF \
+  -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
+  -DENABLE_MINIBROWSER=OFF -DENABLE_WEBDRIVER=OFF \
+  -DUSE_LIBBACKTRACE=OFF -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF
+cmake --build "$build_dir/gtk"
+if [[ -e $stage ]]; then
+  printf 'Move the previous engine stage before rebuilding: %s\n' "$stage" >&2
+  exit 1
+fi
+DESTDIR="$stage" cmake --install "$build_dir/gtk"
+
+runtime="$stage/opt/quickie"
+test -e "$runtime/lib/libwebkitgtk-6.0.so"
+test -f "$runtime/lib/webkitgtk-6.0/injected-bundle/libwebkitgtkinjectedbundle.so"
+for helper in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess; do
+  test -x "$runtime/libexec/webkitgtk-6.0/$helper"
+done
+install -Dm644 LICENSE "$runtime/share/doc/quickie/LICENSE"
+for license in LICENSE-APPLE LICENSE-LGPL-2 LICENSE-LGPL-2.1; do
+  install -Dm644 "$build_dir/webkit/Source/WebCore/$license" \
+    "$runtime/share/doc/quickie/webkit/$license"
+done
+install -Dm644 "$build_dir/webkit/Source/JavaScriptCore/COPYING.LIB" \
+  "$runtime/share/doc/quickie/webkit/JavaScriptCore-COPYING.LIB"
+# shellcheck source=/dev/null # The pin contains only versioned repository assignments.
+source engine/webkit/webkit.pin
+printf '%s/tree/%s\n' "${WEBKIT_REPO%.git}" "$revision" > "$runtime/share/doc/quickie/WEBKIT-SOURCE"
+install -Dm644 "$build_dir/gtk-revision" "$runtime/share/doc/quickie/WEBKIT-REVISION"
+ccache --show-stats

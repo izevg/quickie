@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  ubuntu)
+    sudo apt-get update
+    sudo apt-get install -y --no-install-recommends \
+      apparmor-profiles bison bubblewrap ccache clang cmake dbus-x11 desktop-file-utils dpkg-dev \
+      flex g++ git gperf ninja-build pkg-config python3 python3-packaging python3-yaml ripgrep ruby \
+      unifdef wayland-protocols xauth xdg-dbus-proxy xvfb \
+      libavif-dev libatk-bridge2.0-dev libcairo2-dev libdrm-dev libenchant-2-dev libepoxy-dev \
+      libflite1 flite1-dev libfontconfig-dev libfreetype-dev libgcrypt20-dev libgbm-dev \
+      libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+      libgstreamer-plugins-bad1.0-dev libgtk-4-dev libharfbuzz-dev libhyphen-dev libicu-dev \
+      libjpeg-dev libjxl-dev liblcms2-dev libmanette-0.2-dev libpng-dev libseccomp-dev \
+      libsecret-1-dev libsoup-3.0-dev libsqlite3-dev libssl-dev libsystemd-dev libtasn1-6-dev \
+      libwayland-dev libwebp-dev libwoff-dev libx11-dev libxcomposite-dev libxdamage-dev \
+      libxext-dev libxml2-dev libxrandr-dev libxslt1-dev zlib1g-dev \
+      fonts-liberation gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
+    ;;
+  fedora)
+    dnf -y install \
+      binutils bison bubblewrap ccache clang cmake dbus-daemon desktop-file-utils diffutils findutils \
+      flex gcc-c++ git gperf gzip ninja-build pkgconf-pkg-config python3 python3-packaging python3-pyyaml \
+      perl-English perl-FindBin perl-JSON-PP ripgrep rpm-build ruby shadow-utils unifdef util-linux \
+      wayland-devel wayland-protocols-devel xdg-dbus-proxy xorg-x11-server-Xvfb xorg-x11-xauth \
+      at-spi2-core-devel cairo-devel enchant2-devel flite-devel fontconfig-devel freetype-devel \
+      glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-bad-free-devel \
+      gtk4-devel harfbuzz-devel hyphen-devel lcms2-devel libavif-devel libdrm-devel libepoxy-devel \
+      libgcrypt-devel libicu-devel libjpeg-turbo-devel libjxl-devel libmanette-devel libpng-devel \
+      libseccomp-devel libsecret-devel libsoup3-devel libtasn1-devel \
+      libwebp-devel libX11-devel libXcomposite-devel libXdamage-devel libXext-devel libXrandr-devel \
+      libxml2-devel libxslt-devel mesa-libgbm-devel openssl-devel sqlite-devel systemd-devel \
+      woff2-devel zlib-ng-compat-devel \
+      liberation-fonts gstreamer1-plugins-base gstreamer1-plugins-good
+    ;;
+  *)
+    printf '%s\n' 'Select the ubuntu or fedora build dependencies.' >&2
+    exit 1
+    ;;
+esac

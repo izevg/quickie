@@ -991,6 +991,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "quickie-linux"
+version = "0.0.0"
+dependencies = [
+ "quickie-domain-browsing",
+]
+
+[[package]]
 name = "quickie-llm"
 version = "0.0.0"
 dependencies = [

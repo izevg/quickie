@@ -38,7 +38,7 @@ impl Layer {
             ["crates", "application"] => Some(Self::Application),
             ["crates", "adapters", _] => Some(Self::Adapter),
             ["crates", "ui", name] => UiLayer::named(name).map(Self::Ui),
-            ["crates", "shell"] => Some(Self::Shell),
+            ["crates", "shell" | "shell-linux"] => Some(Self::Shell),
             ["tools", _] => Some(Self::Tool),
             _ => None,
         }
@@ -132,6 +132,7 @@ mod tests {
             Some(Layer::Ui(UiLayer::Widgets))
         );
         assert_eq!(Layer::of("crates/shell"), Some(Layer::Shell));
+        assert_eq!(Layer::of("crates/shell-linux"), Some(Layer::Shell));
         assert_eq!(Layer::of("tools/xtask"), Some(Layer::Tool));
         assert_eq!(Layer::of("crates/ui/pages"), None);
         assert_eq!(Layer::of("crates/domain/browsing/extra"), None);

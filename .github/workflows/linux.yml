@@ -1,0 +1,167 @@
+name: linux packages
+
+on:
+  pull_request:
+    branches: ["release/**"]
+    paths:
+      - ".github/workflows/linux.yml"
+      - "crates/shell-linux/**"
+      - "engine/webkit/webkit.pin"
+      - "tools/packaging/linux/**"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version (X.Y.Z)
+        type: string
+        required: true
+        default: "0.2.0"
+      webkit_commit:
+        description: Optional fork commit for a preview test
+        type: string
+        required: false
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_DIR: ${{ github.workspace }}/.build/gtk-ccache
+  CCACHE_MAXSIZE: 3G
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+  QUICKIE_MIN_FREE_GB: "25"
+  QUICKIE_WEBKIT_COMMIT: ${{ inputs.webkit_commit }}
+  QUICKIE_VERSION: ${{ inputs.version || '0.2.0' }}
+
+jobs:
+  ubuntu:
+    name: Ubuntu 24.04 (deb and AppImage)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: rust
+      - name: Install build dependencies
+        run: bash tools/packaging/linux/dist/dependencies ubuntu
+      # actions/cache v5
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: engine-cache
+        with:
+          path: .build/gtk-ccache
+          key: webkitgtk-ubuntu24-x64-${{ inputs.webkit_commit || hashFiles('engine/webkit/webkit.pin') }}-${{ hashFiles('tools/packaging/linux/build-engine', 'tools/packaging/linux/dist/dependencies') }}
+          restore-keys: webkitgtk-ubuntu24-x64-
+      - name: Build pinned WebKitGTK
+        run: bash tools/packaging/linux/build-engine
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: always() && steps.engine-cache.outputs.cache-matched-key != steps.engine-cache.outputs.cache-primary-key && steps.engine-cache.outputs.cache-primary-key != ''
+        with:
+          path: .build/gtk-ccache
+          key: ${{ steps.engine-cache.outputs.cache-primary-key }}
+      - name: Build Quickie, the deb and the AppImage
+        run: bash tools/packaging/linux/package deb-and-appimage "$QUICKIE_VERSION"
+      - name: Install the available Ubuntu Bubblewrap profile
+        run: |
+          if ! bwrap --unshare-user --bind / / true; then
+            profile=$(dpkg-query --listfiles apparmor-profiles | awk '/\/bwrap-userns-restrict$/ { print; exit }')
+            test -n "$profile"
+            sudo apparmor_parser --replace "$profile"
+            bwrap --unshare-user --bind / / true
+          fi
+      - name: Run real browsers from both archives
+        run: |
+          sudo apt-get install -y "$PWD/.build/gtk-packages/quickie_${QUICKIE_VERSION}_amd64.deb"
+          bash tools/packaging/linux/tests/smoke /usr/bin/quickie
+          appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
+          if [[ -c /dev/fuse && -r /dev/fuse && -w /dev/fuse ]]; then
+            bash tools/packaging/linux/tests/smoke "$appimage"
+          else
+            APPIMAGE_EXTRACT_AND_RUN=1 bash tools/packaging/linux/tests/smoke "$appimage"
+          fi
+      - name: Checksums
+        working-directory: .build/gtk-packages
+        run: sha256sum ./*.deb ./*.AppImage > SHA256SUMS.ubuntu
+      # actions/upload-artifact v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: quickie-linux-ubuntu
+          path: .build/gtk-packages/*
+          if-no-files-found: error
+          compression-level: 0
+
+  fedora:
+    name: Fedora 43 (rpm)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    container:
+      image: fedora:43
+      # Bubblewrap exercises a real nested user namespace inside this disposable CI VM.
+      options: --privileged
+    steps:
+      - name: Install build dependencies
+        run: bash -c 'dnf -y install git tar gzip which xz curl-minimal'
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      # jdx/mise-action v5.2.9
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
+        with:
+          install_args: rust
+      - name: Install WebKit dependencies
+        run: bash tools/packaging/linux/dist/dependencies fedora
+      # actions/cache v5
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: engine-cache
+        with:
+          path: .build/gtk-ccache
+          key: webkitgtk-fedora43-x64-${{ inputs.webkit_commit || hashFiles('engine/webkit/webkit.pin') }}-${{ hashFiles('tools/packaging/linux/build-engine', 'tools/packaging/linux/dist/dependencies') }}
+          restore-keys: webkitgtk-fedora43-x64-
+      - name: Build pinned WebKitGTK
+        run: bash tools/packaging/linux/build-engine
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: always() && steps.engine-cache.outputs.cache-matched-key != steps.engine-cache.outputs.cache-primary-key && steps.engine-cache.outputs.cache-primary-key != ''
+        with:
+          path: .build/gtk-ccache
+          key: ${{ steps.engine-cache.outputs.cache-primary-key }}
+      - name: Build Quickie and the rpm
+        run: bash tools/packaging/linux/package rpm "$QUICKIE_VERSION"
+      - name: Run the installed rpm as an unprivileged user
+        run: |
+          dnf -y install .build/gtk-packages/*.rpm
+          useradd --create-home quickie-test
+          runuser -u quickie-test -- bash tools/packaging/linux/tests/smoke /usr/bin/quickie
+      - name: Checksums
+        working-directory: .build/gtk-packages
+        run: sha256sum ./*.rpm > SHA256SUMS.fedora
+      # actions/upload-artifact v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: quickie-linux-fedora
+          path: .build/gtk-packages/*
+          if-no-files-found: error
+          compression-level: 0

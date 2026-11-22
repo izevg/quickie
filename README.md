@@ -7,8 +7,8 @@
 **Fast. Discreet. Leaves no trace.**
 
 The web, edge to edge; everything else is one keystroke away.
-A personal web browser for macOS (Linux later): our own WebKit underneath, a native Rust and AppKit
-shell on top.
+A personal web browser for macOS, with a first Linux preview. Both use our own WebKit
+fork, with a native Rust shell on AppKit or GTK4.
 The page fills the window, the interface answers the keyboard like VS Code, Liquid Glass appears
 only where something floats, and nothing phones home.
 
@@ -191,12 +191,12 @@ Releases carry the fork and need macOS 26.5 or later, the macOS it is built for.
 
 `mise run bundle` wraps `cargo xtask bundle`: it builds the shell, lays out `Quickie.app` with its
 `Info.plist` (bundle id `dev.quickie.Quickie`, `--bundle-id` for a throwaway build), and an icon
-made from `docs/assets/logo.png` at bundle time, and signs it ad hoc so WebKit's helper processes
+made from `docs/assets/app-icon.png` at bundle time, and signs it ad hoc so WebKit's helper processes
 launch. As a bundle, Quickie opens the links and files other apps hand it, and the palette's
 **Set as Default Browser** asks macOS to make it the default browser (macOS confirms with you).
-The ad-hoc signature is for this Mac only. A release builds the same bundle with
-`--version <X.Y.Z> --dmg`, and `--sign <identity>` signs it with Developer ID under the hardened
-runtime for notarization; `release.yml` does all of it and attaches the DMG to the GitHub
+An ad-hoc signature lets the app run locally. A release builds the same bundle with
+`--version <X.Y.Z> --dmg`. Configure a Developer ID identity and notarization to distribute
+through Gatekeeper. The release workflow attaches the DMG to the GitHub
 Release.
 
 To use Quickie day to day, run the release bundle, `cargo xtask bundle --release` (the same as

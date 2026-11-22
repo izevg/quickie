@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+scripts=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+root=$(cd -- "$scripts/../../.." && pwd)
+cd -- "$root"
+build_dir=${QUICKIE_BUILD_DIR:-"$root/.build"}
+shell_rpath="\$ORIGIN/../lib"
+format=${1:-}
+version=${2:-}
+if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf '%s\n' 'Use a package version in the form X.Y.Z.' >&2
+  exit 1
+fi
+
+engine="$build_dir/gtk-stage/opt/quickie"
+target="$build_dir/gtk-cargo"
+out="$build_dir/gtk-packages"
+mkdir -p "$out"
+work=$(mktemp -d "$build_dir/gtk-package.XXXXXX")
+trap 'rm -rf -- "$work"' EXIT
+
+desktop-file-validate "$scripts/quickie.desktop"
+test -f "$engine/lib/libwebkitgtk-6.0.so"
+RUSTFLAGS="-Lnative=$engine/lib" LD_LIBRARY_PATH="$engine/lib" \
+  mise exec -- cargo test --locked --package quickie-linux --target-dir "$target"
+mise exec -- cargo rustc --locked --release --package quickie-linux --target-dir "$target" \
+  -- -L "native=$engine/lib" "-Clink-arg=-Wl,-rpath,$shell_rpath"
+
+stage="$work/root"
+runtime="$stage/opt/quickie"
+mkdir -p "$runtime/lib" "$runtime/libexec" "$runtime/share"
+cp -a "$engine"/lib/libjavascriptcoregtk-6.0.so* "$engine"/lib/libwebkitgtk-6.0.so* "$runtime/lib/"
+cp -a "$engine/lib/webkitgtk-6.0" "$runtime/lib/"
+cp -a "$engine/libexec/." "$runtime/libexec/"
+cp -a "$engine/share/." "$runtime/share/"
+install -Dm755 "$target/release/quickie-gtk" "$runtime/bin/quickie"
+mkdir -p "$stage/usr/bin"
+ln -s /opt/quickie/bin/quickie "$stage/usr/bin/quickie"
+install -Dm644 "$scripts/quickie.desktop" "$stage/usr/share/applications/quickie.desktop"
+install -Dm644 docs/assets/app-icon.png "$stage/usr/share/icons/hicolor/512x512/apps/quickie.png"
+readelf -d "$runtime/bin/quickie" | grep -F "$shell_rpath" >/dev/null
+
+deb() {
+  mkdir -p "$work/debian" "$stage/DEBIAN"
+  printf 'Source: quickie\n\nPackage: quickie\nArchitecture: any\n' > "$work/debian/control"
+  local -a libraries=()
+  local executable
+  while IFS= read -r -d '' executable; do
+    if readelf -h "$executable" >/dev/null 2>&1; then
+      libraries+=("-e$executable")
+    fi
+  done < <(find "$runtime/bin" "$runtime/lib" "$runtime/libexec" -type f -print0)
+  local dependencies
+  dependencies=$(cd -- "$work" && dpkg-shlibdeps --ignore-missing-info -O -l"$runtime/lib" "${libraries[@]}")
+  dependencies=${dependencies#shlibs:Depends=}
+  {
+    printf 'Package: quickie\nVersion: %s\nArchitecture: amd64\n' "$version"
+    printf 'Maintainer: Quickie contributors <quickie@users.noreply.github.com>\nSection: web\nPriority: optional\n'
+    printf 'Depends: bubblewrap, xdg-dbus-proxy, shared-mime-info, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, %s\n' \
+      "$dependencies"
+    printf 'Recommends: apparmor-profiles, gstreamer1.0-libav\nDescription: Native GTK4 browser with Quickie WebKitGTK\n'
+  } > "$stage/DEBIAN/control"
+  dpkg-deb --root-owner-group --build "$stage" "$out/quickie_${version}_amd64.deb"
+}
+
+rpm() {
+  rpmbuild -bb --define "_topdir $work/rpm" --define "_rpmdir $work/rpm-out" \
+    --define "quickie_version $version" --define "quickie_stage $stage" "$scripts/dist/quickie.spec"
+  cp "$work/rpm-out/x86_64/"*.rpm "$out/"
+}
+
+appimage() {
+  local appdir="$work/Quickie.AppDir" tool="$work/appimagetool" runtime_size
+  mkdir -p "$appdir"
+  cp -a "$runtime" "$appdir/usr"
+  cp "$scripts/quickie.desktop" "$appdir/"
+  cp docs/assets/app-icon.png "$appdir/quickie.png"
+  ln -s quickie.png "$appdir/.DirIcon"
+  ln -s usr/bin/quickie "$appdir/AppRun"
+  curl --proto '=https' --fail --location --retry 3 --output "$tool" \
+    https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+  printf 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  %s\n' "$tool" \
+    | sha256sum --check
+  chmod +x "$tool"
+  # Reuse the pinned tool's type-2 runtime. Building an image cannot fetch a changing runtime.
+  runtime_size=$("$tool" --appimage-offset)
+  [[ $runtime_size =~ ^[0-9]+$ ]]
+  head -c "$runtime_size" "$tool" > "$work/appimage-runtime"
+  ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$tool" --runtime-file "$work/appimage-runtime" \
+    "$appdir" "$out/Quickie-${version}-x86_64.AppImage"
+}
+
+case "$format" in
+  deb-and-appimage) deb; appimage ;;
+  rpm) rpm ;;
+  *) printf '%s\n' 'Select deb-and-appimage or rpm.' >&2; exit 1 ;;
+esac

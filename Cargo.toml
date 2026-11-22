@@ -7,6 +7,7 @@ members = [
   "crates/adapters/*",
   "crates/ui/*",
   "crates/shell",
+  "crates/shell-linux",
   "tools/xtask",
 ]
 

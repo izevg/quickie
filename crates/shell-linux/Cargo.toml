@@ -1,0 +1,16 @@
+[package]
+name = "quickie-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "quickie-gtk"
+path = "src/main.rs"
+
+[dependencies]
+quickie-domain-browsing.workspace = true
+
+[lints]
+workspace = true
