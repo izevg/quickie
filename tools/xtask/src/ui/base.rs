@@ -12,7 +12,7 @@ pub enum Need {
     NoRenderer,
 }
 
-/// `host` is this machine's renderer (`macos-<major>`, `None` off macOS), `references` the
+/// `host` is this machine's macOS version (`None` off macOS), `references` the
 /// renderer each story crate's references record (`None` where none were accepted yet).
 #[must_use]
 pub fn need(host: Option<&str>, references: &[Option<&str>]) -> Need {
@@ -110,7 +110,10 @@ mod tests {
     #[test]
     fn references_from_another_macos_need_a_diff() {
         assert_eq!(
-            need(Some("macos-27"), &[Some("macos-26"), Some("macos-26")]),
+            need(
+                Some("macos-26.5.2"),
+                &[Some("macos-26.7.2"), Some("macos-26.7.2")],
+            ),
             Need::Diff
         );
     }
