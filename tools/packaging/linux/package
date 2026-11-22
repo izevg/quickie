@@ -57,7 +57,8 @@ deb() {
   {
     printf 'Package: quickie\nVersion: %s\nArchitecture: amd64\n' "$version"
     printf 'Maintainer: Quickie contributors <quickie@users.noreply.github.com>\nSection: web\nPriority: optional\n'
-    printf 'Depends: bubblewrap, xdg-dbus-proxy, shared-mime-info, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, %s\n' \
+    # WebKit loads GLES dynamically, so dpkg-shlibdeps does not report it.
+    printf 'Depends: bubblewrap, xdg-dbus-proxy, shared-mime-info, libgles2, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, %s\n' \
       "$dependencies"
     printf 'Recommends: apparmor-profiles, gstreamer1.0-libav\nDescription: Native GTK4 browser with Quickie WebKitGTK\n'
   } > "$stage/DEBIAN/control"

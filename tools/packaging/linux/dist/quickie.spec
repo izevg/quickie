@@ -12,6 +12,8 @@ Requires: bubblewrap
 Requires: xdg-dbus-proxy
 Requires: gstreamer1-plugins-base
 Requires: gstreamer1-plugins-good
+# WebKit loads GLES dynamically, so automatic ELF requirements omit it.
+Requires: libglvnd-gles%{?_isa}
 Requires: shared-mime-info
 
 %description
