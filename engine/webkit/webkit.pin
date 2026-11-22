@@ -15,6 +15,6 @@
 # (engine/README.md, "Bumping the pin").
 
 WEBKIT_REPO=https://github.com/izevg/WebKit.git
-WEBKIT_BRANCH=quickie/release-0.2.0-gtk-candidate
-WEBKIT_COMMIT=ecdb8d67e0ea85c93bbf4384b40ab7394c4907bb
+WEBKIT_BRANCH=quickie/inspector-stitch-fidelity
+WEBKIT_COMMIT=4e7f97a8b956332c697bcd5f8ccdd8ddcf36c77a
 WEBKIT_CHECKED=2026-11-22

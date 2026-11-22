@@ -8,9 +8,10 @@ Quickie. [Design system](../system.md)
 
 - AppKit owns the detached window, traffic lights, focus, fullscreen, saved frame,
   and window shadow. The detached Inspector stays nonmodal.
-- WebKit's native Inspector proxy owns docking and the space reserved in the page
+- WebKit's native Inspector proxy places the dock above the live page in its tab
   host. The dock uses a 12 pt inset, a 16 pt surface radius, and one medium-elevation
-  shadow. The opaque surface clips its content once.
+  shadow. The opaque surface clips its content once. The page keeps its viewport
+  and receives clicks through the gutters and rounded corners.
 - WebInspectorUI owns tab navigation, tool state, tables, editors, and responsive
   layouts. The Quickie adapter opens existing tools through the fork's Inspector API.
   Memory selects the Heap Allocations timeline.
@@ -21,14 +22,14 @@ Quickie. [Design system](../system.md)
 ## Layout
 
 The first local Inspector opens at the bottom when the page can accommodate it.
-A user's dock or detach choice persists. An attached side reserves at least 364 pt
-for the Inspector and 320 pt for the page. The 364 pt allocation leaves 340 pt inside
+A user's dock or detach choice persists. An attached side uses at least 364 pt
+and leaves at least 320 pt of the page unobstructed. The 364 pt allocation leaves 340 pt inside
 the Inspector at 100% zoom. The bottom dock stays available in windows where the
 side dock cannot fit.
 
 | Tool | Expected behavior |
 |---|---|
-| Console | Existing action bar above scrolling output and a prompt anchored below it. Warnings, errors, source links, object expansion, history, completion, and split Console remain available. |
+| Console | Grouped toolbar, top-aligned monospace output, and a prompt anchored below it. Warnings, errors, source links, object expansion, history, completion, and split Console remain available. |
 | Network | The resource table and request details stack at 420–699 CSS px when height permits. Below 420 CSS px or with limited height, details occupy the content region and the Requests action returns to the selected row, scroll offset, sort, and filters. The wide layout keeps side-by-side details. |
 | Elements | Wide bottom layout retains the DOM tree, breadcrumbs, style panels, element picker, and editor interactions. The inspected element highlight stays aligned with the page. |
 | Memory | The existing Heap Allocations view retains snapshots, comparisons, imports, object graphs, and lazy retainers. |

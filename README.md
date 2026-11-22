@@ -109,6 +109,8 @@ every text field always gets its characters.
 | `⌘W` | Close the tab (it goes to the trash, not away) |
 | `⌘J` | Downloads |
 | `⌘⌥S` | Shields for the site |
+| `F12` / `⌘⌥I` | Toggle Web Inspector. Use `Fn+F12` when the top row controls media |
+| `⌘⌥J` | Show the Web Inspector Console |
 | `⌘N` / `⌘⇧W` | New window / close the window (its tabs go to the trash) |
 | `⌃⌘F` | Enter or exit full screen (Window menu, Globe+F, or the window's green button) |
 | `⌘.` | Stop the agent's answer (`?` in the palette asks it about the page) |
