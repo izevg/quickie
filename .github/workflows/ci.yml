@@ -104,6 +104,19 @@ jobs:
         env:
           QUICKIE_INSPECTOR_WINDOW_STORIES: "1"
         run: mise run conformance-fork
+      - name: Report fork conformance termination
+        if: failure()
+        run: |
+          /usr/bin/vm_stat
+          /usr/bin/log show --last 10m --style compact \
+            --predicate 'eventMessage CONTAINS[c] "conformance" AND (process == "kernel" OR process == "amfid" OR process == "runningboardd")' \
+            | tail -100 || true
+          reports="$HOME/Library/Logs/DiagnosticReports"
+          for report in "$reports"/conformance-*.ips; do
+            [[ -f "$report" ]] || continue
+            printf '%s\n' "${report##*/}"
+            tail -n +2 "$report" | jq '{procName, exception, termination, vmSummary}' || true
+          done
 
   # The UI stories (docs/quality.md, UI tests): every widget state rendered headless, its plays
   # run, and its render compared with the reference PNG. This runner is the references' source
