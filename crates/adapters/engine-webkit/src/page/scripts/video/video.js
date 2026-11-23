@@ -1,11 +1,11 @@
 // Quickie's video script, in Quickie's own world of every frame of a page: the main frame and
 // each <iframe>, whatever its origin (a YouTube embed on a blog).
 //
-// Each frame names itself with a random token and reports what the video it played last does,
-// on every change: `A` playing with its sound on, `M` playing muted, `P` paused or ended, `N`
+// Each frame names itself with a random token and reports the state of its selected video,
+// preferring playback with sound: `A` playing with sound on, `M` playing muted, `P` paused or ended, `N`
 // no video (none played yet, or it went away), then the token. It says `N` once as it starts,
 // so the browser knows the frame, and `X` when its document goes away. The browser decides
-// which frame's video is the page's (the one that started last).
+// which frame's video is the page's. While floated, the selected video keeps its controls.
 //
 // It hears the media events of the document, which reach the window in their capture phase,
 // and of every open shadow root it finds: a media event does not leave its shadow tree. It
@@ -37,8 +37,11 @@
   // Shadow roots that have the listeners, and those still attached, to search for a video.
   const heard = new WeakSet();
   const roots = new Set();
+  const played = new WeakMap();
+  let clock = 0;
   let current = null;
   let last = null;
+  let floated = null;
 
   const trees = () => {
     const all = [document];
@@ -51,21 +54,37 @@
     }
     return all;
   };
-  const state = () => {
-    if (current && !current.isConnected) current = null;
-    if (!current) {
-      for (const tree of trees()) {
-        current = Array.from(tree.querySelectorAll('video'))
-          .find((video) => !video.paused && !video.ended) || null;
-        if (current) break;
+  const playing = (video) => video?.isConnected && !video.paused && !video.ended;
+  const audible = (video) => playing(video) && !video.muted && video.volume > 0;
+  const floatedVideo = () => floated?.target instanceof HTMLVideoElement ? floated.target : null;
+  const preferred = (video, current) => {
+    if (!current) return true;
+    const withSound = audible(video);
+    if (withSound !== audible(current)) return withSound;
+    return (played.get(video) ?? 0) > (played.get(current) ?? 0);
+  };
+  const findPlaying = (best) => {
+    for (const tree of trees()) {
+      for (const video of tree.querySelectorAll('video')) {
+        if (playing(video) && preferred(video, best)) best = video;
       }
     }
-    if (!current) return 'N';
-    if (current.paused || current.ended) return 'P';
-    return current.muted || current.volume === 0 ? 'M' : 'A';
+    return best;
   };
-  const report = () => {
-    const now = state();
+  const stateOf = (video) => {
+    if (!video?.isConnected) return 'N';
+    if (!playing(video)) return 'P';
+    return audible(video) ? 'A' : 'M';
+  };
+  const state = (reselect) => {
+    const pinned = floatedVideo();
+    if (pinned) return stateOf(pinned);
+    if (!current?.isConnected) current = findPlaying(null);
+    else if ((reselect || last === 'A') && !audible(current)) current = findPlaying(current);
+    return stateOf(current);
+  };
+  const report = (reselect = false) => {
+    const now = state(reselect);
     if (now !== last) {
       last = now;
       post(now);
@@ -74,7 +93,10 @@
   const media = (event) => {
     const video = event.target;
     if (!(video instanceof HTMLVideoElement)) return;
-    if (event.type === 'play' || event.type === 'playing') current = video;
+    const started = event.type === 'play' || event.type === 'playing';
+    if (started) played.set(video, ++clock);
+    const unmuted = event.type === 'volumechange' && audible(video) && !audible(current);
+    if ((started && (audible(video) || !audible(current))) || unmuted) current = video;
     report();
   };
   const types = ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange'];
@@ -95,7 +117,8 @@
         if (node.nodeType === Node.ELEMENT_NODE) scan(node);
       }
     }
-    if (roots.size !== before) report();
+    const active = floatedVideo() || current;
+    if (roots.size !== before || (active && !active.isConnected)) report();
   };
   const hear = (root) => {
     roots.add(root);
@@ -162,7 +185,6 @@ html[data-quickie-chain]${strong} { overflow: hidden !important; }
   const describe = () =>
     JSON.stringify({ token, href: location.href, width: innerWidth, height: innerHeight });
 
-  let floated = null;
   const fill = (target) => {
     const chain = [];
     const scopes = new Set([target.getRootNode()]);
@@ -249,12 +271,13 @@ html[data-quickie-chain]${strong} { overflow: hidden !important; }
       for (const style of sheets) style.remove();
       target.removeAttribute('data-quickie-video');
       for (const element of chain) element.removeAttribute('data-quickie-chain');
+      report(target instanceof HTMLVideoElement);
       // The view is back at its size a frame or two later; scroll once it laid out again.
       requestAnimationFrame(() => requestAnimationFrame(() => scrollTo(x, y)));
     },
     play(on) {
-      const video = current;
-      if (!video) return;
+      const video = floatedVideo() || current;
+      if (!video?.isConnected) return;
       if (on) {
         video.play().catch(() => {});
       } else {

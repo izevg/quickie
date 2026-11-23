@@ -1,8 +1,8 @@
 //! Which frame of a page shows its video. The video script runs in every frame, the main
 //! frame and each `<iframe>` (a video site's embed on a blog, an ad, a player inside a
 //! player), and each instance reports for its own frame under a random token. A page's video
-//! is the one that started playing last, in whichever frame; this keeps each frame's last
-//! report and says when the page's video changes.
+//! prefers a frame playing with sound, then the one that started playing last. This keeps each
+//! frame's last report and says when the page's video changes.
 //!
 //! Pure bookkeeping, generic over what names a frame to `WebKit` (its `WKFrameInfo`), so it is
 //! tested without a page.
@@ -62,6 +62,8 @@ pub(crate) struct Frame<F> {
 pub(crate) struct Frames<F> {
     known: Vec<Frame<F>>,
     clock: u64,
+    /// The frame that owns the mini player's controls until the video docks.
+    floated: Option<String>,
     /// The page's video as last told: a report changes it or not.
     told: Option<Video>,
 }
@@ -71,6 +73,7 @@ impl<F> Default for Frames<F> {
         Self {
             known: Vec::new(),
             clock: 0,
+            floated: None,
             told: None,
         }
     }
@@ -115,6 +118,10 @@ impl<F> Frames<F> {
                 });
             }
         }
+        self.report_if_changed()
+    }
+
+    fn report_if_changed(&mut self) -> Option<Report> {
         let now = self.showing().and_then(|frame| frame.video);
         (now != self.told).then(|| {
             self.told = now;
@@ -122,13 +129,35 @@ impl<F> Frames<F> {
         })
     }
 
-    /// The frame whose video the page shows: of the frames with a video, the one whose video
-    /// started playing last.
+    /// Keeps reports and controls on the frame whose video is being floated.
+    pub(crate) fn pin(&mut self) {
+        self.floated = self.showing().map(|frame| frame.token.clone());
+    }
+
+    /// Selects normally again after docking, reporting a different video state if needed.
+    pub(crate) fn unpin(&mut self) -> Option<Report> {
+        self.floated = None;
+        self.report_if_changed()
+    }
+
+    /// The floated frame, or the newest frame playing with sound. Without either, the frame
+    /// whose video started playing last stays selected.
     pub(crate) fn showing(&self) -> Option<&Frame<F>> {
+        if let Some(floated) = &self.floated {
+            return self
+                .known
+                .iter()
+                .find(|frame| &frame.token == floated && frame.video.is_some());
+        }
         self.known
             .iter()
             .filter(|frame| frame.video.is_some())
-            .max_by_key(|frame| frame.played)
+            .max_by_key(|frame| {
+                (
+                    matches!(frame.video, Some(Video::Playing { audible: true })),
+                    frame.played,
+                )
+            })
     }
 
     /// Every frame heard from and not gone, in the order they were first heard.
@@ -216,22 +245,66 @@ mod tests {
     }
 
     #[test]
-    fn the_video_that_started_last_wins_in_any_frame() {
+    fn the_audible_video_that_started_last_wins_in_any_frame() {
         let mut frames = page();
-        says(&mut frames, "a", MUTED);
-        assert_eq!(says(&mut frames, "main", ALOUD), Some(Report(ALOUD)));
-        assert_eq!(showing(&frames), Some("main"));
-        assert_eq!(says(&mut frames, "b", MUTED), Some(Report(MUTED)));
+        says(&mut frames, "main", ALOUD);
+
+        assert_eq!(says(&mut frames, "b", ALOUD), None);
         assert_eq!(showing(&frames), Some("b"));
     }
 
     #[test]
-    fn a_change_of_sound_does_not_take_the_video_from_another_frame() {
+    fn a_later_muted_frame_does_not_replace_an_audible_frame() {
+        let mut frames = page();
+        says(&mut frames, "a", ALOUD);
+
+        assert_eq!(says(&mut frames, "b", MUTED), None);
+        assert_eq!(showing(&frames), Some("a"));
+    }
+
+    #[test]
+    fn when_the_audible_frame_mutes_the_newest_muted_frame_is_selected() {
         let mut frames = page();
         says(&mut frames, "a", ALOUD);
         says(&mut frames, "b", MUTED);
-        assert_eq!(says(&mut frames, "a", MUTED), None);
+
+        assert_eq!(says(&mut frames, "a", MUTED), Some(Report(MUTED)));
         assert_eq!(showing(&frames), Some("b"));
+    }
+
+    #[test]
+    fn the_floated_frame_stays_selected_when_paused_and_resumed() {
+        let mut frames = page();
+        says(&mut frames, "a", ALOUD);
+        frames.pin();
+        says(&mut frames, "a", PAUSED);
+
+        assert_eq!(says(&mut frames, "b", ALOUD), None);
+        assert_eq!(showing(&frames), Some("a"));
+        assert_eq!(says(&mut frames, "a", ALOUD), Some(Report(ALOUD)));
+    }
+
+    #[test]
+    fn docking_reports_the_reselected_video_state() {
+        let mut frames = page();
+        says(&mut frames, "a", ALOUD);
+        frames.pin();
+        says(&mut frames, "a", PAUSED);
+        says(&mut frames, "b", ALOUD);
+
+        assert_eq!(frames.unpin(), Some(Report(ALOUD)));
+        assert_eq!(showing(&frames), Some("b"));
+    }
+
+    #[test]
+    fn a_floated_frame_leaving_reports_its_video_gone() {
+        let mut frames = page();
+        says(&mut frames, "a", ALOUD);
+        frames.pin();
+        says(&mut frames, "b", ALOUD);
+
+        assert_eq!(leaves(&mut frames, "a"), Some(Report(None)));
+        assert_eq!(showing(&frames), None);
     }
 
     #[test]

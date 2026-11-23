@@ -15,7 +15,7 @@
 )]
 
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSBackingStoreType, NSView, NSWindow, NSWindowStyleMask};
-use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize};
+use objc2_foundation::{NSDate, NSPoint, NSRect, NSRunLoop, NSSize, NSUUID};
 use quickie_application::{
     Access, BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, ExtensionEvent,
     ExtensionHost, ExtensionInfo, ListRules, PageContent, PageSurface, WindowTabs,
@@ -76,6 +76,7 @@ fn report(outcome: Outcome) -> ExitCode {
 
 fn run(mtm: MainThreadMarker) -> Outcome {
     let port = serve()?;
+    accepts_a_request_behind_an_idle_connection(port)?;
     let mut engine = WebKitEngine::new(&[], mtm);
     let Some(mut extensions) = engine.web_extensions() else {
         #[expect(clippy::print_stdout, reason = "the test runner's own report")]
@@ -85,7 +86,11 @@ fn run(mtm: MainThreadMarker) -> Outcome {
         return Ok(());
     };
     let _window = host(&mut engine, mtm)?;
-    let id = ExtensionId::from_digest(&[7; 16]);
+    // Each run needs a fresh extension origin. WebKit persists service worker
+    // registrations between runs of the test executable.
+    let nonce = NSUUID::UUID().UUIDString().to_string().replace('-', "");
+    let nonce = u128::from_str_radix(&nonce, 16).map_err(|error| error.to_string())?;
+    let id = ExtensionId::from_digest(&nonce.to_be_bytes());
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extension");
     extensions
         .read(
@@ -123,6 +128,10 @@ fn run(mtm: MainThreadMarker) -> Outcome {
     )?;
     shields_keep_content_scripts(&mut engine, &page)?;
 
+    // The extension command acts on the active tab. The isolation checks above showed
+    // other pages, so put the tab from the extension's window arrangement back on screen.
+    engine.show(WINDOW, main).map_err(|error| error.0)?;
+
     // The background worker starts with the first event, and an event that comes before its
     // listener is lost: the command is given again until the page shows it.
     let give_up = Instant::now() + PATIENCE;
@@ -147,6 +156,24 @@ fn run(mtm: MainThreadMarker) -> Outcome {
     let later = TabId::new(Profile::Main, 3);
     open(&mut engine, later, &page, Jar::Main)?;
     absent(&mut engine, later, "it ran after it stopped")
+}
+
+fn accepts_a_request_behind_an_idle_connection(port: u16) -> Outcome {
+    let host = ("127.0.0.1", port);
+    let _idle = TcpStream::connect(host).map_err(|error| error.to_string())?;
+    let mut request = TcpStream::connect(host).map_err(|error| error.to_string())?;
+    request
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .and_then(|()| request.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+        .map_err(|error| error.to_string())?;
+    let mut status = [0; 15];
+    request
+        .read_exact(&mut status)
+        .map_err(|error| format!("an idle connection held the extension fixture: {error}"))?;
+    check(
+        &status == b"HTTP/1.1 200 OK",
+        "the extension fixture refused a request",
+    )
 }
 
 fn check_manifest(info: &ExtensionInfo) -> Outcome {
@@ -178,25 +205,31 @@ fn check_manifest(info: &ExtensionInfo) -> Outcome {
     )
 }
 
-/// Serves one small page on `127.0.0.1`, to every request, from a thread; returns the port.
+/// Serves one small page on `127.0.0.1`; each connection has its own request reader.
 fn serve() -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     thread::spawn(move || {
-        let body = "<!doctype html><title>Local</title><p>A local page</p>";
         for stream in listener.incoming().flatten() {
-            let mut stream = stream;
-            let mut request = [0_u8; 2048];
-            let _ = stream.read(&mut request);
-            let _ = write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
-                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
+            thread::spawn(move || answer(stream));
         }
     });
     Ok(port)
+}
+
+fn answer(mut stream: TcpStream) {
+    const BODY: &str = "<!doctype html><title>Local</title><p>A local page</p>";
+    let mut request = [0_u8; 2048];
+    if stream.set_read_timeout(Some(PATIENCE)).is_ok()
+        && stream.read(&mut request).is_ok_and(|bytes| bytes > 0)
+    {
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+             Content-Length: {}\r\nConnection: close\r\n\r\n{BODY}",
+            BODY.len()
+        );
+    }
 }
 
 /// A window, off screen, whose host the engine's pages fill.

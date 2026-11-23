@@ -3,8 +3,12 @@ use std::path::PathBuf;
 use quickie_domain_browsing::{Jar, Profile, TabId};
 use url::Url;
 
-use super::{DownloadEvent, DownloadToken, FindStep, PageContent, ReplyToken, Ticket};
-use crate::EngineError;
+use super::conformance::MemoryEngine;
+use super::{
+    DownloadEvent, DownloadToken, FindStep, NativePictureInPicture, PageContent, PageVideo,
+    ReplyToken, Ticket,
+};
+use crate::{EngineError, EnginePort};
 
 /// Page content that remembers the finds it was asked for and can do nothing else.
 #[derive(Default)]
@@ -47,6 +51,24 @@ fn an_engine_without_agent_links_rejects_the_request_immediately() {
     let request = finds.agent_links(tab, |_| panic!("unsupported requests have no completion"));
 
     assert!(request.is_err());
+}
+
+#[test]
+fn an_engine_without_native_picture_in_picture_declines_playback_controls() {
+    let document = Url::parse("https://example.com/video").unwrap();
+    let mut engine = MemoryEngine::new(Url::parse("https://example.com/").unwrap());
+    let tab = TabId::new(Profile::Main, 1);
+    engine.create(tab, &document, Jar::Main).unwrap();
+    engine.turn();
+
+    let dispatched = engine.toggle_picture_in_picture(tab);
+
+    assert!(!dispatched);
+    assert!(!engine.is_playing_audio(tab));
+    assert_eq!(
+        engine.picture_in_picture(tab),
+        NativePictureInPicture::Unavailable
+    );
 }
 
 #[test]

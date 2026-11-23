@@ -39,6 +39,7 @@ use url::Url;
 mod agent_links;
 mod automation;
 mod fullscreen;
+mod miniplayer;
 mod usb_authentication;
 
 /// How long a check waits for what it expects before it fails.
@@ -93,10 +94,37 @@ fn main() -> ExitCode {
             Err(why) => failed(&why),
         };
     }
+    if std::env::args().any(|argument| argument == "--native-fullscreen-only") {
+        let enabled = objc2_foundation::NSBundle::mainBundle()
+            .objectForInfoDictionaryKey(&objc2_foundation::NSString::from_str(
+                "QuickieFullscreenInView",
+            ))
+            .and_then(|value| value.downcast::<objc2_foundation::NSNumber>().ok())
+            .is_some_and(|value| value.boolValue());
+        if !enabled {
+            return failed("native fullscreen requires a bundled in-window test host");
+        }
+        return match fullscreen::native(&mut harness) {
+            Ok(()) => {
+                print("native fullscreen: passed (original window and DOM exit)\n");
+                ExitCode::SUCCESS
+            }
+            Err(why) => failed(&why),
+        };
+    }
     if std::env::args().any(|argument| argument == "--agent-links-only") {
         return match agent_links::check(&mut harness) {
             Ok(()) => {
                 print("agent links: passed (ordered, read-only, isolated and current)\n");
+                ExitCode::SUCCESS
+            }
+            Err(why) => failed(&why),
+        };
+    }
+    if std::env::args().any(|argument| argument == "--video-miniplayer-only") {
+        return match miniplayer::check(&mut harness) {
+            Ok(()) => {
+                print("video miniplayer: passed (audible video floats and docks)\n");
                 ExitCode::SUCCESS
             }
             Err(why) => failed(&why),
@@ -112,30 +140,39 @@ fn main() -> ExitCode {
         };
     }
 
-    let automated = automation::check(mtm, &harness.base);
+    run_full(&mut harness)
+}
+
+fn run_full(harness: &mut WebKit) -> ExitCode {
+    let automated = automation::check(harness.mtm, &harness.base);
     match &automated {
         Ok(what) => print(&format!("automation: passed ({what})\n")),
         Err(why) => print(&format!("automation: FAILED: {why}\n")),
     }
 
-    let report = conformance::run(&mut harness);
+    let report = conformance::run(harness);
     print(&report.to_string());
-    let fullscreen = fullscreen::check(&mut harness);
+    let fullscreen = fullscreen::check(harness);
     match &fullscreen {
         Ok(()) => print("video fullscreen: passed (same page and inline restoration)\n"),
         Err(why) => print(&format!("video fullscreen: FAILED: {why}\n")),
     }
-    let links = agent_links::check(&mut harness);
+    let links = agent_links::check(harness);
     match &links {
         Ok(()) => print("agent links: passed (ordered, read-only, isolated and current)\n"),
         Err(why) => print(&format!("agent links: FAILED: {why}\n")),
     }
-    let inspected = inspector::check(&mut harness);
+    let miniplayer = miniplayer::check(harness);
+    match &miniplayer {
+        Ok(()) => print("video miniplayer: passed (audible video floats and docks)\n"),
+        Err(why) => print(&format!("video miniplayer: FAILED: {why}\n")),
+    }
+    let inspected = inspector::check(harness);
     match &inspected {
         Ok(what) => print(&format!("inspector: passed ({what})\n")),
         Err(why) => print(&format!("inspector: FAILED: {why}\n")),
     }
-    let usb_authentication = usb_authentication::check(&mut harness);
+    let usb_authentication = usb_authentication::check(harness);
     match &usb_authentication {
         Ok(()) => print("USB authentication panel: passed\n"),
         Err(why) => print(&format!("USB authentication panel: FAILED: {why}\n")),
@@ -146,6 +183,7 @@ fn main() -> ExitCode {
         && automated.is_ok()
         && links.is_ok()
         && fullscreen.is_ok()
+        && miniplayer.is_ok()
         && usb_authentication.is_ok()
     {
         ExitCode::SUCCESS
@@ -676,6 +714,10 @@ fn answer(stream: TcpStream) {
     }
     if path == fullscreen::ROUTE {
         fullscreen::answer(&mut stream);
+        return;
+    }
+    if path == miniplayer::ROUTE {
+        miniplayer::answer(&mut stream);
         return;
     }
     let found = SITE.iter().find(|(served, _)| *served == path);
