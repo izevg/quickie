@@ -4,7 +4,8 @@
 <video id="video" width="320" height="180"></video>
 <script>
     const video = document.getElementById("video");
-    document.getElementById("expand").onclick = () => {
+    const expand = document.getElementById("expand");
+    expand.onclick = () => {
         video.webkitSetPresentationMode("fullscreen");
         if (document.fullscreenElement !== video || video.webkitPresentationMode !== "fullscreen") {
             document.title = "not in page";
@@ -22,4 +23,21 @@
                 document.title = "restored";
         }, 200);
     };
+    if (new URLSearchParams(location.search).has("native")) {
+        expand.onclick = null;
+        document.addEventListener("fullscreenchange", async () => {
+            try {
+                const html = document.documentElement;
+                if (document.fullscreenElement !== html || !html.matches(":fullscreen"))
+                    throw Error("native fullscreen is not exposed to the page");
+                await new Promise(resolve => setTimeout(resolve, 300));
+                await document.exitFullscreen();
+                if (document.fullscreenElement || html.matches(":fullscreen"))
+                    throw Error("native fullscreen did not exit");
+                document.title = "restored";
+            } catch (error) {
+                document.title = "failed: " + error.message;
+            }
+        }, { once: true });
+    }
 </script>

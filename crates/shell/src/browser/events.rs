@@ -86,6 +86,9 @@ impl Browser {
             EngineEvent::Crashed { tab } => self.crashed(tab),
             EngineEvent::Fullscreen { tab, state } => self.fullscreen_changed(tab, state),
             EngineEvent::Video { tab, video } => self.video_reported(tab, video),
+            EngineEvent::PictureInPicture { tab, active } => {
+                self.native_player_reported(tab, active);
+            }
             EngineEvent::Asked(ask) => self.asked(ask),
             EngineEvent::Found(found) => self.found(&found),
             EngineEvent::Targets {

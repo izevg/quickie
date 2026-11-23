@@ -42,6 +42,8 @@ pub enum EngineEvent<P> {
     /// What the page's video does changed: the one that played last in its main frame, or
     /// `None` once it has none (the page left, or the video went away).
     Video { tab: TabId, video: Option<Video> },
+    /// The page's video entered or left native picture-in-picture.
+    PictureInPicture { tab: TabId, active: bool },
     /// The page asks the user a question and waits: answer it through the engine with the
     /// ask's token. Closing the tab declines it.
     Asked(Ask),
@@ -79,14 +81,24 @@ pub enum EngineEvent<P> {
 /// Where a page that went full screen is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fullscreen {
-    /// An element of the page fills the page's own view, in its tab's window: the browser takes
-    /// that window full screen, as Chrome does, and back when the page leaves.
+    /// An element of the page fills the page's own view in its tab's window.
     InWindow,
     /// The engine shows the element full screen in a window of its own; the tab's window stays
     /// as it is.
     OwnWindow,
     /// The page left full screen.
     Left,
+}
+
+/// Whether a tab has a video in native picture-in-picture or can enter it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativePictureInPicture {
+    /// The engine or the current video cannot enter picture-in-picture.
+    Unavailable,
+    /// The engine can request picture-in-picture for the current video.
+    Inactive,
+    /// The video is in picture-in-picture.
+    Active,
 }
 
 /// Names a request for a page's content (its text, its link targets, following one): the event

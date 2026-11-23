@@ -1,30 +1,19 @@
 //! A page that goes full screen (the Fullscreen API: a video's full-screen button,
 //! `requestFullscreen`) always gets the full-screen notice: whose page it is and how to leave.
 //!
-//! When the engine fills the page's own view ([`Fullscreen::InWindow`]), the browser takes the
-//! tab's window full screen, on its own Space, as Chrome does, and back when the page leaves;
-//! a window that was full screen already stays so. Meanwhile nothing of the browser's shows
-//! over the page: toasts, the origin chip, the find bar, and the load glow are gone, and a
-//! browser command first takes the page out of full screen, then runs. `⎋` takes it out; so do
-//! the window leaving full screen, another tab coming forward, and the tab closing. Leaving
-//! puts the window back where it was (`AppKit` keeps its frame) and the page where it was (the
-//! engine keeps its scroll). The window's page frame drops the inset meanwhile.
+//! When the engine fills the page's own view ([`Fullscreen::InWindow`]), the page fills its
+//! existing window in the current Space. The page frame drops its inset. Toasts, the origin
+//! chip, the find bar, and the load glow are hidden, and a browser command first takes the
+//! page out of full screen. Escape, switching tabs, closing the tab, and leaving native
+//! window fullscreen also exit page fullscreen.
 
 use objc2::rc::Retained;
-use objc2_app_kit::{NSView, NSWindow, NSWindowStyleMask};
+use objc2_app_kit::{NSView, NSWindow};
 use quickie_application::{Fullscreen, PageAsks, PageSurface};
 use quickie_domain_browsing::{TabId, WindowId};
 use url::Url;
 
 use super::super::Browser;
-
-/// A page that fills its window, full screen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::browser) struct PageFullscreen {
-    pub(in crate::browser) tab: TabId,
-    /// The browser took the window full screen for it, so it takes it back afterwards.
-    pub(in crate::browser) took_window: bool,
-}
 
 impl Browser {
     /// A page entered or left full screen.
@@ -33,24 +22,17 @@ impl Browser {
             Fullscreen::InWindow => self.fill_window(tab),
             Fullscreen::OwnWindow => self.show_fullscreen_notice(tab),
             Fullscreen::Left => {
-                self.page.fullscreen.hide();
+                self.hide_fullscreen_notice(tab);
                 let entry = self
                     .page
                     .in_window
                     .borrow()
                     .iter()
-                    .find(|(_, page)| page.tab == tab)
-                    .map(|(&window, _)| window);
+                    .find_map(|(&window, &page)| (page == tab).then_some(window));
                 if let Some(window) = entry {
-                    self.forget_page_fullscreen(window);
+                    self.clear_page_fullscreen(window);
                 }
             }
-        }
-        // The window's page frame drops the inset while a page is full screen.
-        if let Some(window) = self.window_of(tab)
-            && let Some(frame) = self.frames.borrow().get(&window)
-        {
-            frame.set_page_full_screen(state != Fullscreen::Left);
         }
     }
 
@@ -64,12 +46,7 @@ impl Browser {
         let Some((window, _)) = self.current() else {
             return false;
         };
-        let tab = self
-            .page
-            .in_window
-            .borrow()
-            .get(&window)
-            .map(|page| page.tab);
+        let tab = self.page.in_window.borrow().get(&window).copied();
         let Some(tab) = tab else {
             return false;
         };
@@ -77,8 +54,7 @@ impl Browser {
         true
     }
 
-    /// `window` leaves full screen on the user's word (its green button, `⌃⌘F`, the menu):
-    /// the page that filled it leaves too, and the window is not taken back twice.
+    /// When the user leaves native window fullscreen, the page that filled it leaves too.
     pub(in crate::browser) fn window_leaves_fullscreen(&self, window: &NSWindow) {
         let id = self
             .windows
@@ -86,73 +62,44 @@ impl Browser {
             .iter()
             .find(|(_, own)| ***own == *window)
             .map(|(&id, _)| id);
-        let tab = id.and_then(|id| {
-            let mut pages = self.page.in_window.borrow_mut();
-            let page = pages.get_mut(&id)?;
-            page.took_window = false;
-            Some(page.tab)
-        });
+        let tab = id.and_then(|id| self.page.in_window.borrow().get(&id).copied());
         if let Some(tab) = tab {
             self.exit_fullscreen(tab);
         }
     }
 
-    /// Forgets the page that filled `window`: the engine takes it out (nothing for a closed
-    /// tab), and the window leaves full screen if the browser took it there.
+    /// Forgets the page that filled `window` and restores the page frame's inset.
     pub(in crate::browser) fn forget_page_fullscreen(&self, window: WindowId) {
-        let Some(page) = self.page.in_window.borrow_mut().remove(&window) else {
-            return;
-        };
-        self.page.fullscreen.hide();
-        self.exit_fullscreen(page.tab);
-        if let Some(ns_window) = self.window(window)
-            && page.took_window
-            && ns_window
-                .styleMask()
-                .contains(NSWindowStyleMask::FullScreen)
-        {
-            ns_window.toggleFullScreen(None);
+        if let Some(tab) = self.clear_page_fullscreen(window) {
+            self.exit_fullscreen(tab);
         }
     }
 
-    /// The page of `tab` fills its window: the browser's own floating UI goes, and the window
-    /// goes full screen. A tab in the background may not take its window.
+    fn clear_page_fullscreen(&self, window: WindowId) -> Option<TabId> {
+        let tab = self.page.in_window.borrow_mut().remove(&window)?;
+        self.hide_fullscreen_notice(tab);
+        if let Some(frame) = self.frames.borrow().get(&window) {
+            frame.set_page_full_screen(false);
+        }
+        Some(tab)
+    }
+
+    /// The active page of `tab` fills its window and the browser's floating UI goes away.
     fn fill_window(&self, tab: TabId) {
         let Some(window) = self.showing(tab) else {
             self.exit_fullscreen(tab);
-            return;
-        };
-        let Some(ns_window) = self.window(window) else {
             return;
         };
         self.toasts.clear();
         self.page.chip.hide();
         if let Some(frame) = self.frames.borrow().get(&window) {
             frame.reset_loading();
+            frame.set_page_full_screen(true);
         }
         if self.page.find_tab.get() == Some(tab) {
             self.hide_find();
         }
-        let full = ns_window
-            .styleMask()
-            .contains(NSWindowStyleMask::FullScreen);
-        let previous = self.page.in_window.borrow_mut().insert(
-            window,
-            PageFullscreen {
-                tab,
-                took_window: !full,
-            },
-        );
-        match previous {
-            // Another element of the same page: the window is full screen already.
-            Some(page) if page.tab == tab => {
-                if let Some(entry) = self.page.in_window.borrow_mut().get_mut(&window) {
-                    entry.took_window = page.took_window;
-                }
-            }
-            _ if !full => ns_window.toggleFullScreen(None),
-            _ => {}
-        }
+        self.page.in_window.borrow_mut().insert(window, tab);
         self.show_fullscreen_notice(tab);
     }
 
@@ -177,7 +124,15 @@ impl Browser {
             host.zip(url)
         };
         if let Some((host, url)) = shown {
+            self.page.fullscreen_notice_tab.set(Some(tab));
             self.page.fullscreen.show(&host, &url);
+        }
+    }
+
+    fn hide_fullscreen_notice(&self, tab: TabId) {
+        if self.page.fullscreen_notice_tab.get() == Some(tab) {
+            self.page.fullscreen_notice_tab.set(None);
+            self.page.fullscreen.hide();
         }
     }
 }

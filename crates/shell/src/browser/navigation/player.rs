@@ -4,6 +4,8 @@
 //! moves the page through the engine; this routes tab switches, the pages' video reports, and
 //! the player's buttons to it, and shows or hides the widget as each step says.
 
+pub(super) mod picture_in_picture;
+
 use objc2::Message;
 use objc2::rc::Retained;
 use objc2_app_kit::NSView;
@@ -29,6 +31,16 @@ impl Browser {
     /// tab, or a tab closed under them. Coming back to the floating tab ends the player; a
     /// tab left with its video playing aloud floats it over `window`.
     pub(in crate::browser) fn left_tab(&self, window: WindowId, from: TabId, to: TabId) {
+        if self.native_player_left_tab(from, to)
+            && self.navigation.playback.borrow().shown().is_none()
+        {
+            self.schedule_tab_player_fallback(window, from, to);
+            return;
+        }
+        self.float_tab_player(window, from, to);
+    }
+
+    fn float_tab_player(&self, window: WindowId, from: TabId, to: TabId) {
         let slot: Retained<NSView> = self.navigation.player.slot().retain();
         let switched = {
             let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
@@ -71,6 +83,7 @@ impl Browser {
 
     /// The floating tab closed (from the overview, the switcher, a command): the player ends.
     pub(in crate::browser) fn player_tab_closed(&self) {
+        self.forget_closed_native_player();
         let gone = {
             let Ok(browsing) = self.browsing.try_borrow() else {
                 return;

@@ -15,6 +15,6 @@
 # (engine/README.md, "Bumping the pin").
 
 WEBKIT_REPO=https://github.com/izevg/WebKit.git
-WEBKIT_BRANCH=quickie/inspector-stitch-fidelity
-WEBKIT_COMMIT=2658f6b95ac71de32e26ff1e855f56e4fbe13b3c
-WEBKIT_CHECKED=2026-11-22
+WEBKIT_BRANCH=quickie/patch/fullscreen-in-window
+WEBKIT_COMMIT=702da9c837a3e24f7d87f4824a5d12e9ff3db923
+WEBKIT_CHECKED=2026-11-23

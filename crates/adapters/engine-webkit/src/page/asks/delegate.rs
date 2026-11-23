@@ -42,6 +42,14 @@ define_class!(
     unsafe impl NSObjectProtocol for PageUi {}
 
     impl PageUi {
+        #[unsafe(method(_webView:hasVideoInPictureInPictureDidChange:))]
+        fn picture_in_picture(&self, _view: &WKWebView, active: Bool) {
+            let active = active.as_bool();
+            let hooks = &self.ivars().hooks;
+            hooks.native_pip_active.set(active);
+            (hooks.on_event)(PageEvent::PictureInPicture(active));
+        }
+
         #[unsafe(method(_webView:runWebAuthenticationPanel:initiatedByFrame:completionHandler:))]
         fn authenticate(
             &self,
@@ -188,6 +196,10 @@ impl PageUi {
         if let Some(session) = session {
             session.cancel();
         }
+    }
+
+    pub(crate) fn native_pip_active(&self) -> bool {
+        self.ivars().hooks.native_pip_active.get()
     }
 
     /// Asks the user, on behalf of the frame's origin; a dialog whose origin cannot be named

@@ -28,8 +28,9 @@ pub use engine::{
     Access, Answer, Ask, AskKind, Capabilities, DevTools, DevToolsPanel, Dialog, DownloadEvent,
     DownloadToken, Downloads, Engine, EngineEvent, EventQueue, Expected, ExtensionCommand,
     ExtensionEvent, ExtensionHost, ExtensionInfo, ExtensionPackages, FindStep, Followed, Found,
-    Fullscreen, Inspector, LinkTarget, NoExtensions, PackageSource, PageAsks, PageContent,
-    PageRect, PageSurface, PageVideo, PageZoom, PortsOf, ReplyToken, Ticket, Unpacked, WindowTabs,
+    Fullscreen, Inspector, LinkTarget, NativePictureInPicture, NoExtensions, PackageSource,
+    PageAsks, PageContent, PageRect, PageSurface, PageVideo, PageZoom, PortsOf, ReplyToken, Ticket,
+    Unpacked, WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,

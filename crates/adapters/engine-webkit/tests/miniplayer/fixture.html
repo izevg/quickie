@@ -1,0 +1,55 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Miniplayer fixture</title>
+<button id="start">Play videos</button>
+<script>
+function video(muted) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 36;
+    const context = canvas.getContext("2d");
+    let hue = 0;
+    setInterval(() => {
+        hue = (hue + 10) % 360;
+        context.fillStyle = `hsl(${hue}, 80%, 50%)`;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+    }, 33);
+    const element = document.createElement("video");
+    element.muted = muted;
+    element.playsInline = true;
+    element.srcObject = canvas.captureStream(30);
+    document.body.append(element);
+    return element;
+}
+const audible = video(false);
+const muted = video(true);
+document.getElementById("start").onclick = async () => {
+    try {
+        await audible.play();
+        await muted.play();
+        document.title = "playing";
+    } catch (_) {
+        document.title = "play failed";
+    }
+};
+let floated = false;
+let rounds = 0;
+new MutationObserver(() => {
+    if (!audible.hasAttribute("data-quickie-video")) {
+        if (muted.hasAttribute("data-quickie-video")) document.title = "muted video floated";
+        else if (floated) {
+            floated = false;
+            document.title = "docked";
+        }
+        return;
+    }
+    const rect = audible.getBoundingClientRect();
+    if (!floated) {
+        floated = true;
+        if (++rounds === 2) setTimeout(() => audible.remove(), 50);
+    }
+    document.title = getComputedStyle(audible).position === "fixed"
+        && Math.abs(rect.width - innerWidth) <= 1 && Math.abs(rect.height - innerHeight) <= 1
+        ? "audible video fills the slot" : "video did not fill the slot";
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["data-quickie-video"] });
+</script>

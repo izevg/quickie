@@ -41,6 +41,7 @@ pub struct NavigationOverlays {
     /// The mini player, and whose video it shows.
     player: Rc<MiniPlayer>,
     playback: RefCell<Playback>,
+    native_player: player::picture_in_picture::Player,
 }
 
 impl NavigationOverlays {
@@ -55,6 +56,7 @@ impl NavigationOverlays {
             following: Cell::new(None),
             player: MiniPlayer::new(mtm),
             playback: RefCell::new(Playback::new()),
+            native_player: player::picture_in_picture::Player::default(),
         }
     }
 
