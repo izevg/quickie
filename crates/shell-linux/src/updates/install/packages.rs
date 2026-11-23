@@ -221,7 +221,9 @@ pub(super) fn package_installer(distribution: Distro, archive: &Path) -> Command
                 "--",
             ],
         ),
-        Distro::Fedora => ("/usr/bin/dnf5", &["--assumeyes", "upgrade", "--"]),
+        // Fedora 43's DNF5 parser rejects the option terminator. The archive is an
+        // absolute path created in the root staging directory, so it cannot be an option.
+        Distro::Fedora => ("/usr/bin/dnf5", &["--assumeyes", "upgrade"]),
     };
     let mut command = system(program);
     command.args(arguments).arg(archive);

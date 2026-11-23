@@ -16,7 +16,8 @@ use rustix::fs::{Mode, OFlags};
 use crate::updates::network::{Cancellation, SoupTransport};
 
 use super::super::{
-    InstallError, Installation, Target, checked, failure, stable_version, system, trusted_root_path,
+    InstallError, Installation, Target, checked, failure, stable_version, system,
+    trusted_root_path, verify_asset,
 };
 use super::{Distro, PACKAGED_EXECUTABLE, apply_archive};
 
@@ -264,9 +265,7 @@ fn stage_archive(
             "the staged download changed. Download the update again.",
         ));
     }
-    asset
-        .verify(File::open(&path)?)
-        .map_err(|error| failure(&format!("{error}. Download the update again.")))?;
+    verify_asset(&path, asset)?;
     destination.sync_all()?;
     Ok(path)
 }

@@ -7,7 +7,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use quickie_updater::{Distribution, UpdateAsset, Version};
+use quickie_updater::{Distribution, UpdateAsset, UpdateError, Version};
 
 #[cfg(target_os = "linux")]
 mod gio;
@@ -39,6 +39,7 @@ pub struct Installation {
 pub enum InstallError {
     Cancelled,
     Failed(String),
+    Verification(UpdateError),
 }
 
 impl fmt::Display for InstallError {
@@ -46,6 +47,7 @@ impl fmt::Display for InstallError {
         match self {
             Self::Cancelled => formatter.write_str("update authorization was cancelled"),
             Self::Failed(message) => formatter.write_str(message),
+            Self::Verification(error) => write!(formatter, "{error}. Download the update again."),
         }
     }
 }
@@ -215,5 +217,5 @@ fn failure(message: &str) -> InstallError {
 fn verify_asset(path: &Path, asset: &UpdateAsset) -> Result<(), InstallError> {
     asset
         .verify(File::open(path)?)
-        .map_err(|error| InstallError::Failed(error.to_string()))
+        .map_err(InstallError::Verification)
 }

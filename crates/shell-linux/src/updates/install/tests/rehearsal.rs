@@ -6,13 +6,13 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use quickie_updater::{Distribution, UpdateAsset, Version, select_update};
+use quickie_updater::{Distribution, UpdateAsset, UpdateError, Version, select_update};
 
 use super::super::image::{detect_appimage, install_appimage};
 use super::super::packages::{
     Distro, PACKAGE_LAUNCHER, distro, install_package, installed_package, rpm_archive_release,
 };
-use super::super::{InstallError, Target, checked, current_uid, system};
+use super::super::{InstallError, Target, checked, current_uid, system, verify_asset};
 
 const PREVIOUS: &str = "0.0.0";
 
@@ -133,8 +133,11 @@ impl Fixture {
         overwrite_last_byte(&mut file, last_byte[0] ^ 1);
         let result = install(self.archive.path(), &self.asset);
         assert!(
-            matches!(result, Err(InstallError::Failed(message)) if message.contains("SHA-256 digest")),
-            "tampered bytes did not reach the SHA-256 check"
+            matches!(
+                result,
+                Err(InstallError::Verification(UpdateError::AssetDigestMismatch))
+            ),
+            "expected the altered archive to fail verification with a digest mismatch, got {result:?}"
         );
         verify_previous();
         overwrite_last_byte(&mut file, last_byte[0]);
@@ -182,6 +185,12 @@ fn rehearsal_metadata_checks_the_expected_archive_digest() {
         3,
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     );
-    assert!(asset.verify(b"abc".as_slice()).is_ok());
-    assert!(asset.verify(b"bad".as_slice()).is_err());
+    let archive = tempfile::NamedTempFile::new().unwrap();
+    fs::write(archive.path(), b"abc").unwrap();
+    assert!(verify_asset(archive.path(), &asset).is_ok());
+    fs::write(archive.path(), b"bad").unwrap();
+    assert!(matches!(
+        verify_asset(archive.path(), &asset),
+        Err(InstallError::Verification(UpdateError::AssetDigestMismatch))
+    ));
 }

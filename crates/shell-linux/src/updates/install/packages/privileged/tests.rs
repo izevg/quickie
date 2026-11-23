@@ -3,9 +3,11 @@ use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::Path;
 
-use quickie_updater::{Distribution, Version, select_update};
+use quickie_updater::{Distribution, UpdateError, Version, select_update};
 
-use super::{Distro, authorization_command, open_source, parse_request, stage_archive};
+use super::{
+    Distro, InstallError, authorization_command, open_source, parse_request, stage_archive,
+};
 
 #[test]
 fn authorizes_the_installed_quickie_only_with_the_requested_package_and_version() {
@@ -103,12 +105,10 @@ fn copied_archive_must_match_the_digest_from_the_authoritative_release() {
     let stage = tempfile::tempdir().unwrap();
     let uid = source.as_file().metadata().unwrap().uid();
     fs::write(source.path(), b"bad").unwrap();
-    assert!(
-        stage_archive(source.path(), uid, &expected, stage.path())
-            .unwrap_err()
-            .to_string()
-            .contains("SHA-256")
-    );
+    assert!(matches!(
+        stage_archive(source.path(), uid, &expected, stage.path()),
+        Err(InstallError::Verification(UpdateError::AssetDigestMismatch))
+    ));
 
     let stage = tempfile::tempdir().unwrap();
     fs::write(source.path(), b"abc").unwrap();

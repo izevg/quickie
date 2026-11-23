@@ -162,7 +162,7 @@ ln -s /opt/quickie/bin/quickie "%{buildroot}/usr/bin/quickie"
 EOF
     rpmbuild -bb --define "_topdir $work/rpm" \
       --define "fixture_binary $work/previous-quickie" "$work/previous.spec"
-    as_root dnf5 --assumeyes install -- "$work/rpm/RPMS/x86_64/quickie-0.0.0-1.fc43.x86_64.rpm"
+    as_root dnf5 --assumeyes install "$work/rpm/RPMS/x86_64/quickie-0.0.0-1.fc43.x86_64.rpm"
     run_package_upgrade "${rpms[0]}"
     ;;
 esac

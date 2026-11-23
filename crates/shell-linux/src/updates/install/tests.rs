@@ -96,7 +96,6 @@ fn uses_the_native_package_manager_with_only_the_verified_archive_as_input() {
     assert!(command.get_args().eq([
         OsStr::new("--assumeyes"),
         OsStr::new("upgrade"),
-        OsStr::new("--"),
         rpm.as_os_str(),
     ]));
 }
