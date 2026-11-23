@@ -1,37 +1,30 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Miniplayer fixture</title>
+<title>Fixture loading</title>
 <button id="start">Play videos</button>
 <script>
+const source = "data:video/mp4;base64,__QUICKIE_VIDEO__";
 function video(muted) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 64;
-    canvas.height = 36;
-    const context = canvas.getContext("2d");
-    let hue = 0;
-    setInterval(() => {
-        hue = (hue + 10) % 360;
-        context.fillStyle = `hsl(${hue}, 80%, 50%)`;
-        context.fillRect(0, 0, canvas.width, canvas.height);
-    }, 33);
     const element = document.createElement("video");
     element.muted = muted;
     element.playsInline = true;
-    element.srcObject = canvas.captureStream(30);
+    element.loop = true;
+    element.src = source;
     document.body.append(element);
     return element;
 }
 const audible = video(false);
 const muted = video(true);
 document.getElementById("start").onclick = async () => {
+    document.title = "Play button clicked";
     try {
-        await audible.play();
-        await muted.play();
+        await Promise.all([audible.play(), muted.play()]);
         document.title = "playing";
-    } catch (_) {
-        document.title = "play failed";
+    } catch (error) {
+        document.title = `play failed: ${error.name}`;
     }
 };
+document.title = "Play button ready";
 let floated = false;
 let rounds = 0;
 new MutationObserver(() => {

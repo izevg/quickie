@@ -17,7 +17,8 @@ use super::WebKit;
 pub(super) const ROUTE: &str = "video-miniplayer/fixture";
 
 pub(super) fn answer(stream: &mut TcpStream) {
-    let body = include_str!("fixture.html");
+    let body = include_str!("fixture.html")
+        .replace("__QUICKIE_VIDEO__", include_str!("tone.base64").trim());
     let _ = write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -90,7 +91,8 @@ pub(super) fn check(harness: &mut WebKit) -> Result<(), String> {
                 _ => {}
             }
         }
-        title == "play failed" || (title == "playing" && video.is_some())
+        title.starts_with("play failed")
+            || (title == "playing" && video == Some(Video::Playing { audible: true }))
     }) || title != "playing"
         || video != Some(Video::Playing { audible: true })
     {
