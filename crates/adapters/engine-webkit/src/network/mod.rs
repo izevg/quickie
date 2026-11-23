@@ -45,6 +45,22 @@ impl UrlSessionHttp {
     pub fn new() -> Self {
         Self
     }
+
+    /// Streams a request without automatically following redirects and reports
+    /// its Location header to the caller.
+    ///
+    /// # Errors
+    /// Returns an error on the main thread or when the network request fails.
+    pub fn stream_with_location(
+        &self,
+        request: &HttpRequest,
+        stop: &StopSignal,
+        on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
+        on_location: &mut dyn FnMut(String),
+    ) -> Result<Ended, HttpError> {
+        off_main_thread()?;
+        stream::stream_with_location(request, STREAMED, stop, on_event, on_location)
+    }
 }
 
 impl HttpPort for UrlSessionHttp {

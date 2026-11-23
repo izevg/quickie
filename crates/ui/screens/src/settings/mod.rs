@@ -41,7 +41,7 @@ use chrome::sidebar::{self, Sidebar};
 use chrome::{Flipped, HEIGHT, PANE_WIDTH, SettingsTarget, hairline};
 pub use extensions::{ExtensionState, ExtensionsState};
 pub use keymap::{KeysState, Recorded};
-pub use panes::general::GeneralState;
+pub use panes::general::{GeneralState, SoftwareUpdates};
 pub use panes::shields::{ListState, ShieldsState};
 
 /// A pane of the window, in sidebar order.
@@ -115,6 +115,12 @@ pub enum SettingsAction {
     ShowDownloads,
     /// Turn *Inset page* on or off: the page as a card inside the window.
     InsetPage(bool),
+    /// Check for a new Quickie release.
+    CheckAppUpdates,
+    /// Enable scheduled release checks and installation at quit.
+    AutomaticAppUpdates(bool),
+    /// Show the installed release notes.
+    WhatsNew,
     /// Turn a filter list on or off.
     SetList(FilterListId, bool),
     /// Turn every filter list on, which fetches them.
@@ -311,6 +317,10 @@ impl SettingsScreen {
 
     pub fn set_general(&self, state: &GeneralState) {
         self.general.update(state);
+    }
+
+    pub fn set_software_updates(&self, state: Option<&SoftwareUpdates<'_>>) {
+        self.general.set_software_updates(state);
     }
 
     pub fn set_shields(&self, state: &ShieldsState) {

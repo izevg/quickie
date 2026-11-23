@@ -40,6 +40,7 @@ mod browser;
 mod delegate;
 mod input;
 mod menu;
+mod updates;
 mod window;
 
 use std::path::PathBuf;
@@ -162,10 +163,17 @@ impl Clock for SystemClock {
 }
 
 fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["--version"] {
+        use std::io::{self, Write};
+        return match writeln!(io::stdout().lock(), "{}", updates::INSTALLED_VERSION) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => fail(&error.to_string()),
+        };
+    }
     let Some(mtm) = MainThreadMarker::new() else {
         return ExitCode::FAILURE;
     };
-    let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--automation-check") {
         return automation_check(&args, mtm)
             .map_or_else(|reason| fail(&reason), |()| ExitCode::SUCCESS);

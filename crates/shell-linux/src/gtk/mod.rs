@@ -2,8 +2,9 @@
 
 #![expect(unsafe_code, reason = "GTK4 and WebKitGTK are native GObject APIs")]
 
-mod ffi;
+pub(crate) mod ffi;
 mod smoke;
+mod update_controls;
 
 use std::cell::{Cell, OnceCell};
 use std::env;
@@ -14,6 +15,7 @@ use std::ptr;
 
 use crate::launch::{Options, address_bar_destination};
 use ffi::{Bool, Object};
+use update_controls::UpdateControls;
 
 struct App {
     application: Object,
@@ -21,6 +23,7 @@ struct App {
     prefix: PathBuf,
     widgets: Cell<Option<Widgets>>,
     smoke: OnceCell<Result<(), String>>,
+    updates: UpdateControls,
 }
 
 #[derive(Clone, Copy)]
@@ -48,6 +51,7 @@ pub fn run(options: Options) -> Result<(), String> {
         prefix,
         widgets: Cell::new(None),
         smoke: OnceCell::new(),
+        updates: UpdateControls::new(),
     };
     let data = ptr::from_ref(&app).cast_mut().cast();
     connect(application, c"activate", activate as *const _, data);
@@ -57,6 +61,7 @@ pub fn run(options: Options) -> Result<(), String> {
     let mut arguments = [name.as_mut_ptr().cast(), ptr::null_mut()];
     // SAFETY: The live application, writable argv and callback state outlive the event loop.
     let status = unsafe { ffi::g_application_run(application, 1, arguments.as_mut_ptr()) };
+    app.updates.clear_sources();
     // SAFETY: GTK returned from its event loop and this releases our reference.
     unsafe { ffi::g_object_unref(application) };
 
@@ -68,11 +73,18 @@ pub fn run(options: Options) -> Result<(), String> {
             .into_inner()
             .unwrap_or_else(|| Err("the smoke fixture did not report its completion title".into()))
     } else {
-        Ok(())
+        app.updates
+            .finish()
+            .inspect_err(|error| crate::updates::dialog::install_error(error))
     }
 }
 
-fn connect(instance: Object, signal: &CStr, handler: *const std::ffi::c_void, data: Object) {
+pub(crate) fn connect(
+    instance: Object,
+    signal: &CStr,
+    handler: *const std::ffi::c_void,
+    data: Object,
+) {
     // SAFETY: Each caller uses the callback ABI for the named signal. GTK's signal connections
     // are on objects owned by the application, and data lives until the application is released.
     unsafe { ffi::g_signal_connect_data(instance, signal.as_ptr(), handler, data, None, 0) };
@@ -127,8 +139,16 @@ extern "C" fn activate(application: Object, data: Object) {
     unsafe { ffi::gtk_widget_add_controller(window, controller) };
     // SAFETY: The live window's content and controller are in place.
     unsafe { ffi::gtk_window_present(window) };
+    if !matches!(app.options, Options::Smoke(_)) {
+        app.updates
+            .attach(window, data, matches!(app.options, Options::Updates));
+    }
     match &app.options {
         Options::Empty => {}
+        Options::Updates => {
+            app.updates.present(data, &app.prefix);
+            app.updates.check(data);
+        }
         Options::Navigate(uri) => load(view, uri),
         Options::Smoke(uri) => {
             connect(
@@ -217,6 +237,7 @@ extern "C" fn key_pressed(
         return ffi::FALSE;
     };
     match (key, modifiers & (ffi::SHIFT | ffi::CONTROL | ffi::ALT)) {
+        (ffi::KEY_COMMA, ffi::CONTROL) => app.updates.present(data, &app.prefix),
         (0x6c, ffi::CONTROL) => show_address_bar(widgets),
         (0x72, ffi::CONTROL) => {
             // SAFETY: This is a live WebKitWebView retained by the overlay.

@@ -24,7 +24,7 @@ desktop-file-validate "$scripts/quickie.desktop"
 test -f "$engine/lib/libwebkitgtk-6.0.so"
 RUSTFLAGS="-Lnative=$engine/lib" LD_LIBRARY_PATH="$engine/lib" \
   mise exec -- cargo test --locked --package quickie-linux --target-dir "$target"
-mise exec -- cargo rustc --locked --release --package quickie-linux --target-dir "$target" \
+QUICKIE_RELEASE_VERSION="$version" mise exec -- cargo rustc --locked --release --package quickie-linux --target-dir "$target" \
   -- -L "native=$engine/lib" "-Clink-arg=-Wl,-rpath,$shell_rpath"
 
 stage="$work/root"
@@ -34,6 +34,9 @@ cp -a "$engine"/lib/libjavascriptcoregtk-6.0.so* "$engine"/lib/libwebkitgtk-6.0.
 cp -a "$engine/lib/webkitgtk-6.0" "$runtime/lib/"
 cp -a "$engine/libexec/." "$runtime/libexec/"
 cp -a "$engine/share/." "$runtime/share/"
+if [[ -n ${QUICKIE_RELEASE_NOTES:-} ]]; then
+  install -Dm644 "$QUICKIE_RELEASE_NOTES" "$runtime/share/doc/quickie/ReleaseNotes.md"
+fi
 install -Dm755 "$target/release/quickie-gtk" "$runtime/bin/quickie"
 mkdir -p "$stage/usr/bin"
 ln -s /opt/quickie/bin/quickie "$stage/usr/bin/quickie"
@@ -58,7 +61,7 @@ deb() {
     printf 'Package: quickie\nVersion: %s\nArchitecture: amd64\n' "$version"
     printf 'Maintainer: Quickie contributors <quickie@users.noreply.github.com>\nSection: web\nPriority: optional\n'
     # WebKit loads GLES dynamically, so dpkg-shlibdeps does not report it.
-    printf 'Depends: bubblewrap, xdg-dbus-proxy, shared-mime-info, libgles2, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, %s\n' \
+    printf 'Depends: bubblewrap, xdg-dbus-proxy, shared-mime-info, pkexec, libgles2, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, %s\n' \
       "$dependencies"
     printf 'Recommends: apparmor-profiles, gstreamer1.0-libav\nDescription: Native GTK4 browser with Quickie WebKitGTK\n'
   } > "$stage/DEBIAN/control"

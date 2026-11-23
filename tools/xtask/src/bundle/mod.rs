@@ -128,6 +128,9 @@ pub fn run(
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     copy(&out.join("quickie"), &macos.join("quickie"))?;
+    if let Some(notes) = std::env::var_os("QUICKIE_RELEASE_NOTES") {
+        copy(Path::new(&notes), &resources.join("ReleaseNotes.md"))?;
+    }
     let fork = options.webkit.as_ref().map(|dir| root.join(dir));
     let bundle = Bundle {
         id: options.id.clone(),

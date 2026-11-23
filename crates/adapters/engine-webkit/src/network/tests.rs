@@ -171,6 +171,28 @@ fn a_streamed_redirect_is_the_answer_and_never_followed() {
 }
 
 #[test]
+fn an_update_receives_the_location_without_following_it() {
+    let (elsewhere, accepted) = bystander();
+    let location = format!("http://127.0.0.1:{elsewhere}/download");
+    let url = serve_redirect("302 Found", location.clone());
+    let mut received = None;
+    let result = UrlSessionHttp::new().stream_with_location(
+        &post(url),
+        &StopSignal::new(),
+        &mut |event| {
+            if let HttpEvent::Status(status) = event {
+                assert_eq!(status, 302);
+            }
+            Flow::Continue
+        },
+        &mut |value| received = Some(value),
+    );
+    assert_eq!(result, Ok(Ended::Complete));
+    assert_eq!(received, Some(location));
+    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn a_whole_request_never_follows_a_redirect() {
     let (elsewhere, accepted) = bystander();
     let url = serve_redirect(
