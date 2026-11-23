@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${CI:-} == true && $(uname -s):$(uname -m) == Linux:x86_64 ]] ||
+  fail 'Run the native update rehearsal on a disposable x86-64 Linux CI runner.'
+
+format=${1:-}
+version=${2:-}
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $version != 0.0.0 ]] ||
+  fail 'Supply the version of a newly built Quickie release.'
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../.." && pwd)
+cd -- "$root"
+build_dir=${QUICKIE_BUILD_DIR:-"$root/.build"}
+engine="$build_dir/gtk-stage/opt/quickie/lib"
+target="$build_dir/gtk-cargo"
+artifacts="$build_dir/gtk-packages"
+case "$format" in
+  deb-and-appimage)
+    deb="$artifacts/quickie_${version}_amd64.deb"
+    appimage="$artifacts/Quickie-${version}-x86_64.AppImage"
+    [[ -f $deb && -x $appimage ]] || fail 'The release DEB and AppImage must be built first.'
+    command -v mksquashfs >/dev/null || fail 'Install squashfs-tools for the AppImage fixture.'
+    (( EUID != 0 )) || fail 'Run the Ubuntu rehearsal as the unprivileged build user.'
+    if dpkg-query --show quickie >/dev/null 2>&1; then
+      fail 'The rehearsal requires a runner without an existing Quickie package.'
+    fi
+    ;;
+  rpm)
+    shopt -s nullglob
+    rpms=("$artifacts/quickie-${version}-"*.fc43.x86_64.rpm)
+    (( ${#rpms[@]} == 1 )) || fail 'Build a single Fedora release RPM first.'
+    if rpm --query quickie >/dev/null 2>&1; then
+      fail 'The rehearsal requires a runner without an existing Quickie package.'
+    fi
+    ;;
+  *)
+    fail 'Select deb-and-appimage or rpm.'
+    ;;
+esac
+
+test_binary=$(
+  RUSTFLAGS="-Lnative=$engine" LD_LIBRARY_PATH="$engine" \
+    mise exec -- cargo test --locked --package quickie-linux --target-dir "$target" \
+      --no-run --message-format=json |
+    python3 -c '
+import json
+import sys
+artifacts = [json.loads(line) for line in sys.stdin]
+for artifact in artifacts:
+    if (artifact.get("executable") and artifact["target"]["name"] == "quickie-gtk"
+            and artifact["profile"]["test"]):
+        print(artifact["executable"])
+        break
+else:
+    sys.exit("Could not find the Quickie native test executable")
+'
+)
+test -x "$test_binary"
+package_test=updates::install::tests::rehearsal::native_package_upgrade
+appimage_test=updates::install::tests::rehearsal::native_appimage_upgrade
+assert_test_present() {
+  LD_LIBRARY_PATH="$engine" "$test_binary" --list --ignored --exact "$1" |
+    grep -Fxq "$1: test"
+}
+assert_test_present "$package_test"
+if [[ $format == deb-and-appimage ]]; then
+  assert_test_present "$appimage_test"
+fi
+
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+cat > "$work/previous-quickie" <<'EOF'
+#!/bin/sh
+if test "$#" -eq 1 && test "$1" = --version; then
+  printf '0.0.0\n'
+elif test -n "${QUICKIE_REHEARSAL_RUNNER:-}"; then
+  exec "$QUICKIE_REHEARSAL_RUNNER" "$@"
+else
+  exit 2
+fi
+EOF
+chmod 755 "$work/previous-quickie"
+
+as_root() {
+  if (( EUID == 0 )); then
+    "$@"
+  else
+    sudo -- "$@"
+  fi
+}
+
+run_package_upgrade() {
+  local archive=$1 digest
+  digest=$(sha256sum < "$archive")
+  as_root env LD_LIBRARY_PATH="$engine" QUICKIE_REHEARSAL_VERSION="$version" \
+    QUICKIE_REHEARSAL_ARCHIVE="$archive" QUICKIE_REHEARSAL_SHA256="${digest%% *}" \
+    "$test_binary" --ignored --exact "$package_test"
+}
+
+case "$format" in
+  deb-and-appimage)
+    tree="$work/deb"
+    mkdir -p "$tree/DEBIAN" "$tree/usr/bin"
+    install -Dm755 "$work/previous-quickie" "$tree/opt/quickie/bin/quickie"
+    ln -s /opt/quickie/bin/quickie "$tree/usr/bin/quickie"
+    cat > "$tree/DEBIAN/control" <<'EOF'
+Package: quickie
+Version: 0.0.0
+Architecture: amd64
+Maintainer: Quickie contributors <quickie@users.noreply.github.com>
+Description: Previous Quickie release fixture for the native updater rehearsal
+EOF
+    previous_deb="$work/quickie_0.0.0_amd64.deb"
+    dpkg-deb --root-owner-group --build "$tree" "$previous_deb"
+    as_root apt-get --assume-yes --no-remove --no-install-recommends install -- "$previous_deb"
+    run_package_upgrade "$deb"
+
+    mkdir "$work/runtime"
+    install -Dm755 "$work/previous-quickie" "$work/AppDir/usr/bin/quickie"
+    ln -s usr/bin/quickie "$work/AppDir/AppRun"
+    mksquashfs "$work/AppDir" "$work/previous.squashfs" -noappend -no-progress -processors 1
+    offset=$("$appimage" --appimage-offset)
+    [[ $offset =~ ^[1-9][0-9]*$ ]] || fail 'Could not read the authentic AppImage runtime size.'
+    previous_image="$work/Relocated Quickie.AppImage"
+    head -c "$offset" "$appimage" > "$previous_image"
+    cat "$work/previous.squashfs" >> "$previous_image"
+    chmod 751 "$previous_image"
+    digest=$(sha256sum < "$appimage")
+    LD_LIBRARY_PATH="$engine" QUICKIE_REHEARSAL_VERSION="$version" \
+      QUICKIE_REHEARSAL_ARCHIVE="$appimage" QUICKIE_REHEARSAL_SHA256="${digest%% *}" \
+      QUICKIE_REHEARSAL_APPIMAGE="$previous_image" QUICKIE_REHEARSAL_RUNNER="$test_binary" \
+      TMPDIR="$work/runtime" "$previous_image" --appimage-extract-and-run --ignored --exact "$appimage_test"
+    ;;
+  rpm)
+    cat > "$work/previous.spec" <<'EOF'
+%global _build_id_links none
+%global debug_package %{nil}
+Name: quickie
+Version: 0.0.0
+Release: 1.fc43
+Summary: Previous Quickie release fixture
+License: MIT
+AutoReqProv: no
+
+%description
+Previous Quickie release fixture for the native updater rehearsal.
+
+%install
+install -Dm755 "%{fixture_binary}" "%{buildroot}/opt/quickie/bin/quickie"
+mkdir -p "%{buildroot}/usr/bin"
+ln -s /opt/quickie/bin/quickie "%{buildroot}/usr/bin/quickie"
+
+%files
+/opt/quickie
+/usr/bin/quickie
+EOF
+    rpmbuild -bb --define "_topdir $work/rpm" \
+      --define "fixture_binary $work/previous-quickie" "$work/previous.spec"
+    as_root dnf5 --assumeyes install "$work/rpm/RPMS/x86_64/quickie-0.0.0-1.fc43.x86_64.rpm"
+    run_package_upgrade "${rpms[0]}"
+    ;;
+esac

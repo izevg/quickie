@@ -1,0 +1,18 @@
+[package]
+name = "quickie-updater"
+description = "Release selection and artifact verification for Quickie"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+semver = "1"
+serde_json.workspace = true
+sha2 = "0.10"
+tempfile.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

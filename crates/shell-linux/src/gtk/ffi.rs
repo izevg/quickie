@@ -17,6 +17,9 @@ pub const ALT: c_uint = 1 << 3;
 pub const KEY_ESCAPE: c_uint = 0xff1b;
 pub const KEY_LEFT: c_uint = 0xff51;
 pub const KEY_RIGHT: c_uint = 0xff53;
+pub const KEY_COMMA: c_uint = 0x2c;
+pub const HORIZONTAL: c_int = 0;
+pub const VERTICAL: c_int = 1;
 
 #[repr(C)]
 pub struct GError {
@@ -33,6 +36,46 @@ unsafe extern "C" {
     pub fn gtk_window_set_default_size(window: Object, width: c_int, height: c_int);
     pub fn gtk_window_set_child(window: Object, child: Object);
     pub fn gtk_window_present(window: Object);
+    pub fn gtk_window_new() -> Object;
+    pub fn gtk_window_close(window: Object);
+    pub fn gtk_window_set_transient_for(window: Object, parent: Object);
+    pub fn gtk_window_set_modal(window: Object, modal: Bool);
+    pub fn gtk_window_set_hide_on_close(window: Object, setting: Bool);
+    pub fn gtk_window_set_destroy_with_parent(window: Object, setting: Bool);
+    pub fn gtk_alert_dialog_new(format: *const c_char, ...) -> Object;
+    pub fn gtk_alert_dialog_set_detail(dialog: Object, detail: *const c_char);
+    pub fn gtk_alert_dialog_choose(
+        dialog: Object,
+        parent: Object,
+        cancellable: Object,
+        callback: extern "C" fn(Object, Object, Object),
+        data: Object,
+    );
+    pub fn gtk_alert_dialog_choose_finish(
+        dialog: Object,
+        result: Object,
+        error: *mut *mut GError,
+    ) -> c_int;
+    pub fn gtk_box_new(orientation: c_int, spacing: c_int) -> Object;
+    pub fn gtk_box_append(container: Object, child: Object);
+    pub fn gtk_label_new(text: *const c_char) -> Object;
+    pub fn gtk_label_set_text(label: Object, text: *const c_char);
+    pub fn gtk_label_set_markup(label: Object, text: *const c_char);
+    pub fn gtk_label_set_wrap(label: Object, wrap: Bool);
+    pub fn gtk_label_set_xalign(label: Object, alignment: f32);
+    pub fn gtk_label_set_selectable(label: Object, selectable: Bool);
+    pub fn gtk_button_new_with_label(label: *const c_char) -> Object;
+    pub fn gtk_button_set_label(button: Object, label: *const c_char);
+    pub fn gtk_switch_new() -> Object;
+    pub fn gtk_switch_get_active(toggle: Object) -> Bool;
+    pub fn gtk_switch_set_active(toggle: Object, active: Bool);
+    pub fn gtk_expander_new(label: *const c_char) -> Object;
+    pub fn gtk_expander_set_child(expander: Object, child: Object);
+    pub fn gtk_scrolled_window_new() -> Object;
+    pub fn gtk_scrolled_window_set_child(scroll: Object, child: Object);
+    pub fn gtk_scrolled_window_set_min_content_height(scroll: Object, height: c_int);
+    pub fn gtk_link_button_new_with_label(uri: *const c_char, label: *const c_char) -> Object;
+    pub fn gtk_link_button_set_uri(button: Object, uri: *const c_char);
     pub fn gtk_overlay_new() -> Object;
     pub fn gtk_overlay_set_child(overlay: Object, child: Object);
     pub fn gtk_overlay_add_overlay(overlay: Object, child: Object);
@@ -45,12 +88,37 @@ unsafe extern "C" {
     pub fn gtk_widget_set_halign(widget: Object, align: c_int);
     pub fn gtk_widget_set_valign(widget: Object, align: c_int);
     pub fn gtk_widget_set_margin_top(widget: Object, margin: c_int);
+    pub fn gtk_widget_set_margin_bottom(widget: Object, margin: c_int);
+    pub fn gtk_widget_set_margin_start(widget: Object, margin: c_int);
+    pub fn gtk_widget_set_margin_end(widget: Object, margin: c_int);
+    pub fn gtk_widget_set_hexpand(widget: Object, expand: Bool);
+    pub fn gtk_widget_set_sensitive(widget: Object, sensitive: Bool);
+    pub fn gtk_widget_add_css_class(widget: Object, class: *const c_char);
     pub fn gtk_widget_set_visible(widget: Object, visible: Bool);
     pub fn gtk_widget_get_visible(widget: Object) -> Bool;
     pub fn gtk_widget_grab_focus(widget: Object) -> Bool;
     pub fn gtk_event_controller_key_new() -> Object;
     pub fn gtk_event_controller_set_propagation_phase(controller: Object, phase: c_int);
     pub fn gtk_widget_add_controller(widget: Object, controller: Object);
+}
+
+#[link(name = "glib-2.0")]
+unsafe extern "C" {
+    pub fn g_main_loop_new(context: Object, is_running: Bool) -> Object;
+    pub fn g_main_loop_run(main_loop: Object);
+    pub fn g_main_loop_quit(main_loop: Object);
+    pub fn g_main_loop_unref(main_loop: Object);
+    pub fn g_timeout_add(
+        interval: c_uint,
+        callback: extern "C" fn(Object) -> Bool,
+        data: Object,
+    ) -> c_uint;
+    pub fn g_timeout_add_seconds(
+        interval: c_uint,
+        callback: extern "C" fn(Object) -> Bool,
+        data: Object,
+    ) -> c_uint;
+    pub fn g_source_remove(source: c_uint) -> Bool;
 }
 
 #[link(name = "gio-2.0")]

@@ -1,7 +1,9 @@
 //! General: whether Quickie is the default browser, with the button that asks macOS to make it
 //! so; where downloads go, with the button that shows the folder; and the appearance, whose
-//! switch puts the page inside the window as a card (*Inset page*). Each is a section with one
-//! row.
+//! switch puts the page inside the window as a card (*Inset page*). Released builds also show
+//! software updates.
+
+use std::cell::Cell;
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, Message, sel};
@@ -28,6 +30,12 @@ pub struct GeneralState {
     pub inset_page: bool,
 }
 
+/// Software Updates rows for a supported release installation.
+pub struct SoftwareUpdates<'a> {
+    pub version: &'a str,
+    pub automatic: bool,
+}
+
 pub struct General {
     page: ScrollPage,
     browser_heading: Retained<NSTextField>,
@@ -39,6 +47,83 @@ pub struct General {
     appearance_heading: Retained<NSTextField>,
     appearance_group: FormGroup,
     inset_page: ToggleRow,
+    updates: Updates,
+}
+
+struct Updates {
+    visible: Cell<bool>,
+    heading: Retained<NSTextField>,
+    group: FormGroup,
+    release: InfoRow,
+    automatic: ToggleRow,
+    notes: InfoRow,
+}
+
+impl Updates {
+    fn new(target: &SettingsTarget, mtm: MainThreadMarker) -> Self {
+        let release = InfoRow::new(
+            Some("arrow.down.circle"),
+            Some(button(
+                "Check for Updates…",
+                sel!(checkAppUpdates:),
+                target,
+                mtm,
+            )),
+            mtm,
+        );
+        let notes = InfoRow::new(
+            Some("doc.text"),
+            Some(button("View", sel!(whatsNew:), target, mtm)),
+            mtm,
+        );
+        set(notes.text(), "What’s New in Quickie");
+        let automatic = ToggleRow::new(
+            "Automatic updates",
+            "Download new releases and install them when Quickie quits",
+            mtm,
+        );
+        let toggle_target = target.retain();
+        automatic.on_change(move |on| toggle_target.ask(SettingsAction::AutomaticAppUpdates(on)));
+        let group = FormGroup::new(mtm);
+        release.add_to(group.view());
+        group.view().addSubview(automatic.view());
+        notes.add_to(group.view());
+        let heading = heading("Software Updates", mtm);
+        heading.setHidden(true);
+        group.view().setHidden(true);
+        Self {
+            visible: Cell::new(false),
+            heading,
+            group,
+            release,
+            automatic,
+            notes,
+        }
+    }
+
+    fn update(&self, state: Option<&SoftwareUpdates<'_>>) {
+        self.visible.set(state.is_some());
+        self.heading.setHidden(state.is_none());
+        self.group.view().setHidden(state.is_none());
+        if let Some(state) = state {
+            set(self.release.text(), &format!("Quickie {}", state.version));
+            self.automatic.set_on(state.automatic);
+        }
+    }
+
+    fn place(&self, column: &mut Column) {
+        if !self.visible.get() {
+            return;
+        }
+        column.gap(space::SECTION);
+        column.heading(&self.heading);
+        let rows = [InfoRow::MIN_HEIGHT, ToggleRow::HEIGHT, InfoRow::MIN_HEIGHT];
+        let (frames, height) = self.group.place(column.origin(), INNER, &rows);
+        self.release.place(frames[0]);
+        self.automatic.place(frames[1].origin, frames[1].size.width);
+        self.notes.place(frames[2]);
+        column.gap(height);
+    }
 }
 
 impl General {
@@ -63,6 +148,7 @@ impl General {
             appearance_heading: heading("Appearance", mtm),
             appearance_group: FormGroup::new(mtm),
             inset_page,
+            updates: Updates::new(target, mtm),
         };
         let path = general.downloads.text();
         path.setFont(Some(&TextRole::RowTitle.mono_font()));
@@ -82,6 +168,8 @@ impl General {
             general.downloads_group.view(),
             &general.appearance_heading,
             general.appearance_group.view(),
+            &general.updates.heading,
+            general.updates.group.view(),
         ] {
             column.addSubview(view);
         }
@@ -90,6 +178,10 @@ impl General {
 
     pub fn view(&self) -> &NSView {
         self.page.view()
+    }
+
+    pub fn set_software_updates(&self, state: Option<&SoftwareUpdates<'_>>) {
+        self.updates.update(state);
     }
 
     /// Shows `state` and lays the pane out.
@@ -125,6 +217,7 @@ impl General {
         self.inset_page
             .place(frames[0].origin, frames[0].size.width);
         column.gap(height);
+        self.updates.place(&mut column);
         self.page.set_content_height(column.top);
     }
 }

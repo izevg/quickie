@@ -9,7 +9,7 @@
 //! re-send the request, an LLM prompt with the page in it, to whatever host the `Location`
 //! names, in the clear if it says `http:`, past every check of the endpoint's URL.
 
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::time::Duration;
 
 use block2::DynBlock;
@@ -39,7 +39,7 @@ pub(super) struct Timeouts {
 /// What the delegate forwards, in the order it happens.
 enum Arrival {
     /// The response's status code; `None` for a response that is not http.
-    Status(Option<u16>),
+    Status(Option<u16>, Option<String>),
     /// The next piece of the body.
     Data(Vec<u8>),
     /// The task ended: completely, or with the system's description of what failed.
@@ -47,7 +47,7 @@ enum Arrival {
 }
 
 struct Ivars {
-    arrivals: Sender<Arrival>,
+    arrivals: SyncSender<Arrival>,
 }
 
 define_class!(
@@ -99,10 +99,14 @@ define_class!(
             response: &NSURLResponse,
             completion: &DynBlock<dyn Fn(NSURLSessionResponseDisposition)>,
         ) {
-            let status = response
-                .downcast_ref::<NSHTTPURLResponse>()
-                .and_then(|response| u16::try_from(response.statusCode()).ok());
-            self.forward(Arrival::Status(status));
+            let http = response.downcast_ref::<NSHTTPURLResponse>();
+            let status = http.and_then(|response| u16::try_from(response.statusCode()).ok());
+            let location = http
+                .and_then(|response| {
+                    response.valueForHTTPHeaderField(&NSString::from_str("Location"))
+                })
+                .map(|value| value.to_string());
+            self.forward(Arrival::Status(status, location));
             completion.call((NSURLSessionResponseDisposition::Allow,));
         }
 
@@ -119,7 +123,7 @@ define_class!(
 );
 
 impl StreamDelegate {
-    fn new(arrivals: Sender<Arrival>) -> Retained<Self> {
+    fn new(arrivals: SyncSender<Arrival>) -> Retained<Self> {
         let this = Self::alloc().set_ivars(Ivars { arrivals });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
@@ -140,8 +144,18 @@ pub(super) fn stream(
     stop: &StopSignal,
     on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
 ) -> Result<Ended, HttpError> {
+    stream_with_location(request, timeouts, stop, on_event, &mut |_| {})
+}
+
+pub(super) fn stream_with_location(
+    request: &HttpRequest,
+    timeouts: Timeouts,
+    stop: &StopSignal,
+    on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
+    on_location: &mut dyn FnMut(String),
+) -> Result<Ended, HttpError> {
     let target = ns_request(request)?;
-    let (sender, arrivals) = mpsc::channel();
+    let (sender, arrivals) = mpsc::sync_channel(4);
     let delegate = StreamDelegate::new(sender);
     let configuration = NSURLSessionConfiguration::ephemeralSessionConfiguration();
     configuration.setTimeoutIntervalForRequest(timeouts.idle.as_secs_f64());
@@ -159,7 +173,9 @@ pub(super) fn stream(
     };
     let task = session.dataTaskWithRequest(&target);
     task.resume();
-    let ended = pump(&arrivals, stop, on_event);
+    let ended = pump(&arrivals, stop, on_event, on_location);
+    // Disconnect first so a delegate blocked by backpressure can finish.
+    drop(arrivals);
     // Cancels the task if it still runs, and lets go of the delegate.
     session.invalidateAndCancel();
     ended
@@ -170,14 +186,20 @@ fn pump(
     arrivals: &Receiver<Arrival>,
     stop: &StopSignal,
     on_event: &mut dyn FnMut(HttpEvent<'_>) -> Flow,
+    on_location: &mut dyn FnMut(String),
 ) -> Result<Ended, HttpError> {
     loop {
         if stop.is_stopped() {
             return Ok(Ended::Stopped);
         }
         let flow = match arrivals.recv_timeout(POLL) {
-            Ok(Arrival::Status(Some(status))) => on_event(HttpEvent::Status(status)),
-            Ok(Arrival::Status(None)) => {
+            Ok(Arrival::Status(Some(status), location)) => {
+                if let Some(location) = location {
+                    on_location(location);
+                }
+                on_event(HttpEvent::Status(status))
+            }
+            Ok(Arrival::Status(None, _)) => {
                 return Err(HttpError("the answer is not http".to_owned()));
             }
             Ok(Arrival::Data(bytes)) => on_event(HttpEvent::Body(&bytes)),

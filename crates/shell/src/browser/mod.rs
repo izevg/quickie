@@ -57,6 +57,7 @@ use crate::input::cycle::CycleHold;
 use crate::input::keystroke::Passed;
 use crate::input::keystroke::chord::PendingChord;
 use crate::input::keystroke::log::KeyLog;
+use crate::updates::Updater;
 use crate::window::{browser_window, set_title};
 use crate::{Addons, Agents, App, Guard, Lib, Looks, MacEngine, Network, Palette, Zooms};
 use navigation::NavigationOverlays;
@@ -92,6 +93,7 @@ pub struct Services {
 }
 
 pub struct Browser {
+    pub(crate) updater: Rc<Updater>,
     /// The engine's network, for the browser's own requests (filter lists, the agent's endpoint,
     /// extension packages): every request of the product goes through the engine's stack.
     http: Network,
@@ -203,7 +205,9 @@ impl Browser {
                 .map(|corrupt| format!("Extensions started fresh: {corrupt}")),
         );
         let http = services.browsing.engine().http();
+        let updater = Updater::new(&services.profile, mtm);
         let browser = Rc::new_cyclic(|this| Self {
+            updater,
             http,
             browsing: RefCell::new(services.browsing),
             library: RefCell::new(services.library),
@@ -290,6 +294,11 @@ impl Browser {
         for notice in notices {
             self.toast(&notice);
         }
+        self.updater.schedule();
+    }
+
+    pub(crate) fn prepare_termination(&self) -> objc2_app_kit::NSApplicationTerminateReply {
+        self.updater.terminate(&self.writes)
     }
 
     /// Every command the browser runs, built once at start, for the menu bar.

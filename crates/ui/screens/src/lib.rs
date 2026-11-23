@@ -11,5 +11,5 @@ pub mod settings;
 
 pub use settings::{
     ExtensionState, ExtensionsState, GeneralState, KeyPress, KeysState, ListState, Pane, Recorded,
-    SettingsAction, SettingsScreen, ShieldsState,
+    SettingsAction, SettingsScreen, ShieldsState, SoftwareUpdates,
 };

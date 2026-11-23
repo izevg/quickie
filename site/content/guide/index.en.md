@@ -31,6 +31,16 @@ Quickie gives the whole window to the page. On macOS, open the address bar, tab 
 
 Filter lists and scheduled list updates are off in a fresh profile. Enabling a list downloads it from its publisher.
 
+## Update Quickie {#updates}
+
+On macOS, select **Quickie → Check for Updates…** or open **Settings → General → Software Updates**. On Linux, open **Software Updates** with `Ctrl+,` or choose **Check for Updates** from Quickie’s launcher actions.
+
+Quickie finds the matching package for your installation, verifies its SHA-256 and shows the release notes before a manual update. Turn on automatic updates if you want Quickie to download updates and install them when you quit. Your system may ask for permission to replace the installed app. **What’s New in Quickie** shows the notes for your current version offline.
+
+If you are on 0.1.0, install 0.2.0 from GitHub Releases once to get the updater. [Download Quickie](https://github.com/izevg/quickie/releases).
+
+If macOS blocks the first launch of an updated ad hoc build, approve it in **Privacy & Security → Open Anyway**. [Apple’s guidance](https://support.apple.com/en-us/102445).
+
 ## AI integration {#ai-integration}
 
 Open **Settings → Agent** and configure an OpenAI-compatible endpoint and model. Use a local endpoint such as Ollama or LM Studio, or a hosted service you trust. Open the page you want to ask about, press `⌘P`, and type `?` followed by a question. Quickie sends the question and relevant page text to the configured endpoint. Press `⌘.` to stop the answer.

@@ -39,7 +39,7 @@
 | Built-in agent | Own client for the **OpenAI-compatible API** (`/v1/chat/completions`, SSE, tool calling); HTTP through Chromium's network service | Any endpoint: hosted OpenAI-compatible APIs, Ollama (`127.0.0.1:11434/v1`), LM Studio |
 | External agents | MCP via `rmcp` (official Rust SDK) on a Unix socket; CDP only as an internal channel | No TCP port |
 | Secrets | Keychain via `security-framework` | LLM API keys never sit in files |
-| Updates | Sparkle 2 (Objective-C, called through `objc2`), EdDSA, deltas; Developer ID + notarization | Self-distribution |
+| Updates | Stable GitHub Releases, streamed SHA-256 verification, native installers | macOS DMG and Linux DEB, RPM, AppImage |
 | Tests | `cargo test` for pure crates, GN `rust_unit_test`, Chromium `browser_tests` for patches, egress test | See [quality.md](quality.md) |
 
 ### Required crates
@@ -73,7 +73,7 @@ flowchart LR
   Q <-->|HTTPS| W[Websites]
   Q <-->|OpenAI-compatible API, on request only| L[LLM endpoint: local Ollama or hosted]
   A[External agents: Claude Code and others] <-->|MCP over stdio| Q
-  Q -->|updates| S[Own update feed / quickie-services]
+  Q -.->|manual or opt-in updates| S[GitHub Releases]
   Q -.->|opt-in only| G[Google: Widevine]
 ```
 
@@ -154,7 +154,7 @@ ninth context means regrouping first.
 | `LlmPort` | driven | `llm`: OpenAI-compatible client on top of `HttpPort` |
 | `SessionRepo`, `LibraryRepo`, `KeymapRepo`, `ShieldsRepo`, `AuditLog` | driven | `store` (rusqlite; saves go to a write-behind thread off the main thread) |
 | `ContentBlockerPort` | driven | supplied by the engine (`Engine::Blocker`): `adblock` in the network service (product), `WKContentRuleList` (development); reports a `RulesStatus` (idle, compiling, active, failed) and wakes the shell when rules settle |
-| `SecretStore`, `Entropy`, `Updater` | driven | `system` (Keychain, `SecRandom`), `updater` (Sparkle) |
+| `SecretStore`, `Entropy` | driven | `system` (Keychain, `SecRandom`) |
 | Clipboard, reveal in Finder, default browser, global hotkey, keyboard layout | — | Not ports until a use case calls them: today only the shell does, and a Linux shell writes its own glue |
 | `AgentGateway` | driving | `mcp` (rmcp on a Unix socket) |
 | UI intents | driving | `ui/features` call use cases |
@@ -529,7 +529,7 @@ How the WebKit fork is pinned, built and handed to `engine-webkit`:
 | Remote execution | optional | EngFlow (Siso remote execution on macOS since M145) **[verify pricing]** |
 | CI | yes | Self-hosted runner: the [quality.md](quality.md) gates → GN build → `browser_tests` → egress test → sign → notarize |
 | Rebase bot | yes | Every 8 weeks (Extended Stable) and on every security release; an agent fixes conflicts, a human reviews |
-| Update feed | yes | Static Sparkle appcast |
+| Update feed | yes | Stable GitHub Releases with package digests and release notes |
 | quickie-services | optional | Component proxy, filter-list mirror, CRX proxy (the Helium / Brave `go-update` pattern) |
 | LLM | optional | Local Ollama/LM Studio or any OpenAI-compatible endpoint; key in the Keychain |
 | Crash | local | Crashpad writes dumps to disk only |
@@ -546,8 +546,10 @@ How the WebKit fork is pinned, built and handed to `engine-webkit`:
   profile, with the provenance rule and approvals. Palette input without `?` never reaches an LLM.
 - **External agents:** MCP only over a `0600` Unix socket, tools on an allowlist, the same Act
   rules, a full audit log in `shell.sqlite`.
-- Hardened Runtime, minimal entitlements per helper (JIT only for renderer and GPU), Sparkle only
-  with EdDSA.
+- Hardened Runtime and minimal entitlements per helper (JIT only for renderer and GPU).
+- The updater matches the installed distribution and architecture to a newer stable release,
+  verifies the package size and SHA-256 from GitHub, and validates the package identity before
+  requesting native installation. Automatic updates require opt-in.
 
 ## 9. Roadmap
 

@@ -6,7 +6,9 @@ use std::rc::{Rc, Weak};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{NSApplication, NSApplicationDelegate, NSMenuItem};
+use objc2_app_kit::{
+    NSApplication, NSApplicationDelegate, NSApplicationTerminateReply, NSMenuItem,
+};
 use objc2_foundation::{NSArray, NSString, NSURL};
 use url::Url;
 
@@ -36,13 +38,30 @@ define_class!(
                 .filter_map(|url| url.absoluteString())
                 .filter_map(|text| Url::parse(&text.to_string()).ok())
                 .collect();
-            if let Some(browser) = self.ivars().browser.upgrade() {
+            if let Some(browser) = self.ivars().browser.upgrade()
+                && !browser.updater.terminating()
+            {
                 browser.open_urls(urls);
             }
+        }
+
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn should_terminate(&self, _application: &NSApplication) -> NSApplicationTerminateReply {
+            self.ivars().browser.upgrade().map_or(
+                NSApplicationTerminateReply::TerminateNow,
+                |browser| browser.prepare_termination(),
+            )
         }
     }
 
     impl AppDelegate {
+        #[unsafe(method(checkForAppUpdates:))]
+        fn check_for_app_updates(&self, _sender: &NSMenuItem) {
+            if let Some(browser) = self.ivars().browser.upgrade() {
+                browser.updater.check(true);
+            }
+        }
+
         /// A menu item whose represented object is a command id.
         #[unsafe(method(runCommand:))]
         fn run_command(&self, sender: &NSMenuItem) {

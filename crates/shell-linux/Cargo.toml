@@ -12,5 +12,11 @@ path = "src/main.rs"
 [dependencies]
 quickie-domain-browsing.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+quickie-updater.workspace = true
+rustix = { version = "1", features = ["fs", "process"] }
+tempfile.workspace = true
+url.workspace = true
+
 [lints]
 workspace = true
