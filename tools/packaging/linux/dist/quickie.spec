@@ -10,6 +10,7 @@ License: Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND LGPL-2.0-or-later AND 
 AutoProv: no
 Requires: bubblewrap
 Requires: xdg-dbus-proxy
+Requires: polkit
 Requires: gstreamer1-plugins-base
 Requires: gstreamer1-plugins-good
 # WebKit loads GLES dynamically, so automatic ELF requirements omit it.

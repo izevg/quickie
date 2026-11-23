@@ -15,7 +15,7 @@ If the release notes identify an ad hoc build and macOS blocks the first launch 
 
 ## What does the Linux preview include?
 
-The first preview targets **x86-64** and uses a native GTK4 window with Quickie’s WebKitGTK fork. The planned packages are `.deb` for Ubuntu 24.04 LTS, `.rpm` for Fedora 43, and an AppImage. [GitHub Releases](https://github.com/izevg/quickie/releases) lists published files.
+The first Linux preview targets **x86-64** and uses GTK4 with Quickie’s WebKitGTK fork. Choose `.deb` for Ubuntu 24.04 LTS, `.rpm` for Fedora 43, or AppImage to run Quickie without installing a package. [Find packages and checksums on GitHub Releases](https://github.com/izevg/quickie/releases).
 
 Use `Ctrl+L` to open the address bar, `Ctrl+R` to reload, `Alt+Left` and `Alt+Right` for history, and `Ctrl+Shift+I` for Web Inspector. The preview has one browsing window. Session restore, Shields, the built-in agent, and the macOS Inspector styling are outside its scope.
 

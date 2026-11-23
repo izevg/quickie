@@ -23,10 +23,12 @@ objc2.workspace = true
 objc2-app-kit = { workspace = true, features = [
   "block2",
   "objc2-core-foundation",
+  "NSAlert",
   "NSApplication",
   "NSButton",
   "NSControl",
   "NSEvent",
+  "NSFont",
   "NSMenu",
   "NSMenuItem",
   "NSOpenPanel",
@@ -35,6 +37,9 @@ objc2-app-kit = { workspace = true, features = [
   "NSResponder",
   "NSRunningApplication",
   "NSSavePanel",
+  "NSScrollView",
+  "NSText",
+  "NSTextView",
   "NSTextInputClient",
   "NSTextInputContext",
   "NSView",
@@ -44,17 +49,26 @@ objc2-app-kit = { workspace = true, features = [
 objc2-foundation = { workspace = true, features = [
   "block2",
   "NSArray",
+  "NSAttributedString",
   "NSBundle",
+  "NSData",
   "NSDate",
+  "NSDictionary",
   "NSEnumerator",
   "NSError",
+  "FoundationErrors",
+  "NSFileManager",
   "NSGeometry",
   "NSNotification",
   "NSOperation",
+  "NSPathUtilities",
+  "NSProcessInfo",
+  "NSPropertyList",
   "NSString",
   "NSTimer",
   "NSURL",
   "NSUserDefaults",
+  "NSValue",
 ] }
 quickie-application.workspace = true
 quickie-domain-agents.workspace = true
@@ -71,6 +85,8 @@ quickie-system.workspace = true
 quickie-ui-screens.workspace = true
 quickie-ui-shared.workspace = true
 quickie-ui-widgets.workspace = true
+quickie-updater.workspace = true
+tempfile.workspace = true
 url.workspace = true
 
 [lints]

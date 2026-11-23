@@ -23,6 +23,8 @@ enum Entry<'a> {
         key: &'static str,
         modifiers: NSEventModifierFlags,
     },
+    /// A named menu item handled directly by the app delegate.
+    Delegate(&'static str, Sel),
     /// A Quickie command, titled as the catalog titles it.
     Command(&'static str),
     Separator,
@@ -46,6 +48,7 @@ pub fn install(app: &NSApplication, target: &AnyObject, catalog: &Catalog, mtm: 
         APP_NAME,
         &[
             standard("About Quickie", sel!(orderFrontStandardAboutPanel:), ""),
+            Entry::Delegate("Check for Updates…", sel!(checkForAppUpdates:)),
             Entry::Separator,
             Entry::Command("quickie.app.settings"),
             Entry::Separator,
@@ -182,6 +185,12 @@ fn add(
                 line.setKeyEquivalentModifierMask(modifiers);
                 menu.addItem(&line);
             }
+            Entry::Delegate(title, action) => {
+                let line = item(mtm, title, Some(action), "");
+                // SAFETY: main retains the delegate for the app's lifetime.
+                unsafe { line.setTarget(Some(target)) };
+                menu.addItem(&line);
+            }
             Entry::Command(id) => {
                 let Some(command) = CommandId::try_from(id).ok().and_then(|id| catalog.get(&id))
                 else {
@@ -217,8 +226,7 @@ fn item(
     action: Option<Sel>,
     key: &str,
 ) -> Retained<NSMenuItem> {
-    // SAFETY: the actions are standard responder-chain selectors, or `runCommand:` on the app
-    // delegate, and all take a sender.
+    // SAFETY: The responder-chain and app-delegate actions all take a sender.
     unsafe {
         NSMenuItem::initWithTitle_action_keyEquivalent(
             NSMenuItem::alloc(mtm),

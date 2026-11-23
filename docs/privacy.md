@@ -119,6 +119,18 @@ WebKit calls it only because the delegate responds to it, and the private action
 for `blockedLoad` only when it responds to that selector. Without it the counts stay at zero.
 Counts live in memory per page and are never stored.
 
+### Browser updates
+
+- **Check for Updates** queries the public Quickie repository on GitHub. Automatic updates
+  are off in a fresh profile. With automatic updates enabled, the browser checks at most
+  once a day while it is running.
+- The updater uses the engine's networking libraries in a separate session without cookies or
+  credentials. It downloads only the matching package from the release and checks the reported
+  size and SHA-256 before installation. Installed release notes are read from the package.
+- After system authorization for a DEB or RPM update, the updater checks the GitHub release
+  again before invoking the package manager. The system package manager may contact configured
+  distribution repositories to resolve dependencies.
+
 ### Web extensions
 
 - A fresh profile has no extension, and installing one is always the user's request: a Chrome

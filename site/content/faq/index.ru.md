@@ -15,7 +15,7 @@ Quickie 0.2.0 рассчитан на компьютеры с **Apple silicon** 
 
 ## Что есть в Linux-превью?
 
-Первое превью рассчитано на **x86-64**. У него нативное окно GTK4 и форк WebKitGTK от Quickie. Запланированы пакеты `.deb` для Ubuntu 24.04 LTS, `.rpm` для Fedora 43 и AppImage. Опубликованные файлы появятся в [релизах на GitHub](https://github.com/izevg/quickie/releases).
+Первое превью для Linux рассчитано на **x86-64** и использует GTK4 с форком WebKitGTK от Quickie. Выбери `.deb` для Ubuntu 24.04 LTS, `.rpm` для Fedora 43 или AppImage для запуска без установки пакета. [Пакеты и контрольные суммы доступны в релизах на GitHub](https://github.com/izevg/quickie/releases).
 
 Адресная строка открывается по `Ctrl+L`, перезагрузка — `Ctrl+R`, переходы по истории — `Alt+←` и `Alt+→`, Web Inspector — `Ctrl+Shift+I`. В превью одно окно браузера. Восстановление сессии, Shields, встроенный агент и оформление Inspector из macOS в эту версию не входят.
 

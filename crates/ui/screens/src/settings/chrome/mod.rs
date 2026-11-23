@@ -61,6 +61,16 @@ define_class!(
             self.ask(SettingsAction::ShowDownloads);
         }
 
+        #[unsafe(method(checkAppUpdates:))]
+        fn check_app_updates(&self, _sender: Option<&NSButton>) {
+            self.ask(SettingsAction::CheckAppUpdates);
+        }
+
+        #[unsafe(method(whatsNew:))]
+        fn whats_new(&self, _sender: Option<&NSButton>) {
+            self.ask(SettingsAction::WhatsNew);
+        }
+
         #[unsafe(method(refreshLists:))]
         fn refresh_lists(&self, _sender: Option<&NSButton>) {
             self.ask(SettingsAction::RefreshLists);

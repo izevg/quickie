@@ -5,6 +5,7 @@ use quickie_domain_browsing::Destination;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Options {
     Empty,
+    Updates,
     Navigate(CString),
     Smoke(CString),
 }
@@ -14,6 +15,13 @@ impl Options {
         let Some(first) = arguments.next() else {
             return Ok(Self::Empty);
         };
+        if first == "--check-for-updates" {
+            return if arguments.next().is_none() {
+                Ok(Self::Updates)
+            } else {
+                Err("the update action does not take an address".into())
+            };
+        }
         let (input, smoke) = if first == "--smoke-test" {
             let url = arguments
                 .next()
@@ -51,6 +59,18 @@ mod tests {
     #[test]
     fn startup_with_no_address_has_no_destination() {
         assert_eq!(Options::parse(std::iter::empty()), Ok(Options::Empty));
+    }
+
+    #[test]
+    fn desktop_update_action_does_not_navigate_or_accept_an_address() {
+        assert_eq!(
+            Options::parse(["--check-for-updates".into()].into_iter()),
+            Ok(Options::Updates)
+        );
+        assert!(
+            Options::parse(["--check-for-updates".into(), "example.com".into()].into_iter())
+                .is_err()
+        );
     }
 
     #[test]

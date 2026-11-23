@@ -7,3 +7,8 @@ Icon=quickie
 Terminal=false
 Categories=Network;WebBrowser;
 MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+Actions=CheckForUpdates;
+
+[Desktop Action CheckForUpdates]
+Name=Check for Updates
+Exec=quickie --check-for-updates

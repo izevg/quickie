@@ -16,7 +16,7 @@ use quickie_domain_shields::{FilterListId, Refresh};
 use quickie_store::KeybindingsFile;
 use quickie_ui_screens::{
     GeneralState, KeyPress, KeysState, ListState, Pane, Recorded, SettingsAction, SettingsScreen,
-    ShieldsState,
+    ShieldsState, SoftwareUpdates,
 };
 
 use super::super::Browser;
@@ -125,6 +125,10 @@ impl Browser {
         let Some(screen) = self.settings.get() else {
             return;
         };
+        screen.set_software_updates(self.updater.supported().then_some(&SoftwareUpdates {
+            version: crate::updates::INSTALLED_VERSION,
+            automatic: self.updater.automatic(),
+        }));
         screen.set_general(&self.general_state());
         screen.set_shields(&self.shields_state());
         screen.set_extensions(&self.extensions_state());
@@ -222,9 +226,20 @@ impl Browser {
     }
 
     fn settings_action(&self, action: SettingsAction) {
+        if self.updater.terminating() {
+            return;
+        }
         match action {
             SettingsAction::MakeDefaultBrowser => self.set_default_browser(),
             SettingsAction::ShowDownloads => self.show_folder(&self.downloads_folder),
+            SettingsAction::CheckAppUpdates => self.updater.check(true),
+            SettingsAction::AutomaticAppUpdates(on) => {
+                if let Err(error) = self.updater.set_automatic(on) {
+                    self.toast(&format!("Could not save automatic updates: {error}"));
+                }
+                self.refresh_settings();
+            }
+            SettingsAction::WhatsNew => self.updater.whats_new(),
             SettingsAction::SetList(id, on) => self.set_list(id, on),
             SettingsAction::EnableLists => self.enable_lists(),
             SettingsAction::RefreshList(id) => {
