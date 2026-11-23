@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use objc2::MainThreadMarker;
+use objc2::{MainThreadMarker, rc::autoreleasepool};
 use objc2_app_kit::NSApplication;
 use quickie_engine_webkit::{
     AutomationError, BrowsingContext, InteractiveAutomation, LocalAutomation,
@@ -16,12 +16,16 @@ pub(super) const COOKIE: &str = "quickie_automation=isolated";
 static REDIRECT_TARGET: Mutex<Option<u16>> = Mutex::new(None);
 
 pub(super) fn check(mtm: MainThreadMarker, base: &Url) -> Result<&'static str, String> {
-    objc2::rc::autoreleasepool(|_| run(mtm, base))
+    checkpoint("starting AppKit");
+    let result = autoreleasepool(|_| run(mtm, base));
+    checkpoint("outer autorelease pool drained");
+    result
 }
 
 fn run(mtm: MainThreadMarker, base: &Url) -> Result<&'static str, String> {
     let _app = NSApplication::sharedApplication(mtm);
     let expected = std::env::var("QUICKIE_AUTOMATION_FRAMEWORK").ok();
+    checkpoint("opening first standalone session");
     let mut first = match LocalAutomation::open(mtm) {
         Ok(_) if expected.as_deref() == Some("system") => {
             return Err(String::from(
@@ -49,7 +53,6 @@ fn run(mtm: MainThreadMarker, base: &Url) -> Result<&'static str, String> {
     let set_cookie = route("automation/set-cookie")?;
     let check_cookie = route("automation/check-cookie")?;
     let cookie_present = route("automation/cookie-present")?;
-    let cookie_absent = route("automation/cookie-absent")?;
 
     first
         .navigate(&initial, &set_cookie)
@@ -68,16 +71,46 @@ fn run(mtm: MainThreadMarker, base: &Url) -> Result<&'static str, String> {
         ));
     }
 
+    scenario("second standalone session", || {
+        standalone_isolation(mtm, base, &initial, &check_cookie)
+    })?;
+    if only_context(&mut first)?.url != cookie_present.as_str() {
+        return Err(String::from(
+            "closing the second session affected the first session",
+        ));
+    }
+
+    // Keep the first store alive while the interactive session checks that it has no cookie.
+    scenario("interactive cookie and redirect", || {
+        interactive_cookie_and_redirect(mtm, base)
+    })?;
+    drop(first);
+    checkpoint("first standalone session released");
+
+    interactive(mtm, base)?;
+    Ok(
+        "standalone and interactive navigation, private stores, redirect and download policy, failure and timeout",
+    )
+}
+
+fn standalone_isolation(
+    mtm: MainThreadMarker,
+    base: &Url,
+    initial: &BrowsingContext,
+    check_cookie: &Url,
+) -> Result<(), String> {
+    let route = |path: &str| base.join(path).map_err(|error| error.to_string());
+    let cookie_absent = route("automation/cookie-absent")?;
     let mut second = LocalAutomation::open(mtm).map_err(|error| error.to_string())?;
     let second_context = only_context(&mut second)?;
     if !matches!(
-        second.navigate(&initial, &check_cookie),
+        second.navigate(initial, check_cookie),
         Err(AutomationError::CommandFailed)
     ) {
         return Err(String::from("another session accepted a foreign context"));
     }
     second
-        .navigate(&second_context, &check_cookie)
+        .navigate(&second_context, check_cookie)
         .map_err(|error| error.to_string())?;
     if only_context(&mut second)?.url != cookie_absent.as_str() {
         return Err(String::from(
@@ -93,6 +126,7 @@ fn run(mtm: MainThreadMarker, base: &Url) -> Result<&'static str, String> {
             "automation did not report a navigation failure",
         ));
     }
+    checkpoint("waiting for standalone navigation timeout");
     if !matches!(
         second.navigate(&second_context, &route("automation/stall")?),
         Err(AutomationError::Timeout)
@@ -106,16 +140,8 @@ fn run(mtm: MainThreadMarker, base: &Url) -> Result<&'static str, String> {
             "automation did not close the session on timeout",
         ));
     }
-    if only_context(&mut first)?.url != cookie_present.as_str() {
-        return Err(String::from(
-            "closing the second session affected the first session",
-        ));
-    }
-
-    interactive(mtm, base)?;
-    Ok(
-        "standalone and interactive navigation, private stores, redirect and download policy, failure and timeout",
-    )
+    checkpoint("standalone timeout verified, releasing second session");
+    Ok(())
 }
 
 fn only_context(session: &mut LocalAutomation) -> Result<BrowsingContext, String> {
@@ -126,7 +152,7 @@ fn only_context(session: &mut LocalAutomation) -> Result<BrowsingContext, String
     Ok(context)
 }
 
-fn interactive(mtm: MainThreadMarker, base: &Url) -> Result<(), String> {
+fn interactive_cookie_and_redirect(mtm: MainThreadMarker, base: &Url) -> Result<(), String> {
     let route = |name| base.join(name).map_err(|error| error.to_string());
     let mut session = interactive_session(mtm)?;
     // The standalone session already set a cookie for this origin. The interactive session
@@ -160,28 +186,44 @@ fn interactive(mtm: MainThreadMarker, base: &Url) -> Result<(), String> {
             "automation did not cancel the cross-origin redirect: {result:?}"
         ));
     }
+    Ok(())
+}
 
-    let mut session = interactive_session(mtm)?;
-    let result = until_navigation(&mut session, &route("automation/attachment")?)?;
-    if !matches!(result, Err(AutomationError::CommandFailed)) {
-        return Err(format!(
-            "interactive automation did not reject an attachment: {result:?}"
-        ));
-    }
+fn interactive(mtm: MainThreadMarker, base: &Url) -> Result<(), String> {
+    let route = |name| base.join(name).map_err(|error| error.to_string());
+    scenario("interactive attachment policy", || {
+        let mut session = interactive_session(mtm)?;
+        let result = until_navigation(&mut session, &route("automation/attachment")?)?;
+        if !matches!(result, Err(AutomationError::CommandFailed)) {
+            return Err(format!(
+                "interactive automation did not reject an attachment: {result:?}"
+            ));
+        }
+        Ok(())
+    })?;
+    scenario("interactive navigation timeout", || {
+        let mut session = interactive_session(mtm)?;
+        checkpoint("waiting for interactive navigation timeout");
+        let result = until_navigation(&mut session, &route("automation/stall")?)?;
+        if !matches!(result, Err(AutomationError::Timeout)) {
+            return Err(format!(
+                "interactive navigation did not time out: {result:?}"
+            ));
+        }
+        checkpoint("interactive timeout verified, releasing session");
+        Ok(())
+    })?;
+    scenario("interactive callback after drop", || {
+        no_callback_after_drop(mtm, &route("automation/check-cookie")?)
+    })
+}
 
-    let mut session = interactive_session(mtm)?;
-    let result = until_navigation(&mut session, &route("automation/stall")?)?;
-    if !matches!(result, Err(AutomationError::Timeout)) {
-        return Err(format!(
-            "interactive navigation did not time out: {result:?}"
-        ));
-    }
-
+fn no_callback_after_drop(mtm: MainThreadMarker, url: &Url) -> Result<(), String> {
     let mut session = interactive_session(mtm)?;
     let abandoned = Rc::new(Cell::new(false));
     let called = Rc::clone(&abandoned);
     session
-        .navigate(&route("automation/check-cookie")?, move |_| {
+        .navigate(url, move |_| {
             called.set(true);
         })
         .map_err(|error| error.to_string())?;
@@ -194,6 +236,19 @@ fn interactive(mtm: MainThreadMarker, base: &Url) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn scenario(name: &str, run: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    checkpoint(&format!("starting {name}"));
+    let result = autoreleasepool(|_| run());
+    checkpoint(&format!("finished {name}"));
+    result
+}
+
+fn checkpoint(message: &str) {
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "automation checkpoint: {message}");
+    let _ = stdout.flush();
 }
 
 fn interactive_session(mtm: MainThreadMarker) -> Result<InteractiveAutomation, String> {
