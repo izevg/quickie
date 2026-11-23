@@ -91,6 +91,10 @@ pub use extensions::WebKitExtensions;
 pub use inbox::OpenedPage;
 use inbox::{Event, Inbox, Owner};
 pub use network::UrlSessionHttp;
+pub use page::{
+    DismissSecurityKeyPrompt, SecurityKeyCompletion, SecurityKeyPresenter, SecurityKeyPrompt,
+    SecurityKeyStage,
+};
 use page::{Report, WebPage};
 use scheme::InternalPages;
 pub use shields::WebKitContentBlocker;
@@ -211,6 +215,11 @@ impl WebKitEngine {
     /// `size` at the screen's scale.
     pub fn set_thumbnail_size(&mut self, size: NSSize) {
         self.thumbnail_size = size;
+    }
+
+    /// Installs the host's security-key presenter before creating any pages.
+    pub fn set_security_key_presenter(&mut self, presenter: Rc<SecurityKeyPresenter>) {
+        self.inbox.security_key_presenter.replace(Some(presenter));
     }
 
     /// Takes a new picture of the tab's page, painted by its web content process; once it is
@@ -369,6 +378,7 @@ impl EnginePort for WebKitEngine {
             && let Some(page) = self.pages.get(&previous)
         {
             // The page as the user left it, for the tab overview; drawn while still laid out.
+            page.cancel_authentication();
             self.snapshot(previous);
             page.frame().removeFromSuperview();
         }
@@ -380,6 +390,7 @@ impl EnginePort for WebKitEngine {
 
     fn navigate(&mut self, tab: TabId, navigation: &Navigation) -> Result<(), EngineError> {
         let page = self.page(tab)?;
+        page.cancel_authentication();
         match navigation {
             Navigation::Load(url) => return page.load(url),
             Navigation::Back => page.go_back(),
@@ -618,6 +629,7 @@ impl PageSurface for WebKitEngine {
 
     fn detach_host(&mut self, window: WindowId) {
         if let Some(page) = self.shown.get(&window).and_then(|tab| self.pages.get(tab)) {
+            page.cancel_authentication();
             page.frame().removeFromSuperview();
         }
         self.hosts.remove(&window);
