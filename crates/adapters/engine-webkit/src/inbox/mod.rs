@@ -69,6 +69,7 @@ pub(crate) struct Link {
 /// The engine's queue and what it needs to fill it.
 #[derive(Default)]
 pub(crate) struct Inbox {
+    pub(crate) security_key_presenter: RefCell<Option<Rc<crate::page::SecurityKeyPresenter>>>,
     pub(crate) events: RefCell<EventQueue<OpenedPage>>,
     /// What each page's scripts report: whether its focused element takes text, and that it
     /// went full screen.
@@ -107,6 +108,7 @@ impl Inbox {
             inbox.cosmetics.borrow().clone(),
         );
         Hooks {
+            security_key_presenter: inbox.security_key_presenter.borrow().clone(),
             on_navigation: Box::new(move |url| {
                 if let Some(cosmetics) = starting.upgrade() {
                     Cosmetics::expect(&cosmetics, url);

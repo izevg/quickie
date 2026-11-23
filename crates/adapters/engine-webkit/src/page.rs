@@ -59,6 +59,10 @@ use scripts::{FOCUS_HANDLER, FOCUS_SCRIPT, FocusHandler, text_script};
 use crate::scheme::InternalPages;
 use asks::Reply;
 use asks::delegate::PageUi;
+pub use asks::security_key::{
+    DismissSecurityKeyPrompt, SecurityKeyCompletion, SecurityKeyPresenter, SecurityKeyPrompt,
+    SecurityKeyStage,
+};
 
 /// Where a page's reports and requests go. Called on the main thread, sometimes from inside a
 /// call into the view: a hook records, it never calls back into the engine.
@@ -77,6 +81,7 @@ pub(crate) struct Hooks {
     pub(crate) on_event: Box<dyn Fn(PageEvent)>,
     /// A dialog or a permission, from the origin in the URL, waiting for its reply.
     pub(crate) on_ask: Box<dyn Fn(Url, AskKind, Reply)>,
+    pub(crate) security_key_presenter: Option<Rc<SecurityKeyPresenter>>,
     /// A page the page opens (`window.open`, `target=_blank`) in `configuration`, which
     /// `WebKit` made from this page's own: the new view must use it, so it shares the opener's
     /// process and data store. `None` refuses the page.
@@ -97,7 +102,7 @@ pub(crate) struct WebPage {
     frame: Retained<NSView>,
     observer: Retained<PageObserver>,
     /// Keeps the UI delegate alive as long as the view refers to it.
-    _ui: Retained<PageUi>,
+    ui: Retained<PageUi>,
     world: Retained<WKContentWorld>,
     /// Every page's script reports, this one's under its view.
     reports: Reports,
@@ -213,14 +218,14 @@ impl WebPage {
             .insert(scripts::view_key(&view), Rc::downgrade(&hooks));
         let observer = PageObserver::new(Rc::clone(&hooks), mtm);
         observer.attach(&view);
-        let ui = PageUi::new(hooks, mtm);
+        let ui = PageUi::new(hooks, &frame, mtm);
         // SAFETY: the delegate is weak; the page keeps it alive and clears it on drop.
         unsafe { view.setUIDelegate(Some(ProtocolObject::from_ref(&*ui))) };
         Self {
             view,
             frame,
             observer,
-            _ui: ui,
+            ui,
             world,
             reports,
             floats: Rc::default(),
@@ -235,6 +240,10 @@ impl WebPage {
     /// The view to embed in a window: the page, and its Web Inspector when it docks.
     pub(crate) fn frame(&self) -> &NSView {
         &self.frame
+    }
+
+    pub(crate) fn cancel_authentication(&self) {
+        self.ui.cancel_authentication();
     }
 
     /// Puts the page's view back into its frame, filling it, after it was shown elsewhere
@@ -558,6 +567,7 @@ impl WebPage {
 
 impl Drop for WebPage {
     fn drop(&mut self) {
+        self.cancel_authentication();
         self.observer.detach(&self.view);
         // SAFETY: clearing a weak delegate has no preconditions.
         unsafe { self.view.setUIDelegate(None) };

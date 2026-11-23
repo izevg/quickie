@@ -3,6 +3,7 @@
 //! or a permission waits for the user; its [`Reply`] carries the answer back to the page.
 
 pub(crate) mod delegate;
+pub(crate) mod security_key;
 
 use block2::RcBlock;
 use objc2::rc::Retained;

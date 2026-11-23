@@ -353,6 +353,24 @@ fn main_engine(home: &Url, mtm: MainThreadMarker) -> MainEngine {
     use quickie_ui_shared::tokens::overlay;
 
     let mut engine = MainEngine::new(&[(home.clone(), START_PAGE.to_owned())], mtm);
+    engine.set_security_key_presenter(std::rc::Rc::new(move |parent, prompt, completed| {
+        use quickie_engine_webkit::SecurityKeyStage;
+        let pin = match prompt.stage {
+            SecurityKeyStage::Touch => None,
+            SecurityKeyStage::Pin {
+                remaining,
+                incorrect,
+            } => Some((remaining, incorrect)),
+        };
+        quickie_ui_widgets::sheets::security_key::show(
+            parent,
+            &prompt.origin,
+            &prompt.relying_party,
+            pin,
+            completed,
+            mtm,
+        )
+    }));
     let card = overlay::THUMBNAIL_MAX_WIDTH;
     engine.set_thumbnail_size(NSSize::new(card, (card * overlay::THUMBNAIL_SHAPE).round()));
     engine
