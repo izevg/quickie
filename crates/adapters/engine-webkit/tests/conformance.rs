@@ -39,6 +39,7 @@ use url::Url;
 mod agent_links;
 mod automation;
 mod fullscreen;
+mod usb_authentication;
 
 /// How long a check waits for what it expects before it fails.
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -74,6 +75,15 @@ fn main() -> ExitCode {
         windows: Vec::new(),
         blockers: Vec::new(),
     };
+    if std::env::args().any(|argument| argument == "--usb-authentication-only") {
+        return match usb_authentication::check(&mut harness) {
+            Ok(()) => {
+                print("USB authentication panel: passed\n");
+                ExitCode::SUCCESS
+            }
+            Err(why) => failed(&why),
+        };
+    }
     if std::env::args().any(|argument| argument == "--video-fullscreen-only") {
         return match fullscreen::check(&mut harness) {
             Ok(()) => {
@@ -125,12 +135,18 @@ fn main() -> ExitCode {
         Ok(what) => print(&format!("inspector: passed ({what})\n")),
         Err(why) => print(&format!("inspector: FAILED: {why}\n")),
     }
+    let usb_authentication = usb_authentication::check(&mut harness);
+    match &usb_authentication {
+        Ok(()) => print("USB authentication panel: passed\n"),
+        Err(why) => print(&format!("USB authentication panel: FAILED: {why}\n")),
+    }
 
     if report.passed()
         && inspected.is_ok()
         && automated.is_ok()
         && links.is_ok()
         && fullscreen.is_ok()
+        && usb_authentication.is_ok()
     {
         ExitCode::SUCCESS
     } else {

@@ -1,12 +1,14 @@
 //! A page's `WKUIDelegate`: turns what the page asks into calls on its [`Hooks`].
 //! Geolocation has no delegate method on macOS, so `WebKit` keeps refusing it.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use block2::DynBlock;
-use objc2::rc::Retained;
-use objc2::runtime::{Bool, NSObject, NSObjectProtocol};
+use objc2::rc::{Retained, Weak};
+use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2_app_kit::NSView;
 use objc2_foundation::NSString;
 use objc2_web_kit::{
     WKFrameInfo, WKMediaCaptureType, WKNavigationAction, WKPermissionDecision, WKSecurityOrigin,
@@ -16,6 +18,7 @@ use quickie_application::{AskKind, Dialog, Permission};
 use quickie_domain_browsing::Focus;
 use url::Url;
 
+use super::security_key::{self, Authentication};
 use super::{Reply, link_focus};
 use crate::page::{Hooks, PageEvent};
 
@@ -24,6 +27,8 @@ pub(crate) const BLANK: &str = "about:blank";
 
 pub(crate) struct Ivars {
     hooks: Rc<Hooks>,
+    frame: Weak<NSView>,
+    authentication: RefCell<Option<Retained<Authentication>>>,
 }
 
 define_class!(
@@ -35,6 +40,36 @@ define_class!(
     pub(crate) struct PageUi;
 
     unsafe impl NSObjectProtocol for PageUi {}
+
+    impl PageUi {
+        #[unsafe(method(_webView:runWebAuthenticationPanel:initiatedByFrame:completionHandler:))]
+        fn authenticate(
+            &self,
+            view: &WKWebView,
+            panel: &AnyObject,
+            initiating_frame: &WKFrameInfo,
+            reply: &DynBlock<dyn Fn(isize)>,
+        ) {
+            let Some(presenter) = self.ivars().hooks.security_key_presenter.as_ref()
+                .filter(|_| security_key::is_usb_sign_in(panel))
+            else {
+                reply.call((security_key::UNAVAILABLE,));
+                return;
+            };
+            self.cancel_authentication();
+            let session = self.ivars().frame.load().and_then(|frame| {
+                let origin = frame_origin(initiating_frame)?.origin().ascii_serialization();
+                Authentication::begin(view, &frame, panel, origin, Rc::clone(presenter), self.mtm())
+            });
+            if let Some(session) = session {
+                self.ivars().authentication.replace(Some(session));
+                reply.call((security_key::PRESENTED,));
+            } else {
+                reply.call((security_key::DID_NOT_PRESENT,));
+                security_key::cancel(panel);
+            }
+        }
+    }
 
     // SAFETY: every method matches the protocol's signature; the rest are optional.
     unsafe impl WKUIDelegate for PageUi {
@@ -134,10 +169,25 @@ define_class!(
 );
 
 impl PageUi {
-    pub(crate) fn new(hooks: Rc<Hooks>, mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars { hooks });
+    pub(crate) fn new(
+        hooks: Rc<Hooks>,
+        frame: &Retained<NSView>,
+        mtm: MainThreadMarker,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars {
+            hooks,
+            frame: Weak::from_retained(frame),
+            authentication: RefCell::new(None),
+        });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
+    }
+
+    pub(crate) fn cancel_authentication(&self) {
+        let session = self.ivars().authentication.borrow_mut().take();
+        if let Some(session) = session {
+            session.cancel();
+        }
     }
 
     /// Asks the user, on behalf of the frame's origin; a dialog whose origin cannot be named

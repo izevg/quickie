@@ -58,6 +58,22 @@ pub struct Shortcuts {
 impl Browser {
     /// Handles a key press if it is the browser's; nobody else sees it then.
     fn key_down(&self, event: &NSEvent) -> bool {
+        let window = event.window(self.mtm);
+        let belongs_to_sheet =
+            |window: &NSWindow| window.sheetParent().is_some() || window.attachedSheet().is_some();
+        let native_sheet = window.as_ref().map_or_else(
+            || {
+                NSApplication::sharedApplication(self.mtm)
+                    .keyWindow()
+                    .as_deref()
+                    .is_some_and(belongs_to_sheet)
+            },
+            |window| belongs_to_sheet(window),
+        );
+        // AppKit owns native sheets, including secure fields. Never read or log their keys.
+        if native_sheet {
+            return false;
+        }
         let flags = event.modifierFlags();
         let held = modifiers(flags);
         let function = flags.contains(NSEventModifierFlags::Function);
@@ -75,7 +91,7 @@ impl Browser {
         let outcome = if passed.contains(press) {
             Outcome::Returned
         } else {
-            self.handle(event.window(self.mtm).as_deref(), read, held)
+            self.handle(window.as_deref(), read, held)
         };
         if !outcome.handled() {
             passed.remember(press);

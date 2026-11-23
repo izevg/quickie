@@ -18,10 +18,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSButton, NSLineBreakMode, NSTextField, NSView, NSWindow,
+    NSAutoresizingMaskOptions, NSButton, NSLineBreakMode, NSSecureTextField, NSTextField, NSView,
+    NSWindow,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, ns_string};
 
 pub use answers::{BUTTON_HEIGHT, keyed_button};
 pub use card::{SheetCard, SheetIcon};
@@ -132,6 +133,12 @@ pub struct Sheet {
     mtm: MainThreadMarker,
 }
 
+#[derive(Clone, Copy)]
+enum Presentation {
+    Overlay,
+    Window { secure: bool },
+}
+
 impl Sheet {
     #[must_use]
     pub fn new(mtm: MainThreadMarker) -> Self {
@@ -163,7 +170,12 @@ impl Sheet {
         *self.target.ivars().clicked.borrow_mut() = Some(Rc::new(clicked));
         let width = overlay::SHEET_WIDTH.min(host.bounds().size.width - space::XL * 2.0);
         let surface = GlassSurface::new(Elevation::E3, self.mtm);
-        let (height, field) = self.fill(surface.content_view(), content, width);
+        let (height, field) = self.fill(
+            surface.content_view(),
+            content,
+            width,
+            Presentation::Overlay,
+        );
         let bounds = host.bounds();
         surface.set_frame(NSRect::new(
             NSPoint::new(
@@ -190,6 +202,36 @@ impl Sheet {
             window.makeFirstResponder(Some(field));
             // SAFETY: `selectText:` accepts any sender, including none.
             unsafe { field.selectText(None) };
+        }
+        *self.surface.borrow_mut() = Some(surface);
+        *self.field.borrow_mut() = field;
+        self.open.set(true);
+    }
+
+    /// Fills a native `AppKit` sheet window with the same E3 surface and buttons.
+    pub fn show_in_window(
+        &self,
+        window: &NSWindow,
+        content: &SheetContent,
+        secure: bool,
+        clicked: impl Fn(usize) + 'static,
+    ) {
+        self.remove();
+        *self.target.ivars().clicked.borrow_mut() = Some(Rc::new(clicked));
+        let surface = GlassSurface::new(Elevation::E3, self.mtm);
+        let width = overlay::SHEET_WIDTH;
+        let (height, field) = self.fill(
+            surface.content_view(),
+            content,
+            width,
+            Presentation::Window { secure },
+        );
+        let size = NSSize::new(width, height);
+        surface.set_frame(NSRect::new(NSPoint::ZERO, size));
+        window.setContentSize(size);
+        window.setContentView(Some(surface.view()));
+        if let Some(field) = &field {
+            window.setInitialFirstResponder(Some(field));
         }
         *self.surface.borrow_mut() = Some(surface);
         *self.field.borrow_mut() = field;
@@ -242,6 +284,7 @@ impl Sheet {
         view: &NSView,
         content: &SheetContent,
         width: CGFloat,
+        presentation: Presentation,
     ) -> (CGFloat, Option<Retained<NSTextField>>) {
         let mtm = self.mtm;
         let padding = space::PALETTE_PADDING;
@@ -310,7 +353,16 @@ impl Sheet {
         }
 
         let field = content.field.as_deref().map(|text| {
-            let field = NSTextField::textFieldWithString(&NSString::from_str(text), mtm);
+            let field = match presentation {
+                Presentation::Window { secure: true } => {
+                    let field = NSSecureTextField::new(mtm);
+                    field.setEditable(true);
+                    field.setSelectable(true);
+                    field.setPlaceholderString(Some(ns_string!("Security key PIN")));
+                    field.into_super()
+                }
+                _ => NSTextField::textFieldWithString(&NSString::from_str(text), mtm),
+            };
             field.setFont(Some(&TextRole::RowTitle.font()));
             let height = field.fittingSize().height.ceil();
             placed.push((
@@ -321,7 +373,14 @@ impl Sheet {
             field
         });
 
-        y = self.place_answers(&content.answers, &mut placed, padding, inner, y);
+        y = self.place_answers(
+            &content.answers,
+            &mut placed,
+            padding,
+            inner,
+            y,
+            presentation,
+        );
         let height = (y - space::SM + padding).ceil();
         for (subview, frame) in placed {
             subview.setFrame(NSRect::new(
@@ -342,6 +401,7 @@ impl Sheet {
         left: CGFloat,
         inner: CGFloat,
         mut y: CGFloat,
+        presentation: Presentation,
     ) -> CGFloat {
         let target: &AnyObject = self.target.as_ref();
         let emphases: Vec<Emphasis> = answers.iter().map(|answer| answer.emphasis).collect();
@@ -353,8 +413,10 @@ impl Sheet {
                 let Some(answer) = answers.get(index) else {
                     continue;
                 };
+                let native_keys = matches!(presentation, Presentation::Window { .. });
+                let button = answers::button(answer, index, each, target, self.mtm, native_keys);
                 placed.push((
-                    answers::button(answer, index, each, target, self.mtm),
+                    button,
                     NSRect::new(
                         NSPoint::new(x, y),
                         NSSize::new(each, answers::BUTTON_HEIGHT),

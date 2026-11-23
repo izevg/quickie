@@ -5,7 +5,9 @@
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{MainThreadMarker, sel};
-use objc2_app_kit::{NSAccessibility, NSButton, NSColor, NSTextAlignment, NSTextField, NSView};
+use objc2_app_kit::{
+    NSAccessibility, NSButton, NSColor, NSEventModifierFlags, NSTextAlignment, NSTextField, NSView,
+};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
@@ -87,6 +89,18 @@ pub unsafe fn keyed_button(
     tag: isize,
     mtm: MainThreadMarker,
 ) -> Retained<NSView> {
+    // SAFETY: this function has the same target and action requirements.
+    unsafe { keyed_button_with_control(answer, width, target, action, tag, mtm) }.0
+}
+
+unsafe fn keyed_button_with_control(
+    answer: &SheetAnswer,
+    width: Option<CGFloat>,
+    target: &AnyObject,
+    action: Sel,
+    tag: isize,
+    mtm: MainThreadMarker,
+) -> (Retained<NSView>, Retained<NSButton>) {
     let look = look(answer.emphasis);
     let text = (look.text)();
     let title = NSTextField::labelWithString(&NSString::from_str(&answer.label), mtm);
@@ -177,7 +191,7 @@ pub unsafe fn keyed_button(
     let click = unsafe { click_target(answer, plate.bounds(), target, action, mtm) };
     click.setTag(tag);
     plate.addSubview(&click);
-    plate.into_super()
+    (plate.into_super(), click)
 }
 
 /// One answer of a sheet as a button `width` wide; a click sends `answer:` to `target` with
@@ -188,11 +202,23 @@ pub fn button(
     width: CGFloat,
     target: &AnyObject,
     mtm: MainThreadMarker,
+    native_keys: bool,
 ) -> Retained<NSView> {
     let tag = isize::try_from(index).unwrap_or(isize::MAX);
     // SAFETY: the sheet's target implements `answer:`, which takes a sender, and the sheet
     // keeps it alive for as long as its buttons.
-    unsafe { keyed_button(answer, Some(width), target, sel!(answer:), tag, mtm) }
+    let (view, control) =
+        unsafe { keyed_button_with_control(answer, Some(width), target, sel!(answer:), tag, mtm) };
+    if native_keys {
+        let key = match answer.keys.as_str() {
+            "⏎" => "\r",
+            "⎋" => "\u{1b}",
+            _ => "",
+        };
+        control.setKeyEquivalent(&NSString::from_str(key));
+        control.setKeyEquivalentModifierMask(NSEventModifierFlags::empty());
+    }
+    view
 }
 
 /// A transparent button over the whole answer: the click, and what `VoiceOver` reads.
