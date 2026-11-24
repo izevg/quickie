@@ -33,6 +33,11 @@ To include the camera and microphone prompts, build a debug browser with
 loopback fixture. The story drives the native permission prompt and checks the
 returned media tracks.
 
+Run `--group extensions` against a Quickie build with the fork's GTK extension
+controller. It starts the browser with an isolated profile containing saved packages
+and checks that only the enabled package with a matching grant runs. It also checks
+that the same page opened in a private tab receives no ordinary-profile scripts.
+
 New UI changes include AppKit and GTK stories in the same pull request. Match the existing
 AppKit story ID where the interaction has the same meaning. Each GTK group owns its fixture
 and a `run(story)` function. Assert the interaction outcome with fixture requests, visible
