@@ -99,7 +99,7 @@ impl Browser {
 
     /// A button of the player, or a click on its video: play or pause, back to the tab (its
     /// window comes forward, and switching to the tab ends the player as coming back always
-    /// does), or close.
+    /// does), minimize the player while its video keeps playing, or close.
     fn player_request(&self, request: PlayerRequest) {
         let outcome = match request {
             PlayerRequest::PlayPause => {
@@ -120,6 +120,22 @@ impl Browser {
                         ns_window.makeKeyAndOrderFront(None);
                     }
                     self.settle(window);
+                }
+                Ok(())
+            }
+            PlayerRequest::Minimize => {
+                let ended = {
+                    let Ok(mut browsing) = self.browsing.try_borrow_mut() else {
+                        return;
+                    };
+                    self.navigation
+                        .playback
+                        .borrow_mut()
+                        .minimize(browsing.engine_mut())
+                        .ended
+                };
+                if ended.is_some() {
+                    self.navigation.player.hide(Trigger::Pointer);
                 }
                 Ok(())
             }
