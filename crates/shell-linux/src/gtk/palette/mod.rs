@@ -68,6 +68,7 @@ pub(super) fn key_context(app: &App) -> Option<WhenContext> {
 }
 
 fn show(app: &App, widgets: &Widgets, mode: Mode) {
+    browsing::hints::hide(app);
     super::find::hide(app, widgets, false);
     browsing::dismiss_panels(app);
     privacy::close(app, widgets, false);
@@ -200,6 +201,7 @@ pub(super) fn dispatch(
     if let Some(command) = Command::of(id.as_str()) {
         run_command(app, widgets, command, Some(stroke), data);
     } else if let Some((slot, pin)) = pinned_command(id) {
+        browsing::hints::hide(app);
         browsing::use_pinned_slot(app, slot, pin);
     } else {
         return false;
@@ -228,11 +230,21 @@ fn run_command(
         Command::Address => return show(app, widgets, Mode::Address),
         Command::GoTo => return show(app, widgets, Mode::GoTo),
         Command::OpenCommands => return show(app, widgets, Mode::Commands),
+        Command::LinkHints | Command::BackgroundLinkHints => {
+            hide(app, widgets, true);
+            browsing::hints::toggle(app, command == Command::BackgroundLinkHints);
+            return;
+        }
         _ => {}
     }
+    browsing::hints::hide(app);
     hide(app, widgets, true);
     match command {
-        Command::Address | Command::GoTo | Command::OpenCommands => {}
+        Command::Address
+        | Command::GoTo
+        | Command::OpenCommands
+        | Command::LinkHints
+        | Command::BackgroundLinkHints => {}
         // SAFETY: Navigation targets the live browser view on the GTK thread.
         Command::Back => unsafe { ffi::webkit_web_view_go_back(widgets.view) },
         // SAFETY: Navigation targets the live browser view on the GTK thread.

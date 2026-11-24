@@ -267,7 +267,13 @@ extern "C" fn key_pressed(
         app.keys.cancel_chord();
         return ffi::FALSE;
     };
+    if browsing::hints::key(app, stroke) {
+        return ffi::TRUE;
+    }
     let mut context = palette::key_context(app).unwrap_or_else(|| browsing::key_context(app));
+    if browsing::hints::active(app) {
+        context = context.with(ContextFlag::HintsOpen);
+    }
     if keys::input_focused(widgets.view) {
         context = context.with(ContextFlag::InputFocused);
     }
@@ -277,7 +283,15 @@ extern "C" fn key_pressed(
     if agent::key_panel_open(&widgets) {
         context = context.with(ContextFlag::AgentOpen);
     }
-    match app.keys.resolve(stroke, &context) {
+    let resolution = app.keys.resolve(stroke, &context);
+    if stroke.modifiers.makes_shortcut()
+        && !matches!(&resolution, Some(Resolution::Command(id)) if matches!(
+            id.as_str(), "quickie.hints.toggle" | "quickie.hints.openInBackground"
+        ))
+    {
+        browsing::hints::hide(app);
+    }
+    match resolution {
         Some(Resolution::Command(id)) => {
             Bool::from(palette::dispatch(app, &widgets, &id, stroke, data))
         }

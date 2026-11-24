@@ -12,7 +12,7 @@ use url::Url;
 
 use super::super::ffi::{self, Bool, Object};
 use super::super::{App, agent, connect, find, inspector, keys, privacy};
-use super::{activate, downloads, home, media};
+use super::{activate, downloads, hints, home, media};
 
 const LOAD_STARTED: c_int = 0;
 const LOAD_COMMITTED: c_int = 2;
@@ -73,6 +73,7 @@ impl Page {
         find::observe(view, data);
         downloads::observe(view, data);
         privacy::observe(view, data);
+        hints::observe(view, data);
         media::bind(view, data);
         connect(view, c"load-changed", load_changed as *const _, data);
         connect(view, c"notify::title", metadata_changed as *const _, data);
@@ -305,12 +306,16 @@ extern "C" fn load_changed(view: Object, event: c_int, data: Object) {
     let app = unsafe { &*data.cast::<App>() };
     if event == LOAD_STARTED {
         keys::focus::reset(view);
+        hints::cancel_for(app, view);
     }
     if matches!(event, LOAD_STARTED | LOAD_COMMITTED)
         && let Some(tab) = app.browsing.pages.tab(view)
         && let Some(page) = app.browsing.pages.entries.borrow().get(&tab)
     {
         page.committed.set(event == LOAD_COMMITTED);
+    }
+    if event == LOAD_COMMITTED {
+        observe_origin(view, app);
     }
     if matches!(event, LOAD_COMMITTED | LOAD_FINISHED) {
         record_metadata(view, app);
@@ -350,6 +355,32 @@ fn record_metadata(view: Object, app: &App) {
     let title = unsafe { ffi::webkit_web_view_get_title(view) };
     app.browsing
         .run(|state| state.navigated(tab, url, utf8(title).unwrap_or_default()));
+}
+
+pub(super) fn observe_origin(view: Object, app: &App) -> bool {
+    if app.browsing.mounted.get() != view {
+        return false;
+    }
+    let Some(tab) = app.browsing.pages.tab(view) else {
+        return false;
+    };
+    if !app
+        .browsing
+        .pages
+        .entries
+        .borrow()
+        .get(&tab)
+        .is_some_and(|page| page.committed.get())
+    {
+        return false;
+    }
+    // SAFETY: The mounted view is live, and WebKit owns the URI during this call.
+    let uri = unsafe { ffi::webkit_web_view_get_uri(view) };
+    let Some(url) = utf8(uri).and_then(|uri| Url::parse(&uri).ok()) else {
+        return false;
+    };
+    app.browsing.origin.observe(view, tab, &url);
+    true
 }
 
 fn utf8(text: *const c_char) -> Option<String> {

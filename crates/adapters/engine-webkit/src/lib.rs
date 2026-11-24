@@ -67,5 +67,8 @@ pub mod download_name;
 #[path = "shields/cosmetic/filters.rs"]
 pub mod cosmetic_rules;
 
+#[path = "page/scripts/hints.rs"]
+pub mod link_hints;
+
 #[cfg(target_os = "macos")]
 include!("appkit.rs");

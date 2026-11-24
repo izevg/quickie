@@ -487,7 +487,7 @@ impl WebPage {
     pub(crate) fn link_targets(&self, done: impl FnOnce(Vec<LinkTarget>) + 'static) {
         let size = self.view.bounds().size;
         self.evaluate(COLLECT_SCRIPT, move |answer| {
-            done(hints::targets(&answer, size));
+            done(hints::targets(&answer, size.width, Some(size.height)));
         });
     }
 

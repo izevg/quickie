@@ -1,0 +1,3 @@
+group	widget	state	gtk_capture	notes
+page	origin-chip	http	origin-chip-http	A real HTTP navigation shows the insecure origin and port.
+page	origin-chip	russian-path	origin-chip-russian-path	Switching to a live tab discloses its committed Cyrillic path.

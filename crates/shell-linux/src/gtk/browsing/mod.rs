@@ -2,7 +2,9 @@
 
 pub(super) mod downloads;
 mod engine;
+pub(super) mod hints;
 pub(super) mod media;
+mod origin;
 mod panels;
 pub(super) mod settings;
 
@@ -40,6 +42,8 @@ pub(super) struct Browsing {
     window: Cell<Option<WindowId>>,
     mounted: Cell<Object>,
     panels: panels::Panels,
+    hints: hints::Hints,
+    origin: origin::Chip,
     media: media::Playback,
     downloads: downloads::Downloads,
     settings: settings::Settings,
@@ -71,6 +75,8 @@ pub(super) fn attach(
     }
     privacy::start(app, isolated);
     browser.media.attach(window, overlay, data);
+    browser.hints.attach(overlay, data);
+    browser.origin.attach(overlay, data);
     browser
         .downloads
         .attach(app.application, window, overlay, data, isolated);
@@ -193,6 +199,7 @@ impl Browsing {
         };
         let previous = self.mounted.replace(next);
         if previous != next {
+            self.hints.hide();
             downloads::hide(app, false);
             self.pages.remember_picture(previous);
             active_view_changed(app, next);
@@ -200,6 +207,9 @@ impl Browsing {
             self.settings.set_page_fullscreen(false);
             self.settings.mount(next);
             self.media.mount_player(app);
+            if !engine::observe_origin(next, app) {
+                self.origin.forget();
+            }
             // SAFETY: The new active view is a live widget in the browser overlay.
             unsafe { ffi::gtk_widget_grab_focus(next) };
         }
@@ -286,6 +296,11 @@ pub(super) fn dismiss_panels(app: &App) {
     app.browsing.panels.dismiss(app, false);
 }
 
+pub(super) fn hide_page_overlays(app: &App) {
+    app.browsing.hints.hide();
+    app.browsing.origin.hide();
+}
+
 pub(super) fn cycle(app: &App, direction: Direction, held: bool) {
     if held {
         app.browsing.panels.step_cycle(app, direction);
@@ -339,6 +354,8 @@ pub(super) fn key_released(app: &App, key: c_uint, _modifiers: c_uint) {
 }
 
 pub(super) fn detach(app: &App) {
+    app.browsing.hints.hide();
+    app.browsing.origin.shutdown();
     app.browsing.downloads.detach(app.application);
     app.browsing.media.shutdown(app);
     app.browsing.panels.detach();

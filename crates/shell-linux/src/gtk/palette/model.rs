@@ -25,6 +25,8 @@ pub(super) enum Command {
     Find,
     FindNext,
     FindPrevious,
+    LinkHints,
+    BackgroundLinkHints,
     CopyUrl,
     Updates,
     Settings,
@@ -43,7 +45,7 @@ pub(super) enum Command {
 }
 
 impl Command {
-    const ALL: [Self; 25] = [
+    const ALL: [Self; 27] = [
         Self::Address,
         Self::Back,
         Self::Forward,
@@ -54,6 +56,8 @@ impl Command {
         Self::Find,
         Self::FindNext,
         Self::FindPrevious,
+        Self::LinkHints,
+        Self::BackgroundLinkHints,
         Self::CopyUrl,
         Self::Updates,
         Self::Settings,
@@ -83,6 +87,8 @@ impl Command {
             Self::Find => "quickie.page.find",
             Self::FindNext => "quickie.page.findNext",
             Self::FindPrevious => "quickie.page.findPrevious",
+            Self::LinkHints => "quickie.hints.toggle",
+            Self::BackgroundLinkHints => "quickie.hints.openInBackground",
             Self::CopyUrl => "quickie.page.copyUrl",
             Self::Settings | Self::Updates => "quickie.app.settings",
             Self::GoTo => "quickie.palette.goto",
@@ -116,6 +122,7 @@ impl Command {
             Self::Reload | Self::HardReload => "view-refresh-symbolic",
             Self::Inspector => "utilities-terminal-symbolic",
             Self::CopyUrl => "edit-copy-symbolic",
+            Self::LinkHints | Self::BackgroundLinkHints => "insert-link-symbolic",
             Self::Updates => "system-software-update-symbolic",
             Self::GoTo | Self::OpenCommands | Self::NextTab | Self::PreviousTab => {
                 "go-jump-symbolic"

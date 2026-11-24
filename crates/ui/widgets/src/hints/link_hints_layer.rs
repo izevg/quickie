@@ -8,7 +8,7 @@
 //!
 //! - [`labels`]: the labels, and what the letters typed so far match.
 
-pub mod labels;
+pub use quickie_domain_commands::link_hint as labels;
 
 use std::cell::{Cell, RefCell};
 

@@ -110,6 +110,7 @@ extern "C" fn enter(view: Object, data: Object) -> Bool {
     // SAFETY: The view receives the live App reference on the GTK thread.
     let app = unsafe { &*data.cast::<App>() };
     if let Some(widgets) = app.widgets.get().filter(|widgets| widgets.view == view) {
+        browsing::hide_page_overlays(app);
         browsing::dismiss_panels(app);
         palette::hide(app, &widgets, false);
         find::hide(app, &widgets, false);
