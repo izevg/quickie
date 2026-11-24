@@ -392,6 +392,9 @@ fn record_metadata(view: Object, app: &App, event: Metadata) {
     else {
         return;
     };
+    if event == Metadata::Commit {
+        browsing.zoom.apply_view(view, &url, jar);
+    }
     let library_changed = match event {
         Metadata::Commit => browsing.library.visit(tab, jar, &url, &title),
         Metadata::Title if same_document => browsing.library.retitle(tab, jar, &url, &title),

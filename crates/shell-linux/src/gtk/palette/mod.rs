@@ -269,9 +269,12 @@ fn run_command(
                 let clipboard = unsafe { gtk_widget_get_clipboard(widgets.view) };
                 // SAFETY: GDK copies the valid URI text synchronously.
                 unsafe { gdk_clipboard_set_text(clipboard, uri) };
+                let toast = browsing::toasts::Toast::done("Copied").with_detail("to clipboard");
+                browsing::notify(app, toast);
             }
         }
         Command::Bookmark => browsing::bookmark(app),
+        Command::Zoom(step) => browsing::zoom(app, step),
         Command::Updates => app.updates.present(data, &app.prefix),
         Command::Settings => browsing::settings::show(app, data),
         Command::NewTab => browsing::new_tab(app, JarChoice::Main),

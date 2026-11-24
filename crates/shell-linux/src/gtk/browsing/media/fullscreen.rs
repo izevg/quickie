@@ -20,6 +20,10 @@ pub(super) struct Fullscreen {
 }
 
 impl Fullscreen {
+    pub(super) fn is_active(&self) -> bool {
+        !self.page.get().is_null()
+    }
+
     pub(super) fn attach(&self, overlay: Object) {
         // SAFETY: GTK is initialized on this thread and accepts a null initial label.
         let label = unsafe { ffi::gtk_label_new(ptr::null()) };

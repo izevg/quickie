@@ -13,12 +13,13 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
-use quickie_domain_library::{DownloadId, DownloadState};
+use quickie_domain_library::{Download, DownloadId, DownloadState};
 use quickie_engine_webkit::download_name::{safe_name, unique_path};
 use rustix::fs::{CWD, RenameFlags, renameat_with};
 use rustix::io::Errno;
 use url::Url;
 
+use crate::gtk::browsing::{notify, toasts::Toast};
 use crate::gtk::ffi::{self, Bool, GError, Object};
 use crate::gtk::{App, connect};
 
@@ -261,7 +262,7 @@ impl Transfers {
         }
     }
 
-    fn collect_publications(&self, downloads: &Downloads) {
+    fn collect_publications(&self, downloads: &Downloads, ended: impl Fn(&Download)) {
         let mut changed = false;
         self.publishing.borrow_mut().retain(|&id, results| {
             let result = match results.try_recv() {
@@ -272,10 +273,15 @@ impl Transfers {
                 }
             };
             let mut list = downloads.list.borrow_mut();
-            let _ = match result {
+            let moved = match result {
                 Ok(()) => list.finish(id),
                 Err(reason) => list.fail(id, reason.to_owned()),
             };
+            if moved.is_ok()
+                && let Some(download) = list.get(id)
+            {
+                ended(download);
+            }
             changed |= !downloads
                 .origins
                 .borrow()
@@ -316,7 +322,7 @@ impl Transfers {
         }
         // A worker may have published a file since the last tick. Record its result before
         // browsing flushes the store, so a completed file never comes back as interrupted.
-        self.collect_publications(downloads);
+        self.collect_publications(downloads, |_| {});
     }
 }
 
@@ -336,13 +342,14 @@ pub(super) fn folder() -> Option<PathBuf> {
 
 extern "C" fn decide_destination(native: Object, name: *const c_char, data: Object) -> Bool {
     // SAFETY: The native signal carries the live GTK App reference.
-    let downloads = &unsafe { &*data.cast::<App>() }.browsing.downloads;
+    let app = unsafe { &*data.cast::<App>() };
+    let downloads = &app.browsing.downloads;
     let Some(name) = copy_text(name).map(|name| safe_name(&name)) else {
-        reject(downloads, native, "Cannot read the download name");
+        reject(app, native, "Cannot read the download name");
         return ffi::TRUE;
     };
     let Some(folder) = downloads.folder.get().cloned() else {
-        reject(downloads, native, "Cannot locate the Downloads folder");
+        reject(app, native, "Cannot locate the Downloads folder");
         return ffi::TRUE;
     };
     // SAFETY: The live download owns its response when it asks for a destination.
@@ -351,7 +358,7 @@ extern "C" fn decide_destination(native: Object, name: *const c_char, data: Obje
         // SAFETY: The response is borrowed from the live download.
         let status = unsafe { webkit_uri_response_get_status_code(response) };
         if !(200..300).contains(&status) {
-            reject(downloads, native, "The server refused the download");
+            reject(app, native, "The server refused the download");
             return ffi::TRUE;
         }
     }
@@ -375,20 +382,21 @@ extern "C" fn decide_destination(native: Object, name: *const c_char, data: Obje
                 transfer.picking = Some(receiver);
             }
         }
-        Err(_) => reject(downloads, native, "Cannot prepare the download destination"),
+        Err(_) => reject(app, native, "Cannot prepare the download destination"),
     }
     ffi::TRUE
 }
 
-fn reject(downloads: &Downloads, native: Object, reason: &str) {
-    mark_failed(downloads, native, reason);
+fn reject(app: &App, native: Object, reason: &str) {
+    mark_failed(app, native, reason);
     // SAFETY: The retained download is live and may safely cancel its pending destination.
     unsafe { webkit_download_cancel(native) };
 }
 
 extern "C" fn tick(data: Object) -> Bool {
     // SAFETY: The timer is removed when the GTK App shuts down.
-    let downloads = &unsafe { &*data.cast::<App>() }.browsing.downloads;
+    let app = unsafe { &*data.cast::<App>() };
+    let downloads = &app.browsing.downloads;
     let transfers = &downloads.transfers;
     let mut destinations = Vec::new();
     {
@@ -415,22 +423,23 @@ extern "C" fn tick(data: Object) -> Bool {
     }
     for (native, destination) in destinations {
         match destination {
-            Ok(staged) => install(downloads, native, staged),
-            Err(reason) => reject(downloads, native, reason),
+            Ok(staged) => install(app, native, staged),
+            Err(reason) => reject(app, native, reason),
         }
     }
-    transfers.collect_publications(downloads);
+    transfers.collect_publications(downloads, |download| notify_ended(app, download));
     downloads.refresh();
     ffi::TRUE
 }
 
-fn install(downloads: &Downloads, native: Object, staged: Staged) {
+fn install(app: &App, native: Object, staged: Staged) {
+    let downloads = &app.browsing.downloads;
     let Some(path) = staged
         .source
         .to_str()
         .and_then(|path| CString::new(path).ok())
     else {
-        reject(downloads, native, "Unsupported path to Downloads");
+        reject(app, native, "Unsupported path to Downloads");
         return;
     };
     {
@@ -439,8 +448,14 @@ fn install(downloads: &Downloads, native: Object, staged: Staged) {
             return;
         };
         transfer.suggested = Some(staged.name.clone());
-        transfer.listed(downloads);
+        let id = transfer.listed(downloads);
         transfer.staged = Some(staged);
+        if let Some(download) = downloads.list.borrow().get(id) {
+            notify(
+                app,
+                Toast::info("Downloading").with_detail(&download.file_name),
+            );
+        }
     }
     // SAFETY: The retained WebKit download has an outstanding destination decision.
     unsafe { webkit_download_set_allow_overwrite(native, ffi::FALSE) };
@@ -469,14 +484,22 @@ fn progress(native: Object) -> (Object, u64, Option<u64>) {
 
 extern "C" fn failed(native: Object, _: *const GError, data: Object) {
     // SAFETY: The native signal carries the live App registered for this transfer.
-    let downloads = &unsafe { &*data.cast::<App>() }.browsing.downloads;
-    mark_failed(downloads, native, "The download could not be completed");
+    let app = unsafe { &*data.cast::<App>() };
+    mark_failed(app, native, "The download could not be completed");
 }
 
-fn mark_failed(downloads: &Downloads, native: Object, reason: &str) {
+fn mark_failed(app: &App, native: Object, reason: &str) {
+    let downloads = &app.browsing.downloads;
     if let Some(transfer) = downloads.transfers.live.borrow_mut().get_mut(&native) {
         let id = transfer.listed(downloads);
-        let _ = downloads.list.borrow_mut().fail(id, reason.to_owned());
+        {
+            let mut list = downloads.list.borrow_mut();
+            if list.fail(id, reason.to_owned()).is_ok()
+                && let Some(download) = list.get(id)
+            {
+                notify_ended(app, download);
+            }
+        }
         if !transfer.source.private() {
             downloads.save();
         }
@@ -484,9 +507,19 @@ fn mark_failed(downloads: &Downloads, native: Object, reason: &str) {
     downloads.refresh();
 }
 
+fn notify_ended(app: &App, download: &Download) {
+    let toast = match download.state {
+        DownloadState::Finished => Toast::success("Downloaded"),
+        DownloadState::Failed(_) => Toast::problem("Download failed"),
+        _ => return,
+    };
+    notify(app, toast.with_detail(&download.file_name));
+}
+
 extern "C" fn finished(native: Object, data: Object) {
     // SAFETY: The native signal carries the live App registered for this transfer.
-    let downloads = &unsafe { &*data.cast::<App>() }.browsing.downloads;
+    let app = unsafe { &*data.cast::<App>() };
+    let downloads = &app.browsing.downloads;
     let Some(mut transfer) = downloads.transfers.live.borrow_mut().remove(&native) else {
         return;
     };
@@ -515,6 +548,9 @@ extern "C" fn finished(native: Object, data: Object) {
                 .insert(id, result);
         } else {
             let _ = list.fail(id, "The download did not create a file".to_owned());
+        }
+        if let Some(download) = list.get(id) {
+            notify_ended(app, download);
         }
     }
     drop(list);

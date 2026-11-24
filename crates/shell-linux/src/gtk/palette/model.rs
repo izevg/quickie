@@ -6,6 +6,7 @@ use quickie_application::{
 use quickie_domain_browsing::{Destination, TabId};
 use quickie_domain_commands::Catalog;
 use quickie_domain_palette::{Candidate, Kind, Mode as QueryMode, Query, Ranker};
+use quickie_domain_settings::ZoomStep;
 
 const LIMIT: usize = 8;
 
@@ -32,6 +33,7 @@ pub(super) enum Command {
     BackgroundLinkHints,
     CopyUrl,
     Bookmark,
+    Zoom(ZoomStep),
     Updates,
     Settings,
     GoTo,
@@ -49,7 +51,7 @@ pub(super) enum Command {
 }
 
 impl Command {
-    const ALL: [Self; 28] = [
+    const ALL: [Self; 31] = [
         Self::Address,
         Self::Back,
         Self::Forward,
@@ -64,6 +66,9 @@ impl Command {
         Self::BackgroundLinkHints,
         Self::CopyUrl,
         Self::Bookmark,
+        Self::Zoom(ZoomStep::In),
+        Self::Zoom(ZoomStep::Out),
+        Self::Zoom(ZoomStep::Reset),
         Self::Updates,
         Self::Settings,
         Self::GoTo,
@@ -96,6 +101,9 @@ impl Command {
             Self::BackgroundLinkHints => "quickie.hints.openInBackground",
             Self::CopyUrl => "quickie.page.copyUrl",
             Self::Bookmark => "quickie.page.bookmark",
+            Self::Zoom(ZoomStep::In) => "quickie.page.zoomIn",
+            Self::Zoom(ZoomStep::Out) => "quickie.page.zoomOut",
+            Self::Zoom(ZoomStep::Reset) => "quickie.page.zoomReset",
             Self::Settings | Self::Updates => "quickie.app.settings",
             Self::GoTo => "quickie.palette.goto",
             Self::NewTab => "quickie.tab.new",
@@ -129,6 +137,9 @@ impl Command {
             Self::Inspector => "utilities-terminal-symbolic",
             Self::CopyUrl => "edit-copy-symbolic",
             Self::Bookmark => "bookmark-new-symbolic",
+            Self::Zoom(ZoomStep::In) => "zoom-in-symbolic",
+            Self::Zoom(ZoomStep::Out) => "zoom-out-symbolic",
+            Self::Zoom(ZoomStep::Reset) => "zoom-original-symbolic",
             Self::LinkHints | Self::BackgroundLinkHints => "insert-link-symbolic",
             Self::Updates => "system-software-update-symbolic",
             Self::GoTo | Self::OpenCommands | Self::NextTab | Self::PreviousTab => {

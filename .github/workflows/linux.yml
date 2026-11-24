@@ -223,7 +223,7 @@ jobs:
             dbus-run-session -- /usr/bin/python3 -B tools/packaging/linux/stories/driver.py \
               "$binary" "$RUNNER_TEMP/quickie-gtk-stories/$package" \
               --backend wayland --group inspector --group tabs --group hints --group origin \
-              --group privacy --group library
+              --group privacy --group library --group toasts
           }
           check_package /usr/bin/quickie deb
           appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
@@ -287,7 +287,7 @@ jobs:
               runuser -u quickie-test -- dbus-run-session -- /usr/bin/python3 -B /stories/driver.py \
                 /usr/bin/quickie /captures/rpm \
                 --backend wayland --group inspector --group tabs --group hints --group origin \
-                --group privacy --group library
+                --group privacy --group library --group toasts
             '
       # actions/upload-artifact v7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

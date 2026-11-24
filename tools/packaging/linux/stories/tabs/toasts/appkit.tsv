@@ -1,0 +1,6 @@
+group	widget	state	gtk_capture	notes
+feedback	toast-stack	one	toast-one	A live keyboard pick opens a background tab and leaves a single info pill.
+feedback	toast-stack	stacked	toast-stacked	Four user commands produce only the three newest pills.
+feedback	toast-stack	tagged	toast-tagged	Repeated page zoom changes the site and keeps one tagged pill.
+feedback	toast-stack	kinds	toast-kinds	Copy and a real file transfer show done, info, and success pills.
+feedback	toast-stack	problem	toast-problem	An interrupted HTTP transfer shows a problem with the file name.

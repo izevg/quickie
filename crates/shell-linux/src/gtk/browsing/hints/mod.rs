@@ -240,8 +240,15 @@ fn followed(app: &App, source: Object, answer: &str) {
         Followed::NewTab(url) => (url, Focus::Foreground),
     };
     if let (Some(opener), Some(window)) = (browsing.pages.tab(source), browsing.window.get()) {
-        browsing.run(|state| state.open(window, url, JarChoice::SameAs(opener), focus));
+        let opened =
+            browsing.run(|state| state.open(window, url, JarChoice::SameAs(opener), focus));
         browsing.settle(app);
+        if opened.is_some() && focus == Focus::Background {
+            super::notify(
+                app,
+                super::toasts::Toast::info("Opened in a background tab"),
+            );
+        }
     }
 }
 

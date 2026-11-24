@@ -8,6 +8,8 @@ pub(super) mod media;
 mod origin;
 mod panels;
 pub(super) mod settings;
+pub(super) mod toasts;
+mod zoom;
 
 use std::cell::{Cell, RefCell};
 use std::env;
@@ -24,7 +26,8 @@ use quickie_application::{AppError, Browsing as Session, Clock, Palette, Palette
 use quickie_domain_browsing::{
     Direction, Focus, JarChoice, PinnedSlot, Profile, TabId, Timestamp, WindowId,
 };
-use quickie_domain_commands::{Catalog, ContextFlag, FocusedView, Keymap, WhenContext};
+use quickie_domain_commands::{Catalog, CommandId, ContextFlag, FocusedView, Keymap, WhenContext};
+use quickie_domain_settings::ZoomStep;
 use quickie_store::{PendingWrites, SqliteStore, WriteBehindStore};
 use url::Url;
 
@@ -49,6 +52,8 @@ pub(super) struct Browsing {
     media: media::Playback,
     downloads: downloads::Downloads,
     settings: settings::Settings,
+    toasts: toasts::Stack,
+    zoom: zoom::SiteZoom,
 }
 
 #[derive(Debug)]
@@ -79,6 +84,10 @@ pub(super) fn attach(
         .library
         .restore(library)
         .map_err(|error| error.to_string())?;
+    browser
+        .zoom
+        .restore(open_store(path)?)
+        .map_err(|error| error.to_string())?;
     if !isolated {
         browser.downloads.restore(downloads, store.pending());
     }
@@ -86,6 +95,7 @@ pub(super) fn attach(
     browser.media.attach(window, overlay, data);
     browser.hints.attach(overlay, data);
     browser.origin.attach(overlay, data);
+    browser.toasts.attach(overlay);
     browser
         .downloads
         .attach(app.application, window, overlay, data, isolated);
@@ -255,11 +265,17 @@ impl Browsing {
 
     fn close(&self, app: &App, tab: TabId) -> bool {
         let outcome = self.run(|state| state.close(tab));
-        if let Some(closed) = &outcome
-            && closed.next_active.is_none()
-            && let Ok(home) = home()
-        {
-            self.run(|state| state.open(closed.window, home, JarChoice::Main, Focus::Foreground));
+        if let Some(closed) = &outcome {
+            if let Some(jar) = closed.released_jar {
+                self.zoom.forget(jar);
+            }
+            if closed.next_active.is_none()
+                && let Ok(home) = home()
+            {
+                self.run(|state| {
+                    state.open(closed.window, home, JarChoice::Main, Focus::Foreground)
+                });
+            }
         }
         self.settle(app);
         outcome.is_some()
@@ -301,15 +317,56 @@ pub(super) fn bookmark(app: &App) {
         return;
     };
     match app.browsing.library.bookmark(tab) {
-        Ok(Some(saved)) if saved.created => palette::sources_changed(app),
+        Ok(Some(saved)) if saved.created => {
+            palette::sources_changed(app);
+            notify(
+                app,
+                toasts::Toast::done("Saved").with_detail("to bookmarks"),
+            );
+        }
+        Ok(Some(_)) => notify(app, toasts::Toast::info("Already saved")),
         Ok(_) => {}
+        Err(error) => report(&error),
+    }
+}
+
+pub(super) fn zoom(app: &App, step: ZoomStep) {
+    let browser = &app.browsing;
+    let Some(id) = browser.active_tab() else {
+        return;
+    };
+    let state = browser.state.borrow();
+    let Some(session) = state.as_ref().map(SessionState::session) else {
+        return;
+    };
+    let Some(tab) = session.tab(id) else {
+        return;
+    };
+    match browser.zoom.step(&tab.url, tab.jar, step) {
+        Ok(Some(level)) => {
+            browser.zoom.apply(session, &browser.pages);
+            if !browser.media.page_fullscreen() {
+                browser
+                    .toasts
+                    .show_tagged(toasts::Toast::info(&level.to_string()), "zoom");
+            }
+        }
+        Ok(None) => {}
+        Err(AppError::NoSite(_)) => notify(app, toasts::Toast::info("Only websites zoom")),
         Err(error) => report(&error),
     }
 }
 
 pub(super) fn reopen_closed(app: &App) {
     if let Some(window) = app.browsing.window.get() {
-        app.browsing.run(|state| state.reopen_closed(window));
+        if app
+            .browsing
+            .run(|state| state.reopen_closed(window))
+            .flatten()
+            .is_some()
+        {
+            notify(app, toasts::Toast::info("Tab restored"));
+        }
         app.browsing.settle(app);
     }
 }
@@ -325,6 +382,13 @@ pub(super) fn dismiss_panels(app: &App) {
 pub(super) fn hide_page_overlays(app: &App) {
     app.browsing.hints.hide();
     app.browsing.origin.hide();
+    app.browsing.toasts.clear();
+}
+
+pub(super) fn notify(app: &App, toast: toasts::Toast<'_>) {
+    if !app.browsing.media.page_fullscreen() {
+        app.browsing.toasts.show(toast);
+    }
 }
 
 pub(super) fn cycle(app: &App, direction: Direction, held: bool) {
@@ -350,8 +414,14 @@ pub(super) fn key_pressed(app: &App, key: c_uint, modifiers: c_uint) -> bool {
 
 pub(super) fn use_pinned_slot(app: &App, slot: PinnedSlot, pin: bool) {
     if pin {
-        if let Some(tab) = app.browsing.active_tab() {
-            app.browsing.run(|state| state.pin(tab, slot));
+        if let Some(tab) = app.browsing.active_tab()
+            && app.browsing.run(|state| state.pin(tab, slot)).is_some()
+        {
+            let command = format!("quickie.tab.goToSlot{}", slot.get());
+            let keys = CommandId::try_from(command.as_str())
+                .ok()
+                .map_or_else(String::new, |id| app.keys.shortcut(&id));
+            notify(app, toasts::Toast::done("Pinned").with_keys(&keys));
         }
     } else {
         app.browsing.run(|state| state.go_to_slot(slot));
@@ -382,11 +452,13 @@ pub(super) fn key_released(app: &App, key: c_uint, _modifiers: c_uint) {
 pub(super) fn detach(app: &App) {
     app.browsing.hints.hide();
     app.browsing.origin.shutdown();
+    app.browsing.toasts.clear();
     app.browsing.downloads.detach(app.application);
     app.browsing.media.shutdown(app);
     app.browsing.panels.detach();
     app.browsing.settings.detach();
     app.browsing.library.flush();
+    app.browsing.zoom.flush();
     if let Some(writes) = app.browsing.writes.take()
         && let Err(error) = writes.flush()
     {

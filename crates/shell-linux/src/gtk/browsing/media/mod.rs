@@ -14,6 +14,10 @@ pub(in crate::gtk) struct Playback {
 }
 
 impl Playback {
+    pub(super) fn page_fullscreen(&self) -> bool {
+        self.fullscreen.is_active()
+    }
+
     pub(super) fn attach(&self, _window: Object, overlay: Object, data: Object) {
         self.fullscreen.attach(overlay);
         self.player.attach(overlay, data);
