@@ -45,6 +45,9 @@ run_gtk_native_tests() (
     run_glib_test "$binaries/TestWebKitWebExtensionContext" \
       "/webkit/WebKitWebExtensionContext/granted-content-world"
   fi
+  if [[ $floating_inspector == ON ]]; then
+    run_glib_test "$binaries/TestInspector" "/webkit/WebKitWebInspector/floating-dock"
+  fi
 )
 
 case "${QUICKIE_RUN_GTK_NATIVE_TESTS:-0}" in
@@ -70,6 +73,12 @@ extension_api=webkit_web_extension_get_requested_host_match_patterns
 extension_header="$build_dir/webkit/Source/WebKit/UIProcess/API/glib/WebKitWebExtension.h.in"
 if rg -q "^${extension_api}[[:space:]]+\(" "$extension_header"; then
   extensions=ON
+fi
+
+floating_inspector=OFF
+inspector_test="$build_dir/webkit/Tools/TestWebKitAPI/Tests/WebKit/WKWebView/gtk/TestInspector.cpp"
+if rg -Fq 'NativeInspectorTest::add("WebKitWebInspector", "floating-dock",' "$inspector_test"; then
+  floating_inspector=ON
 fi
 
 if [[ $api_tests == ON ]]; then
@@ -122,6 +131,9 @@ if [[ $api_tests == ON ]]; then
   targets=(Source/all TestLocalAutomationSession TestUIClient)
   if [[ $extensions == ON ]]; then
     targets+=(TestWebKitWebExtensionContext)
+  fi
+  if [[ $floating_inspector == ON ]]; then
+    targets+=(TestInspector)
   fi
   cmake --build "$build_dir/gtk" --target "${targets[@]}"
   run_gtk_native_tests
