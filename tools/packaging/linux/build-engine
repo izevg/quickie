@@ -87,6 +87,11 @@ if [[ $api_tests == ON ]]; then
     printf '%s\n' 'The selected WebKit revision lacks the sandboxed GLib test harness.' >&2
     exit 1
   fi
+  if ! rg -Fq 'ENABLE_QUICKIE_RELOCATABLE_GTK AND ENABLE_API_TESTS' \
+    "$build_dir/webkit/Source/WebKit/PlatformGTK.cmake"; then
+    printf '%s\n' 'The selected WebKit revision lacks release-mode API test linkage.' >&2
+    exit 1
+  fi
   for tool in bwrap xdg-dbus-proxy xvfb-run Xvfb xauth dbus-run-session timeout; do
     if ! command -v "$tool" >/dev/null; then
       printf 'Sandboxed GLib tests require %s.\n' "$tool" >&2
@@ -96,8 +101,6 @@ if [[ $api_tests == ON ]]; then
   bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
 fi
 
-# The native tests link WebKit's private test helpers. Developer mode exposes
-# them in the opt-in test build. Keep normal packages on the public symbol map.
 # Keep the engine on WebKit's C++ path when the runner has swiftc.
 cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_BUILD_TYPE=Release \
@@ -110,8 +113,7 @@ cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   -DENABLE_WEB_RTC=ON -DENABLE_EXPERIMENTAL_FEATURES=OFF \
   "-DENABLE_WK_WEB_EXTENSIONS=$extensions" \
   -DENABLE_BACK_FORWARD_LIST_SWIFT=OFF -DENABLE_IPC_TESTING_SWIFT=OFF \
-  "-DDEVELOPER_MODE=$api_tests" "-DENABLE_API_TESTS=$api_tests" -DENABLE_LAYOUT_TESTS=OFF \
-  -DENABLE_THUNDER=OFF \
+  -DDEVELOPER_MODE=OFF "-DENABLE_API_TESTS=$api_tests" -DENABLE_LAYOUT_TESTS=OFF \
   -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
   -DENABLE_MINIBROWSER=OFF -DENABLE_WEBDRIVER=OFF \
   -DUSE_LIBBACKTRACE=OFF -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF
