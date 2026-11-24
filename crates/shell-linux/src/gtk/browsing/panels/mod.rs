@@ -14,8 +14,6 @@ use super::activate;
 use view::{Allocation, Card, View};
 
 const REVEAL_MILLIS: c_uint = 151;
-const TAB: c_uint = 0xff09;
-const SHIFT_TAB: c_uint = 0xfe20;
 const KEY_BACKSPACE: c_uint = 0xff08;
 const KEY_UP: c_uint = 0xff52;
 const KEY_DOWN: c_uint = 0xff54;
@@ -121,7 +119,7 @@ impl Panels {
         app.browsing.settle(app);
     }
 
-    fn step_cycle(&self, app: &App, direction: Direction) {
+    pub(super) fn step_cycle(&self, app: &App, direction: Direction) {
         let started = self
             .cycle
             .borrow_mut()
@@ -162,19 +160,6 @@ impl Panels {
     }
 
     pub(super) fn key_pressed(&self, app: &App, key: c_uint, modifiers: c_uint) -> bool {
-        const CONTROL_SHIFT: c_uint = ffi::CONTROL | ffi::SHIFT;
-        if matches!(
-            (key, modifiers),
-            (TAB | SHIFT_TAB, ffi::CONTROL | CONTROL_SHIFT)
-        ) {
-            let direction = if modifiers & ffi::SHIFT == 0 {
-                Direction::Forward
-            } else {
-                Direction::Backward
-            };
-            self.step_cycle(app, direction);
-            return true;
-        }
         if self.cycle.borrow().is_some() {
             if key == ffi::KEY_ESCAPE {
                 self.dismiss(app, true);
@@ -188,6 +173,14 @@ impl Panels {
             Some(Mode::Switcher) => self.switcher_key(app, key, modifiers),
             Some(Mode::Overview) => self.overview_key(app, key, modifiers),
             None => false,
+        }
+    }
+
+    pub(super) fn key_mode(&self) -> Option<Mode> {
+        if self.cycle.borrow().is_some() {
+            Some(Mode::Switcher)
+        } else {
+            self.mode.get()
         }
     }
 

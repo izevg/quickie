@@ -17,10 +17,8 @@ pub const SUPER: c_uint = 1 << 26;
 pub const HYPER: c_uint = 1 << 27;
 pub const META: c_uint = 1 << 28;
 pub const KEY_ESCAPE: c_uint = 0xff1b;
-pub const KEY_F12: c_uint = 0xffc9;
 pub const KEY_LEFT: c_uint = 0xff51;
 pub const KEY_RIGHT: c_uint = 0xff53;
-pub const KEY_COMMA: c_uint = 0x2c;
 pub const HORIZONTAL: c_int = 0;
 pub const VERTICAL: c_int = 1;
 

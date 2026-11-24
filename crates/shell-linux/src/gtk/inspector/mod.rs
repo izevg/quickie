@@ -1,20 +1,16 @@
 //! The same inspector shortcut in the browser and the detached `WebKit` window.
 
 use std::ffi::{CStr, c_uint};
-use std::ptr;
 
+use quickie_domain_commands::{FocusedView, Resolution, WhenContext};
+
+use super::App;
 use super::ffi::{self, Bool, Object};
 use super::{connect, keys};
 
 const OBSERVING_ROOT: &CStr = c"quickie-inspector-observing-root";
-const CONTROL_SHIFT: c_uint = ffi::CONTROL | ffi::SHIFT;
-
-pub(super) fn is_toggle(key: c_uint, modifiers: c_uint) -> bool {
-    matches!(
-        (key, modifiers & keys::SHORTCUT_MODIFIERS),
-        (ffi::KEY_F12, 0) | (0x49 | 0x69, CONTROL_SHIFT)
-    )
-}
+const APP: &CStr = c"quickie-inspector-application";
+const TOGGLE_COMMAND: &str = "quickie.devtools.toggle";
 
 pub(super) fn toggle(view: Object) {
     // SAFETY: The live WebKitWebView owns its inspector.
@@ -22,15 +18,49 @@ pub(super) fn toggle(view: Object) {
     toggle_inspector(inspector);
 }
 
-pub(super) fn observe_detachment(view: Object) {
+pub(super) fn observe_detachment(view: Object, data: Object) {
     // SAFETY: The live WebKitWebView owns its inspector.
     let inspector = unsafe { ffi::webkit_web_view_get_inspector(view) };
     connect(
         inspector,
         c"open-window",
         observe_frontend_root as *const _,
-        ptr::null_mut(),
+        data,
     );
+}
+
+/// A docked Inspector whose native frontend has the keyboard owns its editor commands.
+pub(super) fn docked_key_pressed(
+    app: &App,
+    view: Object,
+    controller: Object,
+    key: c_uint,
+    hardware: c_uint,
+    modifiers: c_uint,
+) -> Option<Bool> {
+    // SAFETY: The live page owns its Inspector.
+    let inspector = unsafe { ffi::webkit_web_view_get_inspector(view) };
+    // SAFETY: An open Inspector borrows its live frontend widget to the caller.
+    let frontend = unsafe { ffi::webkit_web_inspector_get_web_view(inspector) };
+    if frontend.is_null() {
+        return None;
+    }
+    // SAFETY: The live page reports its owning GtkRoot.
+    let root = unsafe { ffi::gtk_widget_get_root(view) };
+    // SAFETY: The live frontend reports its GtkRoot if it is mounted.
+    let frontend_root = unsafe { ffi::gtk_widget_get_root(frontend) };
+    if root.is_null() || root != frontend_root {
+        return None;
+    }
+    // SAFETY: The live GtkRoot owns its current focus widget, if any.
+    let focus = unsafe { gtk_root_get_focus(root) };
+    if focus.is_null() {
+        return None;
+    }
+    // SAFETY: Both pointers refer to live widgets in the same root.
+    let within_frontend = unsafe { gtk_widget_is_ancestor(focus, frontend) } != ffi::FALSE;
+    (focus == frontend || within_frontend)
+        .then(|| shortcut_pressed(app, inspector, controller, key, hardware, modifiers))
 }
 
 fn toggle_inspector(inspector: Object) {
@@ -45,12 +75,14 @@ fn toggle_inspector(inspector: Object) {
     }
 }
 
-extern "C" fn observe_frontend_root(inspector: Object, _: Object) -> Bool {
+extern "C" fn observe_frontend_root(inspector: Object, data: Object) -> Bool {
     // SAFETY: WebKit emits open-window on the live inspector just before parenting its frontend.
     let frontend = unsafe { ffi::webkit_web_inspector_get_web_view(inspector) };
     if frontend.is_null() {
         return ffi::FALSE;
     }
+    // SAFETY: The inspector belongs to a page whose App survives its signal handlers.
+    unsafe { ffi::g_object_set_data(inspector, APP.as_ptr(), data) };
     // SAFETY: The borrowed frontend is a live GObject. The data key is static.
     let observing = unsafe { ffi::g_object_get_data(frontend, OBSERVING_ROOT.as_ptr()) };
     if observing.is_null() {
@@ -95,35 +127,50 @@ extern "C" fn frontend_root_changed(frontend: Object, _: Object, inspector: Obje
 }
 
 extern "C" fn detached_key_pressed(
-    _: Object,
+    controller: Object,
     key: c_uint,
-    _: c_uint,
+    hardware: c_uint,
     modifiers: c_uint,
     inspector: Object,
 ) -> Bool {
-    if !is_toggle(key, modifiers) {
+    // SAFETY: The live inspector stores the App that owns its originating page.
+    let data = unsafe { ffi::g_object_get_data(inspector, APP.as_ptr()) };
+    if data.is_null() {
         return ffi::FALSE;
     }
-    toggle_inspector(inspector);
-    ffi::TRUE
+    // SAFETY: The App stays live until its page and its native callbacks are released.
+    let app = unsafe { &*data.cast::<App>() };
+    shortcut_pressed(app, inspector, controller, key, hardware, modifiers)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{CONTROL_SHIFT, ffi, is_toggle};
-
-    #[test]
-    fn f12_toggles_the_inspector_without_other_shortcut_modifiers() {
-        assert!(is_toggle(ffi::KEY_F12, 0));
-        for modifier in [ffi::CONTROL, ffi::SHIFT, ffi::ALT, ffi::SUPER] {
-            assert!(!is_toggle(ffi::KEY_F12, modifier));
+fn shortcut_pressed(
+    app: &App,
+    inspector: Object,
+    controller: Object,
+    key: c_uint,
+    hardware: c_uint,
+    modifiers: c_uint,
+) -> Bool {
+    if keys::is_modifier(key) {
+        return ffi::FALSE;
+    }
+    let Some(stroke) = keys::read(controller, key, hardware, modifiers) else {
+        app.keys.cancel_chord();
+        return ffi::FALSE;
+    };
+    let context = WhenContext::new().in_view(FocusedView::Page);
+    match app.keys.resolve_only(stroke, &context, TOGGLE_COMMAND) {
+        Some(Resolution::Command(_)) => {
+            toggle_inspector(inspector);
+            ffi::TRUE
         }
+        Some(Resolution::Pending(_) | Resolution::Unbound) => ffi::TRUE,
+        None => ffi::FALSE,
     }
+}
 
-    #[test]
-    fn the_existing_inspector_shortcut_works_with_either_letter_case() {
-        assert!(is_toggle(u32::from(b'I'), CONTROL_SHIFT));
-        assert!(is_toggle(u32::from(b'i'), CONTROL_SHIFT));
-        assert!(!is_toggle(u32::from(b'i'), ffi::CONTROL));
-    }
+#[link(name = "gtk-4")]
+unsafe extern "C" {
+    fn gtk_root_get_focus(root: Object) -> Object;
+    fn gtk_widget_is_ancestor(widget: Object, ancestor: Object) -> Bool;
 }

@@ -1,0 +1,8 @@
+group	widget	state	gtk_capture	notes
+settings	keyboard	keyboard	keyboard	The native table shows the effective commands, shortcuts, conditions, and sources.
+settings	keyboard	keyboard-refused	keyboard-refused	Search finds a file entry that conflicts with the Open New Tab binding.
+settings	keyboard	keyboard-problems	keyboard-problems	The footer reports entries that could not be applied.
+settings	keyboard	keyboard-recording	keyboard-recording	Enter starts recording for the selected command.
+settings	keyboard	keyboard-recorded	keyboard-recorded	A valid candidate is shown before saving, then runs a live WebKit command.
+settings	keyboard	keyboard-conflict	keyboard-conflict	The recorder refuses the shortcut already used by Open New Tab.
+settings	keyboard	keyboard-typing	keyboard-typing	The recorder refuses a stroke that would type text.

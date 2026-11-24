@@ -83,6 +83,13 @@ pub(super) const BINDINGS: [(&str, &str, Option<&str>); 55] = [
     ("mod+,", "quickie.app.settings", None),
 ];
 
+/// Existing Linux alternatives. Putting them first gives native shortcuts the first keycap.
+const LINUX_ALIASES: [(&str, &str, Option<&str>); 3] = [
+    ("alt+left", "quickie.navigation.back", None),
+    ("alt+right", "quickie.navigation.forward", None),
+    ("ctrl+shift+i", "quickie.devtools.toggle", None),
+];
+
 /// The strokes the shell keeps from the page: quit, close, new tab, address, both palettes, and
 /// recent-tab cycling. Quit is no command, so it is reserved without a binding.
 pub(super) const RESERVED: [&str; 7] = [
@@ -97,8 +104,14 @@ pub(super) const RESERVED: [&str; 7] = [
 
 /// The default bindings on `platform`, in order.
 pub(super) fn bindings(platform: Platform) -> Vec<KeyBinding> {
-    BINDINGS
+    let aliases = match platform {
+        Platform::Linux => Some(LINUX_ALIASES),
+        Platform::MacOs => None,
+    };
+    aliases
         .into_iter()
+        .flatten()
+        .chain(BINDINGS)
         .filter_map(|(key, command, when)| KeyBinding::parse(key, command, when, platform).ok())
         .collect()
 }

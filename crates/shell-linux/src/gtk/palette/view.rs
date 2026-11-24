@@ -324,7 +324,7 @@ fn item_row(item: &Item) -> Object {
     // SAFETY: The live row layout adopts its text column.
     unsafe { ffi::gtk_box_append(layout, text) };
     if !item.shortcut.is_empty()
-        && let Ok(shortcut) = CString::new(item.shortcut)
+        && let Ok(shortcut) = CString::new(item.shortcut.as_str())
     {
         let key = label(&shortcut, c"quickie-panel-keycap");
         // SAFETY: The live keycap label is centered vertically within the row.

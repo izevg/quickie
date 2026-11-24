@@ -2,7 +2,7 @@
 //! endpoint (hosted APIs, Ollama, LM Studio), on top of its [`HttpPort`].
 //!
 //! It has no network stack of its own. Every request goes through the [`HttpPort`] it is given,
-//! which in the product is Chromium's network service, so the egress test sees LLM traffic like
+//! which in the product is `WebKit`'s network service, so the egress test sees LLM traffic like
 //! any other (`docs/architecture.md` §1).
 //!
 //! A chat completion streams as server-sent events: the body arrives in pieces cut anywhere,
@@ -16,13 +16,13 @@ mod wire;
 
 use quickie_application::{
     ChatEvent, ChatRequest, Ended, Flow, HttpEvent, HttpMethod, HttpPort, HttpRequest, LlmError,
-    LlmPort, StopSignal,
+    LlmPort, StopSignal, ToolChatReply, ToolChatRequest,
 };
 use quickie_domain_agents::{ApiKey, BaseUrl, LocalServer, ModelId};
 use url::Url;
 
 use sse::{Decoder, Event, Overflow};
-use wire::Chunk;
+use wire::{Chunk, ToolTransport};
 
 /// The most of a body kept whole: a model list, an error, or an answer that did not stream.
 /// A stream's tokens go out as they come; only its start is kept, in case it was no stream.
@@ -33,16 +33,42 @@ const MAX_KEPT_BYTES: usize = 1 << 20;
 const MAX_ANSWER_BYTES: usize = 256 << 10;
 
 /// An OpenAI-compatible client over an [`HttpPort`].
-#[derive(Debug)]
 pub struct OpenAiClient<H> {
     http: H,
+    tools: ToolTransport,
+}
+
+impl<H> std::fmt::Debug for OpenAiClient<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiClient").finish_non_exhaustive()
+    }
 }
 
 impl<H: HttpPort> OpenAiClient<H> {
     /// A client that sends every request through `http`.
     #[must_use]
     pub fn new(http: H) -> Self {
-        Self { http }
+        Self {
+            http,
+            tools: ToolTransport::default(),
+        }
+    }
+
+    /// Shares endpoint detection with the workspace, with fresh continuation state for this turn.
+    #[must_use]
+    pub fn for_turn(&self) -> Self
+    where
+        H: Clone,
+    {
+        Self {
+            http: self.http.clone(),
+            tools: self.tools.for_turn(),
+        }
+    }
+
+    /// Keeps the final model output after the workspace has accepted the answer.
+    pub fn finish_turn(&self) {
+        self.tools.finish_turn();
     }
 
     /// GETs `url` whole, for a model list.
@@ -81,6 +107,14 @@ impl<H: HttpPort> OpenAiClient<H> {
 }
 
 impl<H: HttpPort> LlmPort for OpenAiClient<H> {
+    fn complete_with_tools(
+        &self,
+        request: &ToolChatRequest<'_>,
+        stop: &StopSignal,
+    ) -> Result<ToolChatReply, LlmError> {
+        self.tools.complete(&self.http, request, stop)
+    }
+
     fn chat(
         &self,
         request: &ChatRequest<'_>,

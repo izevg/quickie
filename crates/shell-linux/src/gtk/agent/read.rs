@@ -4,7 +4,6 @@ use std::ffi::{CStr, CString, c_char};
 use std::ptr;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use quickie_application::PageReader;
 use url::Url;
 
 use crate::gtk::ffi::{self, Bool, Object};
@@ -17,10 +16,9 @@ pub(super) struct Read {
 }
 
 impl Read {
-    pub(super) fn start(view: Object) -> Result<Self, String> {
+    pub(super) fn start(view: Object, max_chars: usize) -> Result<Self, String> {
         let script = format!(
-            "String((document.body || document.documentElement)?.innerText || '').slice(0, {})",
-            PageReader::MAX_CHARS,
+            "String((document.body || document.documentElement)?.innerText || '').slice(0, {max_chars})",
         );
         let script = CString::new(script).map_err(|_| "Could not prepare the page read")?;
         // SAFETY: This creates an owned cancellable for the single evaluation.

@@ -21,6 +21,7 @@ use quickie_application::{AppError, Browsing as Session, Clock};
 use quickie_domain_browsing::{
     Direction, Focus, JarChoice, PinnedSlot, Profile, Tab, TabId, Timestamp, WindowId,
 };
+use quickie_domain_commands::{ContextFlag, FocusedView, WhenContext};
 use quickie_store::{PendingWrites, SqliteStore, WriteBehindStore};
 use url::Url;
 
@@ -285,7 +286,11 @@ pub(super) fn dismiss_panels(app: &App) {
     app.browsing.panels.dismiss(app, false);
 }
 
-pub(super) fn cycle_once(app: &App, direction: Direction) {
+pub(super) fn cycle(app: &App, direction: Direction, held: bool) {
+    if held {
+        app.browsing.panels.step_cycle(app, direction);
+        return;
+    }
     if let Some(window) = app.browsing.window.get() {
         app.browsing.run(|state| {
             state
@@ -298,36 +303,33 @@ pub(super) fn cycle_once(app: &App, direction: Direction) {
 }
 
 pub(super) fn key_pressed(app: &App, key: c_uint, modifiers: c_uint) -> bool {
-    const CONTROL_SHIFT: c_uint = ffi::CONTROL | ffi::SHIFT;
-    const CONTROL_ALT: c_uint = ffi::CONTROL | ffi::ALT;
-
     let modifiers = modifiers & keys::SHORTCUT_MODIFIERS;
-    if app.browsing.panels.key_pressed(app, key, modifiers) {
-        return true;
-    }
-    match (key, modifiers) {
-        (0x74, ffi::CONTROL) => new_tab(app, JarChoice::Main),
-        (0x4e | 0x6e, CONTROL_SHIFT) => new_tab(app, JarChoice::NewThrowaway),
-        (0x77, ffi::CONTROL) => close_active(app),
-        (0x54 | 0x74, CONTROL_SHIFT) => reopen_closed(app),
-        (0x5c | 0x7c, CONTROL_SHIFT) => show_overview(app),
-        (0x31..=0x39, ffi::CONTROL | CONTROL_ALT) => {
-            if let Ok(index) = usize::try_from(key - 0x31)
-                && let Some(slot) = PinnedSlot::from_index(index)
-            {
-                if modifiers == CONTROL_ALT {
-                    if let Some(tab) = app.browsing.active_tab() {
-                        app.browsing.run(|state| state.pin(tab, slot));
-                    }
-                } else {
-                    app.browsing.run(|state| state.go_to_slot(slot));
-                    app.browsing.settle(app);
-                }
-            }
+    app.browsing.panels.key_pressed(app, key, modifiers)
+}
+
+pub(super) fn use_pinned_slot(app: &App, slot: PinnedSlot, pin: bool) {
+    if pin {
+        if let Some(tab) = app.browsing.active_tab() {
+            app.browsing.run(|state| state.pin(tab, slot));
         }
-        _ => return false,
+    } else {
+        app.browsing.run(|state| state.go_to_slot(slot));
+        app.browsing.settle(app);
     }
-    true
+}
+
+pub(super) fn key_context(app: &App) -> WhenContext {
+    match app.browsing.panels.key_mode() {
+        Some(panels::Mode::Overview) => WhenContext::new()
+            .in_view(FocusedView::Overview)
+            .with(ContextFlag::OverviewOpen),
+        Some(panels::Mode::Switcher) => WhenContext::new()
+            .in_view(FocusedView::Page)
+            .with(ContextFlag::SwitcherOpen),
+        None => WhenContext::new()
+            .in_view(FocusedView::Page)
+            .with(ContextFlag::PageFocused),
+    }
 }
 
 pub(super) fn key_released(app: &App, key: c_uint, _modifiers: c_uint) {

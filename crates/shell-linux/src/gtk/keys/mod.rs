@@ -1,9 +1,16 @@
 //! GTK key controllers and the modifiers used by browser shortcuts.
 
+mod bindings;
+pub(in crate::gtk) mod focus;
+mod stroke;
+
 use std::ffi::c_uint;
 
 use super::connect;
 use super::ffi::{self, Bool, Object};
+
+pub(super) use bindings::{Keybindings, check_binding, edit};
+pub(super) use stroke::{input_focused, is_modifier, read};
 
 pub(super) const SHORTCUT_MODIFIERS: c_uint =
     ffi::SHIFT | ffi::CONTROL | ffi::ALT | ffi::SUPER | ffi::HYPER | ffi::META;

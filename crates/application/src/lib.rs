@@ -21,6 +21,10 @@ pub use agent::{
     Agent, AgentLink, AgentLinks, AnswerEvent, AskError, Asking, LocalFound, PageReader,
     SelectingLink, SelectionError, detect_local, list_models,
 };
+pub use agent::{
+    AgentPage, AgentTool, AgentToolCall, Conversation, ToolChatMessage, ToolChatReply,
+    ToolChatRequest, complete_workspace_step,
+};
 pub use browsing::{Browsing, Playback};
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::conformance;

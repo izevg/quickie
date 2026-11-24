@@ -62,19 +62,27 @@ def prove_console(story, window, mode, top):
         click(story, window, 290 * scale, top + 14 * scale)
         story.wait(console_visible, "docked Inspector Console tab")
 
+    def click_prompt():
+        height = story.picture(window).height
+        story.click(window, 32 * scale, height - 14 * scale)
+
     def focus_prompt():
         if prompt_focused(story.picture(window), scale):
             return True
-        story.click(window, 32 * scale, image.height - 14 * scale)
+        click_prompt()
         return False
 
+    click_prompt()
     story.wait(focus_prompt, f"{mode} Inspector prompt to gain keyboard focus")
-    story.move_pointer(window, 4, 4)
     prompt = (0, image.height - 30 * scale, image.width // 2, image.height)
     empty = story.picture(window).crop(prompt)
     request = f"{FIXTURE}?inspector={mode}"
     prior = story.requests(request)
-    story.paste(f"void fetch('?inspector={mode}')")
+    story.set_clipboard(f"void fetch('?inspector={mode}')")
+    # Reacquire the editor after preparing the clipboard and before sending Ctrl+V.
+    click_prompt()
+    story.wait(focus_prompt, f"{mode} Inspector prompt to regain keyboard focus")
+    story.key("ctrl+v")
 
     def command_ready():
         changes = ImageChops.difference(empty, story.picture(window).crop(prompt)).getbbox()
@@ -83,6 +91,7 @@ def prove_console(story, window, mode, top):
     story.wait(command_ready, f"{mode} command pasted into the Console prompt")
     story.key("Return")
     story.wait(lambda: story.requests(request) > prior, f"{mode} Inspector Console request")
+    story.move_pointer(window, 4, 4)
 
 
 def painted(story, window, condition):

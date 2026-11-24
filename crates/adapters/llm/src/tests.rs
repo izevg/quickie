@@ -1,6 +1,9 @@
 //! The client against a scripted [`HttpPort`]: what it sends, and how it reads every kind of
 //! answer.
 
+mod detection;
+mod tools;
+
 use std::cell::{Cell, RefCell};
 
 use quickie_application::{

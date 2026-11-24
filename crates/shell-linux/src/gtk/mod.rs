@@ -23,6 +23,7 @@ use std::ptr;
 
 use crate::launch::Options;
 use ffi::{Bool, Object};
+use quickie_domain_commands::{ContextFlag, Resolution};
 use update_controls::UpdateControls;
 
 struct App {
@@ -34,6 +35,7 @@ struct App {
     browsing: browsing::Browsing,
     palette: palette::Palette,
     find: find::Find,
+    keys: keys::Keybindings,
     privacy: privacy::Privacy,
     smoke: OnceCell<Result<(), String>>,
     updates: UpdateControls,
@@ -61,6 +63,8 @@ pub fn run(options: Options) -> Result<(), String> {
     if application.is_null() {
         return Err("cannot create the GTK application".into());
     }
+    let keybindings =
+        keys::Keybindings::new(matches!(options, Options::Smoke(_) | Options::Updates));
     let app = App {
         application,
         options,
@@ -70,6 +74,7 @@ pub fn run(options: Options) -> Result<(), String> {
         browsing: browsing::Browsing::default(),
         palette: palette::Palette::default(),
         find: find::Find::default(),
+        keys: keybindings,
         privacy: privacy::Privacy::default(),
         smoke: OnceCell::new(),
         updates: UpdateControls::new(),
@@ -83,6 +88,7 @@ pub fn run(options: Options) -> Result<(), String> {
     // SAFETY: The live application, writable argv and callback state outlive the event loop.
     let status = unsafe { ffi::g_application_run(application, 1, arguments.as_mut_ptr()) };
     app.updates.clear_sources();
+    app.keys.detach();
     app.agent.shutdown();
     app.privacy.stop();
     browsing::detach(&app);
@@ -171,6 +177,18 @@ extern "C" fn activate(application: Object, data: Object) {
     let controller = keys::capture_controller();
     connect(controller, c"key-pressed", key_pressed as *const _, data);
     connect(controller, c"key-released", key_released as *const _, data);
+    connect(
+        window,
+        c"notify::is-active",
+        key_focus_changed as *const _,
+        data,
+    );
+    connect(
+        window,
+        c"notify::focus-widget",
+        key_focus_changed as *const _,
+        data,
+    );
     // SAFETY: The live window adopts the live controller.
     unsafe { ffi::gtk_widget_add_controller(window, controller) };
     // SAFETY: The live window's content and controller are in place.
@@ -214,28 +232,64 @@ fn load(view: Object, uri: &CStr) {
 }
 
 extern "C" fn key_pressed(
-    _controller: Object,
+    controller: Object,
     key: c_uint,
-    _hardware_code: c_uint,
+    hardware_code: c_uint,
     modifiers: c_uint,
     data: Object,
 ) -> Bool {
     // SAFETY: GTK passed our live App reference, and the widget signal runs on its main thread.
     let app = unsafe { &*data.cast::<App>() };
+    let Some(widgets) = app.widgets.get() else {
+        return ffi::FALSE;
+    };
+    if let Some(handled) =
+        inspector::docked_key_pressed(app, widgets.view, controller, key, hardware_code, modifiers)
+    {
+        return handled;
+    }
     if browsing::downloads::key_pressed(app, key, modifiers)
         || browsing::key_pressed(app, key, modifiers)
     {
         return ffi::TRUE;
     }
-    let Some(widgets) = app.widgets.get() else {
+    if privacy::key_pressed(app, &widgets, key, modifiers)
+        || palette::key_pressed(app, &widgets, key, modifiers)
+        || agent::key_pressed(app, &widgets, key, modifiers)
+    {
+        app.keys.cancel_chord();
+        return ffi::TRUE;
+    }
+    if keys::is_modifier(key) {
+        return ffi::FALSE;
+    }
+    let Some(stroke) = keys::read(controller, key, hardware_code, modifiers) else {
+        app.keys.cancel_chord();
         return ffi::FALSE;
     };
-    Bool::from(
-        privacy::key_pressed(app, &widgets, key, modifiers)
-            || find::key_pressed(app, &widgets, key, modifiers)
-            || palette::key_pressed(app, &widgets, key, modifiers, data)
-            || agent::key_pressed(app, &widgets, key, modifiers),
-    )
+    let mut context = palette::key_context(app).unwrap_or_else(|| browsing::key_context(app));
+    if keys::input_focused(widgets.view) {
+        context = context.with(ContextFlag::InputFocused);
+    }
+    if privacy::key_popover_open(app) {
+        context = context.with(ContextFlag::PopoverOpen);
+    }
+    if agent::key_panel_open(&widgets) {
+        context = context.with(ContextFlag::AgentOpen);
+    }
+    match app.keys.resolve(stroke, &context) {
+        Some(Resolution::Command(id)) => {
+            Bool::from(palette::dispatch(app, &widgets, &id, stroke, data))
+        }
+        Some(Resolution::Pending(_) | Resolution::Unbound) => ffi::TRUE,
+        None => ffi::FALSE,
+    }
+}
+
+extern "C" fn key_focus_changed(_: Object, _: Object, data: Object) {
+    // SAFETY: GTK emits these property changes with the live App as its callback data.
+    let app = unsafe { &*data.cast::<App>() };
+    app.keys.cancel_chord();
 }
 
 extern "C" fn key_released(_: Object, key: c_uint, _: c_uint, modifiers: c_uint, data: Object) {

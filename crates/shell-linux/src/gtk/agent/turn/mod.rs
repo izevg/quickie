@@ -1,19 +1,35 @@
-//! One cancellable turn, moving from a page read to streamed answer events.
+//! A cancellable Agent turn using native provider tools or the streaming compatibility path.
 
 mod citation;
+mod native;
 
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread::Builder;
 
-use quickie_application::{AnswerEvent, StopSignal};
+use quickie_application::{AnswerEvent, PageReader, StopSignal};
 use quickie_domain_agents::{LlmEndpoint, PageText, Question, Request};
 use url::Url;
 
 use super::{View, read, service, view};
 use crate::gtk::App;
 use crate::gtk::ffi::Object;
+pub(super) use native::ProviderWorkspace;
 
 const MAX_CITATIONS: usize = 16;
+
+#[derive(Clone)]
+struct AskedPage {
+    source: Object,
+    revision: u64,
+    question: Question,
+    endpoint: LlmEndpoint,
+}
+
+impl AskedPage {
+    fn is_current(&self, app: &App) -> bool {
+        app.agent.source() == Some(self.source) && app.agent.revision.get() == self.revision
+    }
+}
 
 pub(super) struct ReadPage {
     task: read::Read,
@@ -43,38 +59,61 @@ impl Drop for Answer {
 pub(super) enum Turn {
     Reading(Box<ReadPage>),
     Answering(Answer),
+    Native(Box<native::NativeTurn>),
 }
 
 impl Turn {
     pub(super) fn start(
+        app: &App,
         source: Object,
         question: Question,
         endpoint: LlmEndpoint,
         revision: u64,
         panel: View,
     ) -> Result<Self, String> {
-        let (url, title) = read::source(source)?;
-        let task = read::Read::start(source)?;
-        panel.row(question.as_str(), c"agent-prompt");
+        let asked = AskedPage {
+            source,
+            revision,
+            question,
+            endpoint,
+        };
+        if app.agent.model.borrow().uses_legacy(&asked.endpoint) {
+            return Self::start_legacy(asked, panel, true);
+        }
+        read::source(source)?;
+        native::NativeTurn::start(app, asked, panel).map(|turn| Self::Native(Box::new(turn)))
+    }
+
+    fn start_legacy(asked: AskedPage, panel: View, append_prompt: bool) -> Result<Self, String> {
+        let (url, title) = read::source(asked.source)?;
+        let task = read::Read::start(asked.source, PageReader::MAX_CHARS)?;
+        if append_prompt {
+            panel.row(asked.question.as_str(), c"agent-prompt");
+        }
         let row = panel.row("Reading source page…", c"agent-source");
         panel.activity("Reading page…", true, true);
         Ok(Self::Reading(Box::new(ReadPage {
             task,
             url,
             title,
-            question,
-            endpoint,
-            revision,
+            question: asked.question,
+            endpoint: asked.endpoint,
+            revision: asked.revision,
             row,
         })))
     }
 
+    pub(super) fn needs_current_document(&self) -> bool {
+        matches!(self, Self::Reading(_) | Self::Native(_))
+    }
+
     pub(super) fn stop(self, panel: View, message: &str) {
-        if let Self::Reading(read) = self {
-            view::set_label(read.row, "Reading cancelled");
+        match self {
+            Self::Reading(read) => view::set_label(read.row, "Reading cancelled"),
+            Self::Native(turn) => turn.show_cancelled_read(),
+            Self::Answering(_) => {}
         }
-        panel.activity(message, false, true);
-        panel.row(message, c"agent-source");
+        stopped(panel, message);
     }
 
     pub(super) fn poll(self, app: &App, panel: View) -> Option<Self> {
@@ -97,6 +136,7 @@ impl Turn {
             Self::Answering(mut answer) => {
                 answer.poll(app, panel).then_some(Self::Answering(answer))
             }
+            Self::Native(turn) => turn.poll(app, panel),
         }
     }
 }
@@ -189,4 +229,9 @@ fn failed(panel: View, error: &str) -> Option<Turn> {
     panel.row(error, c"agent-problem");
     panel.activity("Could not answer", false, true);
     None
+}
+
+fn stopped(panel: View, message: &str) {
+    panel.activity("Stopped", false, true);
+    panel.row(message, c"agent-source");
 }

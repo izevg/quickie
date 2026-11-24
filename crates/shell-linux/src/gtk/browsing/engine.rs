@@ -11,7 +11,7 @@ use quickie_domain_browsing::{Focus, Jar, JarId, TabId, WindowId};
 use url::Url;
 
 use super::super::ffi::{self, Bool, Object};
-use super::super::{App, agent, connect, find, inspector, privacy};
+use super::super::{App, agent, connect, find, inspector, keys, privacy};
 use super::{activate, downloads, home, media};
 
 const LOAD_STARTED: c_int = 0;
@@ -68,7 +68,8 @@ impl Page {
         let settings = unsafe { ffi::webkit_web_view_get_settings(view) };
         // SAFETY: These settings live as long as the view.
         unsafe { ffi::webkit_settings_set_enable_developer_extras(settings, ffi::TRUE) };
-        inspector::observe_detachment(view);
+        inspector::observe_detachment(view, data);
+        keys::focus::observe(view);
         find::observe(view, data);
         downloads::observe(view, data);
         privacy::observe(view, data);
@@ -302,6 +303,9 @@ impl EnginePort for Engine {
 extern "C" fn load_changed(view: Object, event: c_int, data: Object) {
     // SAFETY: The handlers run on the GTK thread with the registered App reference.
     let app = unsafe { &*data.cast::<App>() };
+    if event == LOAD_STARTED {
+        keys::focus::reset(view);
+    }
     if matches!(event, LOAD_STARTED | LOAD_COMMITTED)
         && let Some(tab) = app.browsing.pages.tab(view)
         && let Some(page) = app.browsing.pages.entries.borrow().get(&tab)

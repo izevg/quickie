@@ -2,6 +2,7 @@
 
 mod appearance;
 mod desktop;
+pub(in crate::gtk) mod keyboard;
 mod view;
 
 use std::cell::{Cell, RefCell};
@@ -13,8 +14,9 @@ use quickie_domain_settings::PageLayout;
 
 use super::data_home;
 use crate::gtk::ffi::{self, Bool, Object};
-use crate::gtk::{App, connect};
+use crate::gtk::{App, connect, keys, palette};
 use appearance::Writer;
+use keyboard::{Hooks, Keyboard};
 use view::View;
 
 const PAGE_INSET: i32 = 8;
@@ -25,6 +27,7 @@ pub(in crate::gtk) struct Settings {
     parent: Cell<Object>,
     frame: Cell<Object>,
     window: Cell<Option<View>>,
+    keyboard: RefCell<Option<Keyboard>>,
     appearance: RefCell<Option<Writer>>,
     layout: Cell<PageLayout>,
     save_poll: Cell<c_uint>,
@@ -79,6 +82,7 @@ impl Settings {
     pub(in crate::gtk) fn detach(&self) {
         self.stop_polling();
         drop(self.appearance.take());
+        drop(self.keyboard.take());
     }
 
     fn stop_polling(&self) {
@@ -129,14 +133,92 @@ pub(in crate::gtk) fn show(app: &App, data: Object) {
         return;
     }
     let view = settings.window.get().unwrap_or_else(|| {
-        let view = View::new(parent, data);
+        let keyboard = Keyboard::new(
+            data,
+            Hooks {
+                dispatch: keys::edit,
+                read: keys::read,
+                check: keys::check_binding,
+                available: palette::has_command,
+            },
+        );
+        let view = View::new(parent, keyboard.widget(), data);
+        settings.keyboard.replace(Some(keyboard));
         settings.window.set(Some(view));
         view
     });
+    refresh_keyboard(app);
     view.set_browser(&desktop::browser_status());
     view.set_downloads(app.browsing.downloads.folder());
     settings.sync_appearance(view);
     view.present();
+}
+
+pub(in crate::gtk) fn refresh_keyboard(app: &App) {
+    let settings = &app.browsing.settings;
+    if let Some(keyboard) = settings.keyboard.borrow().as_ref() {
+        app.keys.render(keyboard);
+    }
+}
+
+pub(in crate::gtk) fn keyboard_status(app: &App, active: bool, message: &str, error: bool) {
+    let settings = &app.browsing.settings;
+    if let Some(keyboard) = settings.keyboard.borrow().as_ref() {
+        keyboard.working(active);
+        if error {
+            keyboard.error(message);
+        } else {
+            keyboard.status(message);
+        }
+    }
+}
+
+pub(in crate::gtk) fn open_keybindings(app: &App, path: &Path) {
+    let settings = &app.browsing.settings;
+    if let Some(view) = settings.window.get()
+        && let Some(keyboard) = settings.keyboard.borrow().as_ref()
+        && let Err(error) = desktop::open_keybindings(path, view.window(), keyboard.status_label())
+    {
+        keyboard.error(&error);
+    }
+}
+
+extern "C" fn settings_key_pressed(
+    controller: Object,
+    key: c_uint,
+    hardware: c_uint,
+    modifiers: c_uint,
+    data: Object,
+) -> Bool {
+    // SAFETY: The live Settings key controller receives its App on the main thread.
+    let app = unsafe { &*data.cast::<App>() };
+    let settings = &app.browsing.settings;
+    if settings
+        .keyboard
+        .borrow()
+        .as_ref()
+        .is_some_and(|pane| pane.key_pressed(controller, key, hardware, modifiers))
+    {
+        return ffi::TRUE;
+    }
+    let held = modifiers & keys::SHORTCUT_MODIFIERS;
+    if matches!((key, held), (ffi::KEY_ESCAPE, 0) | (0x77, ffi::CONTROL))
+        && let Some(view) = settings.window.get()
+    {
+        // SAFETY: The live window handles close without destroying its reusable panes.
+        unsafe { ffi::gtk_window_close(view.window()) };
+        return ffi::TRUE;
+    }
+    ffi::FALSE
+}
+
+extern "C" fn settings_closed(_: Object, data: Object) -> Bool {
+    // SAFETY: The live settings window receives its App on the main thread.
+    let app = unsafe { &*data.cast::<App>() };
+    if let Some(keyboard) = app.browsing.settings.keyboard.borrow().as_ref() {
+        keyboard.stop_recording();
+    }
+    ffi::FALSE
 }
 
 extern "C" fn fullscreen_changed(_: Object, _: Object, data: Object) {
@@ -151,6 +233,7 @@ extern "C" fn parent_closing(_: Object, data: Object) -> Bool {
     let settings = &app.browsing.settings;
     settings.stop_polling();
     settings.window.set(None);
+    drop(settings.keyboard.take());
     settings.parent.set(ptr::null_mut());
     ffi::FALSE
 }

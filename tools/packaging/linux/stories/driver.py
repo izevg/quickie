@@ -19,8 +19,17 @@ from desktop.x11 import X11
 
 
 STORIES = Path(__file__).resolve().parent
-GROUPS = ("palette", "find", "inspector", "dialogs", "tabs", "privacy", "agent", "media", "downloads", "settings")
-NESTED_GROUPS = {"media": "tabs.media", "downloads": "tabs.downloads", "settings": "tabs.settings"}
+GROUPS = (
+    "palette", "find", "inspector", "dialogs", "tabs", "privacy", "agent", "agent-providers",
+    "media", "downloads", "settings", "keyboard",
+)
+NESTED_GROUPS = {
+    "agent-providers": "agent.providers",
+    "media": "tabs.media",
+    "downloads": "tabs.downloads",
+    "settings": "tabs.settings",
+    "keyboard": "tabs.settings.keyboard",
+}
 
 
 class Fixture(SimpleHTTPRequestHandler):
@@ -71,8 +80,12 @@ class Story:
     def key(self, *keys):
         self.desktop.key(*keys)
 
+    def set_clipboard(self, text):
+        self.desktop.set_clipboard(self.stack, text)
+
     def paste(self, text):
-        self.desktop.paste(self.stack, text)
+        self.set_clipboard(text)
+        self.key("ctrl+v")
 
     def clients(self):
         return self.desktop.clients()

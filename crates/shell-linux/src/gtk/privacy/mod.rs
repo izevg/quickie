@@ -180,12 +180,10 @@ fn load(web: Object, uri: &CStr) {
 }
 
 pub(super) fn key_pressed(app: &App, widgets: &Widgets, key: c_uint, modifiers: c_uint) -> bool {
-    const SHIELDS_MODIFIERS: c_uint = ffi::ALT | ffi::CONTROL;
     if permissions::key(app, widgets, key, modifiers) {
         return true;
     }
     match (key, modifiers & keys::SHORTCUT_MODIFIERS) {
-        (0x53 | 0x73, SHIELDS_MODIFIERS) => show_shields(app, widgets),
         (ffi::KEY_ESCAPE, 0) if app.privacy.panel.get().is_some() => close(app, widgets, true),
         (KEY_RETURN | KEY_KP_ENTER, 0)
             if app.privacy.panel.get() == Some(Panel::Shields)
@@ -196,6 +194,10 @@ pub(super) fn key_pressed(app: &App, widgets: &Widgets, key: c_uint, modifiers: 
         _ => return false,
     }
     true
+}
+
+pub(super) fn key_popover_open(app: &App) -> bool {
+    app.privacy.panel.get().is_some()
 }
 
 pub(super) fn show_shields(app: &App, widgets: &Widgets) {

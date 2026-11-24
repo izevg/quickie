@@ -117,7 +117,7 @@ class Wayland:
                 command.extend(("-m", modifier))
         subprocess.run(command, env=self.environment, check=True)
 
-    def paste(self, stack, text):
+    def set_clipboard(self, stack, text):
         if self.clipboard is not None:
             stop(self.clipboard)
         self.clipboard = start(stack, "wl-copy", "--foreground", "--", text, env=self.environment)
@@ -127,7 +127,6 @@ class Wayland:
             ).decode() == text,
             "the native Wayland clipboard selection",
         )
-        self.key("ctrl+v")
 
     def picture(self, window):
         rect = self.windows()[window]["rect"]

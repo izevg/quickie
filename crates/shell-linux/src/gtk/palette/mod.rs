@@ -6,7 +6,10 @@ mod view;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::ffi::{CStr, CString, c_char, c_int, c_uint};
 
-use quickie_domain_browsing::{Direction, JarChoice};
+use quickie_domain_browsing::{Direction, JarChoice, PinnedSlot};
+use quickie_domain_commands::{
+    CommandId, ContextFlag, FocusedView, Key, KeyStroke, Modifiers, WhenContext,
+};
 
 use super::ffi::{self, Bool, Object};
 use super::{App, Widgets, agent, browsing, connect, inspector, keys, privacy};
@@ -33,18 +36,8 @@ pub(super) fn attach(overlay: Object, data: Object) -> View {
     view
 }
 
-pub(super) fn key_pressed(
-    app: &App,
-    widgets: &Widgets,
-    key: c_uint,
-    mods: c_uint,
-    data: Object,
-) -> bool {
-    const SHIFT_CONTROL: c_uint = ffi::SHIFT | ffi::CONTROL;
+pub(super) fn key_pressed(app: &App, widgets: &Widgets, key: c_uint, mods: c_uint) -> bool {
     match (key, mods & keys::SHORTCUT_MODIFIERS) {
-        (0x6c, ffi::CONTROL) => show(app, widgets, Mode::Address),
-        (0x50 | 0x70, SHIFT_CONTROL) | (0x6b, ffi::CONTROL) => show(app, widgets, Mode::Commands),
-        (0x70, ffi::CONTROL) => show(app, widgets, Mode::GoTo),
         (ffi::KEY_ESCAPE, 0) if app.palette.mode.get().is_some() => hide(app, widgets, true),
         (0xff09, 0) if app.palette.mode.get() == Some(Mode::Address) => {
             return complete_address(app, widgets.palette);
@@ -54,16 +47,24 @@ pub(super) fn key_pressed(
                 .palette
                 .step(key == 0xff54, app.palette.items.borrow().len());
         }
-        (ffi::KEY_COMMA, ffi::CONTROL) => run_command(app, widgets, Command::Settings, data),
-        (0x72, ffi::CONTROL) => run_command(app, widgets, Command::Reload, data),
-        (0x52 | 0x72, SHIFT_CONTROL) => run_command(app, widgets, Command::HardReload, data),
-        (0x43 | 0x63, SHIFT_CONTROL) => run_command(app, widgets, Command::CopyUrl, data),
-        (ffi::KEY_LEFT, ffi::ALT) => run_command(app, widgets, Command::Back, data),
-        (ffi::KEY_RIGHT, ffi::ALT) => run_command(app, widgets, Command::Forward, data),
-        _ if inspector::is_toggle(key, mods) => run_command(app, widgets, Command::Inspector, data),
         _ => return false,
     }
     true
+}
+
+pub(super) fn key_context(app: &App) -> Option<WhenContext> {
+    let mode = app.palette.mode.get()?;
+    let (view, flag) = if mode == Mode::Address {
+        (FocusedView::Address, ContextFlag::AddressOpen)
+    } else {
+        (FocusedView::Palette, ContextFlag::PaletteOpen)
+    };
+    Some(
+        WhenContext::new()
+            .in_view(view)
+            .with(flag)
+            .with(ContextFlag::InputFocused),
+    )
 }
 
 fn show(app: &App, widgets: &Widgets, mode: Mode) {
@@ -119,12 +120,20 @@ fn requery(app: &App, widgets: &Widgets) {
     } else {
         app.browsing.tabs()
     };
-    let items = app
+    let mut items = app
         .palette
         .model
         .get_or_init(RefCell::default)
         .borrow_mut()
         .items(mode, input, current, &app.palette.history.borrow(), &tabs);
+    for item in &mut items {
+        if let Target::Command(command) = item.target
+            && command != Command::Updates
+            && let Ok(id) = CommandId::try_from(command.id())
+        {
+            item.shortcut = app.keys.shortcut(&id);
+        }
+    }
     let can_complete = mode == Mode::Address && model::completion(&items, input).is_some();
     widgets
         .palette
@@ -158,7 +167,7 @@ fn activate(app: &App, widgets: &Widgets, index: usize, data: Object) {
         .get(index)
         .map(|item| item.target.clone());
     match target {
-        Some(Target::Command(command)) => run_command(app, widgets, command, data),
+        Some(Target::Command(command)) => run_command(app, widgets, command, None, data),
         Some(Target::Tab(tab)) => {
             hide(app, widgets, true);
             browsing::activate(app, tab);
@@ -177,15 +186,53 @@ fn activate(app: &App, widgets: &Widgets, index: usize, data: Object) {
     }
 }
 
-fn run_command(app: &App, widgets: &Widgets, command: Command, data: Object) {
+pub(in crate::gtk) fn has_command(id: &CommandId) -> bool {
+    Command::of(id.as_str()).is_some() || pinned_command(id).is_some()
+}
+
+pub(super) fn dispatch(
+    app: &App,
+    widgets: &Widgets,
+    id: &CommandId,
+    stroke: KeyStroke,
+    data: Object,
+) -> bool {
+    if let Some(command) = Command::of(id.as_str()) {
+        run_command(app, widgets, command, Some(stroke), data);
+    } else if let Some((slot, pin)) = pinned_command(id) {
+        browsing::use_pinned_slot(app, slot, pin);
+    } else {
+        return false;
+    }
+    true
+}
+
+fn pinned_command(id: &CommandId) -> Option<(PinnedSlot, bool)> {
+    let (number, pin) = if let Some(number) = id.as_str().strip_prefix("quickie.tab.pinToSlot") {
+        (number, true)
+    } else {
+        (id.as_str().strip_prefix("quickie.tab.goToSlot")?, false)
+    };
+    let index = number.parse::<usize>().ok()?.checked_sub(1)?;
+    Some((PinnedSlot::from_index(index)?, pin))
+}
+
+fn run_command(
+    app: &App,
+    widgets: &Widgets,
+    command: Command,
+    stroke: Option<KeyStroke>,
+    data: Object,
+) {
     match command {
         Command::Address => return show(app, widgets, Mode::Address),
         Command::GoTo => return show(app, widgets, Mode::GoTo),
+        Command::OpenCommands => return show(app, widgets, Mode::Commands),
         _ => {}
     }
     hide(app, widgets, true);
     match command {
-        Command::Address | Command::GoTo => {}
+        Command::Address | Command::GoTo | Command::OpenCommands => {}
         // SAFETY: Navigation targets the live browser view on the GTK thread.
         Command::Back => unsafe { ffi::webkit_web_view_go_back(widgets.view) },
         // SAFETY: Navigation targets the live browser view on the GTK thread.
@@ -195,6 +242,9 @@ fn run_command(app: &App, widgets: &Widgets, command: Command, data: Object) {
         // SAFETY: The current load belongs to the live browser view.
         Command::HardReload => unsafe { webkit_web_view_reload_bypass_cache(widgets.view) },
         Command::Inspector => inspector::toggle(widgets.view),
+        Command::Find => super::find::show(app, widgets),
+        Command::FindNext => super::find::find_match(app, widgets, false),
+        Command::FindPrevious => super::find::find_match(app, widgets, true),
         Command::CopyUrl => {
             // SAFETY: This WebKit URI is borrowed from the live browser view.
             let uri = unsafe { ffi::webkit_web_view_get_uri(widgets.view) };
@@ -212,8 +262,17 @@ fn run_command(app: &App, widgets: &Widgets, command: Command, data: Object) {
         Command::CloseTab => browsing::close_active(app),
         Command::ReopenTab => browsing::reopen_closed(app),
         Command::Overview => browsing::show_overview(app),
-        Command::NextTab => browsing::cycle_once(app, Direction::Forward),
-        Command::PreviousTab => browsing::cycle_once(app, Direction::Backward),
+        Command::NextTab | Command::PreviousTab => {
+            let direction = if command == Command::NextTab {
+                Direction::Forward
+            } else {
+                Direction::Backward
+            };
+            let held = stroke.is_some_and(|stroke| {
+                stroke.key == Key::Tab && stroke.modifiers.contains(Modifiers::CONTROL)
+            });
+            browsing::cycle(app, direction, held);
+        }
         Command::Agent => agent::open(app, widgets),
         Command::AgentSettings => agent::settings(app, widgets),
         Command::Shields => privacy::show_shields(app, widgets),

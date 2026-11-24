@@ -10,6 +10,7 @@ class Endpoint:
         self.server = stack.enter_context(ThreadingHTTPServer(("127.0.0.1", 0), Handler))
         self.lock = Lock()
         self.requests = []
+        self.probes = []
         self.stopping = Event()
         self.disconnected = Event()
         self.server.endpoint = self
@@ -30,6 +31,14 @@ class Endpoint:
         with self.lock:
             return self.requests.copy()
 
+    def reject_probe(self, path):
+        with self.lock:
+            self.probes.append(path)
+
+    def probe_paths(self):
+        with self.lock:
+            return self.probes.copy()
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -37,12 +46,24 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(405, b"", "application/json")
 
     def do_POST(self):
-        assert self.path == "/v1/chat/completions", self.path
+        assert self.path in {"/v1/chat/completions", "/v1/responses"}, self.path
         assert self.headers.get("Authorization") is None
         assert self.headers.get("Cookie") is None
         size = int(self.headers["Content-Length"])
         assert 0 < size <= 100_000
         request = json.loads(self.rfile.read(size))
+        if self.path == "/v1/responses":
+            self.server.endpoint.reject_probe(self.path)
+            self.reply(404, b"404 page not found", "text/plain; charset=utf-8")
+            return
+        if "tools" in request:
+            self.server.endpoint.reject_probe(self.path)
+            # Ollama 0.12.11 wraps the scheduler's capability failure in an OpenAI error.
+            error = {"type": "api_error", "code": None, "param": None,
+                     "message": "registry.ollama.ai/library/observatory-fixture:latest does not support tools"}
+            self.reply(400, json.dumps({"error": error}).encode(), "application/json")
+            return
+        assert request["stream"] is True, "the compatible Chat request still streams"
         self.server.endpoint.add(request)
         prompt = request["messages"][-1]["content"]
         if "Return a service failure" in prompt:

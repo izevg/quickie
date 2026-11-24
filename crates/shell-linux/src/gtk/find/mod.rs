@@ -62,25 +62,17 @@ pub(super) fn rebind(app: &App, widgets: &mut Widgets, view: Object) {
     widgets.find.controller = controller_for(view);
 }
 
-pub(super) fn key_pressed(app: &App, widgets: &Widgets, key: c_uint, modifiers: c_uint) -> bool {
-    const SHIFT_CONTROL: c_uint = ffi::CONTROL | ffi::SHIFT;
-    match (key, modifiers & keys::SHORTCUT_MODIFIERS) {
-        (0x46 | 0x66, ffi::CONTROL) => show(app, widgets),
-        (0x47 | 0x67, ffi::CONTROL | SHIFT_CONTROL) => {
-            show_if_closed(app, widgets);
-            let direction = if modifiers & ffi::SHIFT == 0 {
-                Direction::Next
-            } else {
-                Direction::Previous
-            };
-            step(app, widgets.find, direction);
-        }
-        _ => return false,
-    }
-    true
+pub(super) fn find_match(app: &App, widgets: &Widgets, reverse: bool) {
+    show_if_closed(app, widgets);
+    let direction = if reverse {
+        Direction::Previous
+    } else {
+        Direction::Next
+    };
+    step(app, widgets.find, direction);
 }
 
-fn show(app: &App, widgets: &Widgets) {
+pub(super) fn show(app: &App, widgets: &Widgets) {
     let already_open = app.find.open.replace(true);
     widgets.find.show();
     if !already_open {

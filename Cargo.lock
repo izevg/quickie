@@ -1069,6 +1069,7 @@ dependencies = [
  "quickie-application",
  "quickie-domain-agents",
  "quickie-engine-webkit",
+ "serde",
  "serde_json",
  "url",
 ]

@@ -18,9 +18,13 @@ pub(super) enum Command {
     Address,
     Back,
     Forward,
+    OpenCommands,
     Reload,
     HardReload,
     Inspector,
+    Find,
+    FindNext,
+    FindPrevious,
     CopyUrl,
     Updates,
     Settings,
@@ -39,13 +43,17 @@ pub(super) enum Command {
 }
 
 impl Command {
-    const ALL: [Self; 21] = [
+    const ALL: [Self; 25] = [
         Self::Address,
         Self::Back,
         Self::Forward,
+        Self::OpenCommands,
         Self::Reload,
         Self::HardReload,
         Self::Inspector,
+        Self::Find,
+        Self::FindNext,
+        Self::FindPrevious,
         Self::CopyUrl,
         Self::Updates,
         Self::Settings,
@@ -63,14 +71,18 @@ impl Command {
         Self::Downloads,
     ];
 
-    const fn id(self) -> &'static str {
+    pub(super) const fn id(self) -> &'static str {
         match self {
             Self::Address => "quickie.address.open",
             Self::Back => "quickie.navigation.back",
             Self::Forward => "quickie.navigation.forward",
+            Self::OpenCommands => "quickie.palette.openCommands",
             Self::Reload => "quickie.tab.reload",
             Self::HardReload => "quickie.tab.hardReload",
             Self::Inspector => "quickie.devtools.toggle",
+            Self::Find => "quickie.page.find",
+            Self::FindNext => "quickie.page.findNext",
+            Self::FindPrevious => "quickie.page.findPrevious",
             Self::CopyUrl => "quickie.page.copyUrl",
             Self::Settings | Self::Updates => "quickie.app.settings",
             Self::GoTo => "quickie.palette.goto",
@@ -88,40 +100,26 @@ impl Command {
         }
     }
 
-    const fn shortcut(self) -> &'static str {
-        match self {
-            Self::Address => "Ctrl+L",
-            Self::Back => "Alt+←",
-            Self::Forward => "Alt+→",
-            Self::Reload => "Ctrl+R",
-            Self::HardReload => "Ctrl+Shift+R",
-            Self::Inspector => "F12",
-            Self::CopyUrl => "Ctrl+Shift+C",
-            Self::Settings => "Ctrl+,",
-            Self::GoTo => "Ctrl+P",
-            Self::NewTab => "Ctrl+T",
-            Self::NewThrowaway => "Ctrl+Shift+N",
-            Self::CloseTab => "Ctrl+W",
-            Self::ReopenTab => "Ctrl+Shift+T",
-            Self::Overview => "Ctrl+Shift+\\",
-            Self::NextTab => "Ctrl+Tab",
-            Self::PreviousTab => "Ctrl+Shift+Tab",
-            Self::Updates | Self::Agent | Self::AgentSettings => "",
-            Self::Shields => "Ctrl+Alt+S",
-            Self::Downloads => "Ctrl+J",
-        }
+    pub(super) fn of(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|&command| command != Self::Updates && command.id() == id)
     }
 
     const fn icon(self) -> &'static str {
         match self {
-            Self::Address => "edit-find-symbolic",
+            Self::Address | Self::Find | Self::FindNext | Self::FindPrevious => {
+                "edit-find-symbolic"
+            }
             Self::Back => "go-previous-symbolic",
             Self::Forward => "go-next-symbolic",
             Self::Reload | Self::HardReload => "view-refresh-symbolic",
             Self::Inspector => "utilities-terminal-symbolic",
             Self::CopyUrl => "edit-copy-symbolic",
             Self::Updates => "system-software-update-symbolic",
-            Self::GoTo | Self::NextTab | Self::PreviousTab => "go-jump-symbolic",
+            Self::GoTo | Self::OpenCommands | Self::NextTab | Self::PreviousTab => {
+                "go-jump-symbolic"
+            }
             Self::NewTab | Self::NewThrowaway => "tab-new-symbolic",
             Self::CloseTab => "window-close-symbolic",
             Self::ReopenTab => "edit-undo-symbolic",
@@ -158,7 +156,7 @@ pub(super) struct Item {
     pub target: Target,
     pub title: String,
     pub detail: String,
-    pub shortcut: &'static str,
+    pub shortcut: String,
     pub icon: &'static str,
     pub emphasis: Vec<u32>,
 }
@@ -199,7 +197,7 @@ impl Model {
                     target: Target::Ask(question.into()),
                     title: "Ask about this page".into(),
                     detail: question.into(),
-                    shortcut: "",
+                    shortcut: String::new(),
                     icon: "system-search-symbolic",
                     emphasis: Vec::new(),
                 })
@@ -257,7 +255,7 @@ impl Model {
             target: Target::Command(command),
             title: title.into(),
             detail: entry.category.label().into(),
-            shortcut: command.shortcut(),
+            shortcut: String::new(),
             icon: command.icon(),
             emphasis: Vec::new(),
         })
@@ -276,7 +274,7 @@ impl Model {
                 tab.title.clone()
             },
             detail: tab.url.as_str().into(),
-            shortcut: "",
+            shortcut: String::new(),
             icon: "web-browser-symbolic",
             emphasis: Vec::new(),
         });
@@ -315,7 +313,7 @@ fn visit_item(visit: &Visit) -> Item {
         target: Target::Visit(visit.address.clone()),
         title: visit.title.clone(),
         detail: visit.address.clone(),
-        shortcut: "",
+        shortcut: String::new(),
         icon: "document-open-recent-symbolic",
         emphasis: Vec::new(),
     }
@@ -331,7 +329,7 @@ fn destination(input: &str) -> Option<Item> {
         target: Target::Navigate(destination.url().as_str().into()),
         title: title.into(),
         detail: detail.into(),
-        shortcut: "",
+        shortcut: String::new(),
         icon,
         emphasis: Vec::new(),
     })

@@ -85,6 +85,9 @@ pub fn llm_error(error: &LlmError) -> String {
             cut(&error.0)
         ),
         LlmError::Status { status, message } => status_error(*status, message),
+        LlmError::ToolsUnavailable => {
+            "The endpoint does not support native agent tools.".to_owned()
+        }
         LlmError::Api(message) => format!("The endpoint failed mid-answer: {}", cut(message)),
         LlmError::Malformed(_) => {
             "The endpoint doesn't answer like an OpenAI-compatible API. Check that the address \

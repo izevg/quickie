@@ -75,7 +75,7 @@ class X11:
             else:
                 self.xd("key", "--clearmodifiers", key)
 
-    def paste(self, stack, text):
+    def set_clipboard(self, stack, text):
         if self.clipboard is not None:
             stop(self.clipboard)
         owner = start(
@@ -85,7 +85,6 @@ class X11:
         if owner.stdout.readline().strip() != "READY":
             raise RuntimeError("Could not claim the GTK clipboard")
         self.clipboard = owner
-        self.key("ctrl+v")
 
     def picture(self, window):
         return decode(subprocess.check_output(

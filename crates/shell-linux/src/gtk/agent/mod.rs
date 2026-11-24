@@ -16,7 +16,7 @@ use quickie_domain_agents::{ApiKey, BaseUrl, LlmEndpoint, ModelId, Question};
 use super::{App, Widgets, connect, ffi, keys};
 use ffi::{Bool, Object};
 use service::{Saved, Settings};
-use turn::Turn;
+use turn::{ProviderWorkspace, Turn};
 pub(super) use view::View;
 
 const LOAD_STARTED: c_int = 0;
@@ -29,6 +29,7 @@ pub(super) struct Agent {
     source: RefCell<Option<Source>>,
     revision: Cell<u64>,
     endpoint: RefCell<Option<LlmEndpoint>>,
+    model: RefCell<ProviderWorkspace>,
     queued: RefCell<Option<QueuedAsk>>,
     settings_open: Cell<bool>,
     job: RefCell<Option<Receiver<SettingsResult>>>,
@@ -213,6 +214,12 @@ pub(super) fn key_pressed(app: &App, widgets: &Widgets, key: c_uint, mods: c_uin
     true
 }
 
+pub(super) fn key_panel_open(widgets: &Widgets) -> bool {
+    // SAFETY: The live panel stays attached to the browser host on its owning GTK thread.
+    let visible = unsafe { gtk_widget_get_visible(widgets.agent.panel) };
+    visible != ffi::FALSE
+}
+
 pub(super) fn source_removed(app: &App, source: Object) {
     if app.agent.source() == Some(source)
         && let Some(widgets) = app.widgets.get()
@@ -223,6 +230,7 @@ pub(super) fn source_removed(app: &App, source: Object) {
 
 fn close(app: &App, widgets: &Widgets) {
     app.agent.turn.take();
+    app.agent.model.take();
     app.agent.queued.take();
     app.agent.source.take();
     close_settings(app, widgets.agent);
@@ -240,6 +248,7 @@ fn close_settings(app: &App, panel: View) {
 
 fn stop_turn(app: &App, panel: View, message: &str) {
     if let Some(turn) = app.agent.turn.take() {
+        app.agent.model.borrow_mut().cancel();
         let focused = view::widget_focused(panel.panel);
         turn.stop(panel, message);
         if focused && !app.agent.settings_open.get() {
@@ -261,6 +270,7 @@ fn submit_question(app: &App, widgets: &Widgets, question: Question) {
         return;
     };
     match Turn::start(
+        app,
         source,
         question,
         endpoint,
@@ -329,6 +339,7 @@ fn poll_settings(app: &App, widgets: &Widgets) {
     agent.job.take();
     let status = match result {
         Ok(saved) => {
+            agent.model.borrow_mut().bind(saved.endpoint.as_ref());
             agent.endpoint.replace(saved.endpoint);
             sync_form(app, widgets.agent);
             saved.status
@@ -458,7 +469,13 @@ fn document_changed(source: Object, data: Object) {
             }
             widgets.agent.row(SOURCE_CHANGED, c"agent-source");
         }
-        if matches!(*app.agent.turn.borrow(), Some(Turn::Reading(_))) {
+        if app
+            .agent
+            .turn
+            .borrow()
+            .as_ref()
+            .is_some_and(Turn::needs_current_document)
+        {
             stop_turn(app, widgets.agent, SOURCE_CHANGED);
         }
         refresh_source(widgets.agent, source);
@@ -482,6 +499,11 @@ fn with_widgets<T>(data: Object, work: impl FnOnce(&App, &Widgets) -> T) -> Opti
     // SAFETY: All agent signals and timers use the live App from the main GTK dispatch loop.
     let app = unsafe { &*data.cast::<App>() };
     app.widgets.get().as_ref().map(|widgets| work(app, widgets))
+}
+
+#[link(name = "gtk-4")]
+unsafe extern "C" {
+    fn gtk_widget_get_visible(widget: Object) -> Bool;
 }
 
 #[link(name = "gobject-2.0")]

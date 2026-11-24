@@ -17,8 +17,9 @@ dbus-run-session -- python3 -B tools/packaging/linux/stories/driver.py \
 ```
 
 Use `--group palette`, `--group find`, `--group inspector`, `--group dialogs`,
-`--group tabs`, `--group privacy`, `--group agent`, `--group media`,
-`--group downloads`, or `--group settings` for a targeted run.
+`--group tabs`, `--group privacy`, `--group agent`, `--group agent-providers`,
+`--group media`, `--group downloads`, `--group settings`, or `--group keyboard`
+for a targeted run.
 Use `--scale 2` for HiDPI. For X11 compatibility, add `--backend x11`
 and install Xvfb, Openbox, xdotool, `xprop`, and ImageMagick (`import`). Xvfb allocates
 a free display automatically. Use `--display :98` to request a specific free display.

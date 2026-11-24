@@ -122,8 +122,21 @@ pub(super) fn open_downloads(path: &Path, window: Object, status: Object) -> Res
         }
         Err(error) => return Err(format!("Could not open Downloads. {error}")),
     }
-    let path = CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| "The Downloads folder has an invalid path.")?;
+    launch(path, window, status, opened_downloads)
+}
+
+pub(super) fn open_keybindings(path: &Path, window: Object, status: Object) -> Result<(), String> {
+    launch(path, window, status, opened_keybindings)
+}
+
+fn launch(
+    path: &Path,
+    window: Object,
+    status: Object,
+    finished: extern "C" fn(Object, Object, Object),
+) -> Result<(), String> {
+    let path =
+        CString::new(path.as_os_str().as_bytes()).map_err(|_| "The target has an invalid path.")?;
     // SAFETY: GIO copies the path into a new file reference.
     let file = unsafe { g_file_new_for_path(path.as_ptr()) };
     // SAFETY: GTK's new launcher retains the live file.
@@ -133,7 +146,7 @@ pub(super) fn open_downloads(path: &Path, window: Object, status: Object) -> Res
     // SAFETY: The live settings window parents this asynchronous request; GTK retains the
     // launcher as needed. The callback releases the status reference.
     unsafe {
-        gtk_file_launcher_launch(launcher, window, ptr::null_mut(), opened_downloads, status);
+        gtk_file_launcher_launch(launcher, window, ptr::null_mut(), finished, status);
     }
     // SAFETY: The launch request retains the launcher as needed.
     unsafe { ffi::g_object_unref(launcher) };
@@ -143,12 +156,20 @@ pub(super) fn open_downloads(path: &Path, window: Object, status: Object) -> Res
 }
 
 extern "C" fn opened_downloads(launcher: Object, result: Object, status: Object) {
+    opened(launcher, result, status, "Downloads");
+}
+
+extern "C" fn opened_keybindings(launcher: Object, result: Object, status: Object) {
+    opened(launcher, result, status, "keybindings.json");
+}
+
+fn opened(launcher: Object, result: Object, status: Object, name: &str) {
     let mut error = ptr::null_mut();
     // SAFETY: GTK supplies the launcher and its matching result, with storage for a GError.
     let opened = unsafe { gtk_file_launcher_launch_finish(launcher, result, &raw mut error) };
     if opened == ffi::FALSE {
         let error = error_message(error, "The desktop rejected the request.");
-        super::view::message(status, &format!("Could not open Downloads. {error}"));
+        super::view::message(status, &format!("Could not open {name}. {error}"));
     }
     // SAFETY: The callback owns a reference to the label.
     unsafe { ffi::g_object_unref(status) };

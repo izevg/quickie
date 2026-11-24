@@ -8,6 +8,8 @@ from PIL import Image, ImageChops
 
 from .endpoint import Endpoint
 
+NATIVE_PROBES = ["/v1/chat/completions", "/v1/responses"]
+
 
 def run(story):
     endpoint = Endpoint(story.stack)
@@ -78,10 +80,10 @@ def run(story):
         story.click(window, picture().width - right * scale, y * scale)
 
     story.wait(page_ready, "WebKit renders the source fixture")
-    assert not endpoint.snapshot(), "a fresh browser must leave the endpoint idle"
+    assert not endpoint.snapshot() and not endpoint.probe_paths(), "a fresh browser must leave the endpoint idle"
     open_command("Ask Agent About This Page")
     unconfigured = story.wait(workspace, "Agent opens beside the source page")
-    assert not endpoint.snapshot(), "opening Agent must leave the endpoint idle"
+    assert not endpoint.snapshot() and not endpoint.probe_paths(), "opening Agent must leave the endpoint idle"
     story.save(unconfigured, "agent-workspace-unconfigured")
 
     click(115, 33)
@@ -99,7 +101,7 @@ def run(story):
     click(312, 293)
     saved = story.wait(lambda: changed(form, 321, 29), "the endpoint is saved")
     story.save(saved, "agent-settings-saved")
-    assert not endpoint.snapshot(), "saving the endpoint must leave it idle"
+    assert not endpoint.snapshot() and not endpoint.probe_paths(), "saving the endpoint must leave it idle"
 
     story.key("Escape")
     def workspace_restored():
@@ -109,6 +111,7 @@ def run(story):
     idle = story.wait(workspace_restored, "Escape returns to the workspace")
     story.save(idle, "agent-workspace-idle")
     request = submit("When does the observatory open?", 1)
+    assert endpoint.probe_paths() == NATIVE_PROBES, "both explicit rejections enable streaming compatibility"
     assert request["model"] == "observatory-fixture"
     contents = " ".join(message["content"] for message in request["messages"])
     assert "The northern observatory opens at dusk." in contents
@@ -153,6 +156,7 @@ def run(story):
     click(41, 33)
     story.wait(lambda: marker(picture(), 18) == (226, 169, 95), "Close restores the source page width")
     assert len(endpoint.snapshot()) == 4
+    assert endpoint.probe_paths() == NATIVE_PROBES, "the workspace reuses its proven streaming route"
 
     # The real settings load takes an immediate SQLite transaction during store opening.
     # Holding that write lock keeps the first palette Ask queued while the page changes.
@@ -163,6 +167,7 @@ def run(story):
         story.wait(lambda: marker(picture(), 382) == (226, 169, 95), "the palette Ask opens the workspace")
         story.wait(lambda: changed(idle, 693, 16), "the original Ask is queued in the composer")
         assert len(endpoint.snapshot()) == 4, "settings must still be pending"
+        assert endpoint.probe_paths() == NATIVE_PROBES, "settings must finish before any native probe"
         story.click(window, 350 * scale, 183 * scale)
         story.wait(lambda: story.requests("agent/fixture.html?replacement"), "WebKit requests a new document")
 
@@ -175,6 +180,7 @@ def run(story):
 
     story.wait(lambda: changed(pending, 646, 30), "the settings load ends after the navigation")
     assert len(endpoint.snapshot()) == 4, "the queued Ask sent a request after its source changed"
+    assert endpoint.probe_paths() == NATIVE_PROBES, "the stale Ask must leave both native routes idle"
     click(180, 701)
     replacement = submit("Read the replacement observatory", 5)
     contents = " ".join(message["content"] for message in replacement["messages"])
@@ -182,6 +188,7 @@ def run(story):
     assert "Read the original observatory" not in contents
     assert "The southern observatory opens at sunrise." in contents
     assert "The northern observatory opens at dusk." not in contents
+    assert endpoint.probe_paths() == NATIVE_PROBES * 2, "a new workspace detects the endpoint again"
     story.save(story.wait(lambda: changed(pending, 175, 122), "the workspace shows the new answer"),
                "agent-workspace-source-changed")
 
@@ -200,3 +207,4 @@ def run(story):
     contents = " ".join(message["content"] for message in fresh["messages"])
     assert "Read the replacement observatory again" in contents
     assert "The southern observatory opens at sunrise." in contents
+    assert endpoint.probe_paths() == NATIVE_PROBES * 3

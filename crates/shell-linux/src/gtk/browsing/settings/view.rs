@@ -7,7 +7,8 @@ use crate::gtk::ffi::{self, Bool, Object};
 use crate::gtk::{connect, keys};
 
 use super::{
-    desktop::BrowserStatus, downloads_clicked, inset_changed, make_default_clicked, updates_clicked,
+    desktop::BrowserStatus, downloads_clicked, inset_changed, make_default_clicked,
+    settings_closed, settings_key_pressed, updates_clicked,
 };
 
 const ACCESSIBLE_LABEL: c_int = 4;
@@ -30,8 +31,8 @@ pub(super) struct View {
 }
 
 impl View {
-    pub(super) fn new(parent: Object, data: Object) -> Self {
-        let (window, content) = window(parent);
+    pub(super) fn new(parent: Object, keyboard: Object, data: Object) -> Self {
+        let (window, content) = window(parent, keyboard, data);
         label(content, c"General", c"title-1");
         let default_section = section(content, c"Default browser");
         let default_row = row(default_section, c"web-browser-symbolic");
@@ -217,7 +218,7 @@ pub(super) fn margins(widget: Object, top: c_int, end: c_int, bottom: c_int, sta
     unsafe { ffi::gtk_widget_set_margin_start(widget, start) };
 }
 
-fn window(parent: Object) -> (Object, Object) {
+fn window(parent: Object, keyboard: Object, data: Object) -> (Object, Object) {
     // SAFETY: GTK is initialized on this thread and retains toplevel windows.
     let window = unsafe { ffi::gtk_window_new() };
     // SAFETY: The live window copies its static title.
@@ -242,9 +243,39 @@ fn window(parent: Object) -> (Object, Object) {
     unsafe { gtk_scrolled_window_set_policy(scroll, 2, 1) };
     // SAFETY: The live scroller adopts the settings content.
     unsafe { ffi::gtk_scrolled_window_set_child(scroll, content) };
-    // SAFETY: The live window adopts the scroller.
-    unsafe { ffi::gtk_window_set_child(window, scroll) };
-    keys::dismiss_on_escape(window);
+    // SAFETY: GTK creates an empty stack for the two views.
+    let stack = unsafe { gtk_stack_new() };
+    // SAFETY: The new stack adopts the live General scroller.
+    unsafe { gtk_stack_add_titled(stack, scroll, c"general".as_ptr(), c"General".as_ptr()) };
+    // SAFETY: The live stack adopts the new Keyboard pane.
+    unsafe { gtk_stack_add_titled(stack, keyboard, c"keyboard".as_ptr(), c"Keyboard".as_ptr()) };
+    // SAFETY: GTK creates a live switcher on this thread.
+    let switcher = unsafe { gtk_stack_switcher_new() };
+    // SAFETY: The switcher tracks the two panes while their window is live.
+    unsafe { gtk_stack_switcher_set_stack(switcher, stack) };
+    // SAFETY: The switcher occupies the trailing space beside the pane heading.
+    unsafe { gtk_widget_set_halign(switcher, 2) };
+    // SAFETY: The switcher is aligned to the top while the panes fill the overlay.
+    unsafe { ffi::gtk_widget_set_valign(switcher, 1) };
+    margins(switcher, 14, 24, 0, 0);
+    // SAFETY: GTK creates an overlay for the native pane switcher.
+    let overlay = unsafe { ffi::gtk_overlay_new() };
+    // SAFETY: The overlay retains both of its newly created children.
+    unsafe { ffi::gtk_overlay_set_child(overlay, stack) };
+    // SAFETY: The overlay places the live switcher over the child stack.
+    unsafe { ffi::gtk_overlay_add_overlay(overlay, switcher) };
+    // SAFETY: The live Settings window adopts the overlay.
+    unsafe { ffi::gtk_window_set_child(window, overlay) };
+    let controller = keys::capture_controller();
+    connect(
+        controller,
+        c"key-pressed",
+        settings_key_pressed as *const _,
+        data,
+    );
+    connect(window, c"close-request", settings_closed as *const _, data);
+    // SAFETY: The window adopts the live key controller.
+    unsafe { ffi::gtk_widget_add_controller(window, controller) };
     (window, content)
 }
 
@@ -338,12 +369,22 @@ unsafe extern "C" {
     fn gtk_label_set_ellipsize(label: Object, mode: c_int);
     fn gtk_label_set_max_width_chars(label: Object, chars: c_int);
     fn gtk_scrolled_window_set_policy(scroll: Object, horizontal: c_int, vertical: c_int);
+    fn gtk_stack_new() -> Object;
+    fn gtk_stack_add_titled(
+        stack: Object,
+        child: Object,
+        name: *const c_char,
+        title: *const c_char,
+    ) -> Object;
+    fn gtk_stack_switcher_new() -> Object;
+    fn gtk_stack_switcher_set_stack(switcher: Object, stack: Object);
     fn gtk_style_context_add_provider_for_display(
         display: Object,
         provider: Object,
         priority: c_uint,
     );
     fn gtk_widget_get_display(widget: Object) -> Object;
+    fn gtk_widget_set_halign(widget: Object, alignment: c_int);
     fn gtk_widget_remove_css_class(widget: Object, class: *const c_char);
     fn gtk_widget_set_overflow(widget: Object, overflow: c_int);
     fn gtk_widget_set_tooltip_text(widget: Object, text: *const c_char);

@@ -10,9 +10,12 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use quickie_application::{Agent, AnswerEvent, Clock, Entropy, StopSignal};
+use quickie_application::{
+    Agent, AnswerEvent, AskError, Clock, Entropy, LlmError, StopSignal, ToolChatMessage,
+    ToolChatReply, complete_workspace_step,
+};
 use quickie_domain_agents::{
-    ApiKey, BaseUrl, FenceMarker, LlmEndpoint, ModelId, PageText, Request,
+    AgentSession, ApiKey, BaseUrl, Citation, FenceMarker, LlmEndpoint, ModelId, PageText, Request,
 };
 use quickie_domain_browsing::Timestamp;
 use quickie_llm::OpenAiClient;
@@ -32,6 +35,12 @@ pub(super) enum Settings {
 pub(super) struct Saved {
     pub(super) endpoint: Option<LlmEndpoint>,
     pub(super) status: String,
+}
+
+pub(super) enum ProviderStep {
+    Reply(ToolChatReply),
+    NeedsStreaming,
+    Failed(String),
 }
 
 pub(super) fn configure(intent: Settings) -> Result<Saved, String> {
@@ -68,12 +77,7 @@ pub(super) fn answer(
     stop: &StopSignal,
     events: &Sender<Result<AnswerEvent, String>>,
 ) -> Result<(), String> {
-    let ask = start()?;
-    if ask.endpoint() != Some(endpoint) {
-        return Err(
-            "The agent endpoint changed. Reopen the workspace to use its new settings.".into(),
-        );
-    }
+    let ask = configured(endpoint)?;
     if stop.is_stopped() {
         return Ok(());
     }
@@ -85,6 +89,40 @@ pub(super) fn answer(
         let _ = events.send(Ok(event));
     });
     Ok(())
+}
+
+pub(super) fn provider_step(
+    client: &OpenAiClient<WebKitHttp>,
+    endpoint: &LlmEndpoint,
+    messages: &[ToolChatMessage],
+    stop: &StopSignal,
+) -> ProviderStep {
+    if let Err(error) = configured(endpoint) {
+        return ProviderStep::Failed(error);
+    }
+    match complete_workspace_step(endpoint, &SecretService, client, messages, false, stop) {
+        Ok(reply) => ProviderStep::Reply(reply),
+        Err(AskError::Llm(LlmError::ToolsUnavailable)) => ProviderStep::NeedsStreaming,
+        Err(error) => ProviderStep::Failed(error.to_string()),
+    }
+}
+
+pub(super) fn verified_answer(text: &str, excerpts: &[String]) -> (String, Vec<Citation>) {
+    let now = SystemClock.now();
+    let mut session = AgentSession::for_texts(excerpts, now);
+    session.received(text, now);
+    let finished = session.finish(now, None);
+    (finished.answer, finished.citations)
+}
+
+fn configured(endpoint: &LlmEndpoint) -> Result<Ask, String> {
+    let ask = start()?;
+    if ask.endpoint() != Some(endpoint) {
+        return Err(
+            "The agent endpoint changed. Reopen the workspace to use its new settings.".into(),
+        );
+    }
+    Ok(ask)
 }
 
 fn start() -> Result<Ask, String> {

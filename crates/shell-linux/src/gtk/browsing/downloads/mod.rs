@@ -315,10 +315,6 @@ pub(in crate::gtk) fn hide(app: &App, focus: bool) {
 pub(in crate::gtk) fn key_pressed(app: &App, key: c_uint, modifiers: c_uint) -> bool {
     let downloads = &app.browsing.downloads;
     let modifiers = modifiers & keys::SHORTCUT_MODIFIERS;
-    if (key, modifiers) == (0x6a, ffi::CONTROL) {
-        toggle(app);
-        return true;
-    }
     if !downloads.opened.get() {
         return false;
     }
