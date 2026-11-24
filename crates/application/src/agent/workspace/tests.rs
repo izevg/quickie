@@ -74,3 +74,78 @@ fn model_tool_calls_are_bounded_per_user_turn() {
     assert!(!conversation.accept(&ToolChatReply::Call(call("overflow"))));
     assert!(conversation.accept(&ToolChatReply::Answer("Finished".to_owned())));
 }
+
+#[test]
+fn a_history_at_the_limit_keeps_every_completed_turn() {
+    // Arrange
+    let mut conversation = Conversation::default();
+    finish_turn(&mut conversation, "Read the original", 1);
+    finish_plain_turns(&mut conversation, 13);
+    let previous = conversation.messages().to_vec();
+    assert_eq!(previous.len(), 31);
+    let current = ToolChatMessage::User("Start the next turn".to_owned());
+
+    // Act
+    assert!(conversation.begin("Start the next turn"));
+
+    // Assert
+    assert_eq!(conversation.messages(), &[previous, vec![current]].concat());
+}
+
+#[test]
+fn overflowing_history_evicts_an_entire_tool_turn_and_keeps_the_next_one() {
+    // Arrange
+    let mut conversation = Conversation::default();
+    finish_turn(&mut conversation, "Read the original", 1);
+    finish_turn(&mut conversation, "Read the next page", 1);
+    finish_plain_turns(&mut conversation, 12);
+    let previous = conversation.messages().to_vec();
+    assert_eq!(previous.len(), 33);
+
+    // Act
+    assert!(conversation.begin("Start the next turn"));
+
+    // Assert
+    let mut expected = vec![previous[0].clone()];
+    expected.extend_from_slice(&previous[5..]);
+    expected.push(ToolChatMessage::User("Start the next turn".to_owned()));
+    assert_eq!(conversation.messages(), expected);
+}
+
+#[test]
+fn overflowing_history_evicts_only_the_turns_needed_to_fit() {
+    // Arrange
+    let mut conversation = Conversation::default();
+    finish_turn(&mut conversation, "Oldest question", 0);
+    finish_turn(&mut conversation, "Second question", 0);
+    finish_turn(&mut conversation, "Keep this tool result", 1);
+    finish_plain_turns(&mut conversation, 10);
+    finish_turn(&mut conversation, "Read two passages", 2);
+    let previous = conversation.messages().to_vec();
+    assert_eq!(previous.len(), 35);
+
+    // Act
+    assert!(conversation.begin("Start the next turn"));
+
+    // Assert
+    let mut expected = vec![previous[0].clone()];
+    expected.extend_from_slice(&previous[5..]);
+    expected.push(ToolChatMessage::User("Start the next turn".to_owned()));
+    assert_eq!(conversation.messages(), expected);
+}
+
+fn finish_turn(conversation: &mut Conversation, prompt: &str, tools: u8) {
+    assert!(conversation.begin(prompt));
+    for step in 0..tools {
+        let id = format!("{prompt}-{step}");
+        assert!(conversation.accept(&ToolChatReply::Call(call(&id))));
+        assert!(conversation.tool_result(&id, format!("Result for {id}")));
+    }
+    assert!(conversation.accept(&ToolChatReply::Answer(format!("Answer to {prompt}"))));
+}
+
+fn finish_plain_turns(conversation: &mut Conversation, count: u8) {
+    for index in 0..count {
+        finish_turn(conversation, &format!("Question {index}"), 0);
+    }
+}
