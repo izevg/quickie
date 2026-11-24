@@ -2,8 +2,12 @@
 
 from PIL import ImageChops
 
+from .accessibility import detach, dock_control
+
 FIXTURE = "inspector/fixture.html"
 MARKER = (95, 226, 176)
+DOCK_INSET = 12
+DEFAULT_DOCK_HEIGHT = 300
 
 
 def viewport_height(image, scale):
@@ -22,11 +26,19 @@ def has_frontend(image, top, scale):
     return toolbar.getcolors(16) is None and content.getcolors(16) is None
 
 
-def docked_top(image, scale):
-    top = viewport_height(image, scale)
-    if 0 < top <= image.height - 150 * scale and has_frontend(image, top, scale):
-        return top
-    return 0
+def docked_bounds(image, scale, floating):
+    if floating:
+        inset = DOCK_INSET * scale
+        bottom = image.height - inset
+        bounds = (inset, bottom - DEFAULT_DOCK_HEIGHT * scale, image.width - inset, bottom)
+    else:
+        top = viewport_height(image, scale)
+        if not 0 < top <= image.height - 150 * scale:
+            return None
+        bounds = (0, top, image.width, image.height)
+    if has_frontend(image.crop(bounds), 0, scale):
+        return bounds
+    return None
 
 
 def click(story, window, x, y):
@@ -45,11 +57,12 @@ def prompt_row(image, scale):
     return None
 
 
-def prove_console(story, window, mode, top):
+def prove_console(story, window, mode, bounds, report):
     scale = story.scale
     image = story.picture(window)
+    left, top, right, bottom = bounds or (0, 0, image.width, image.height)
     if mode == "docked":
-        content = (0, top + 40 * scale, image.width, image.height - 36 * scale)
+        content = (left, top + 40 * scale, right, bottom - 36 * scale)
         elements = image.crop(content)
 
         def console_visible():
@@ -58,17 +71,20 @@ def prove_console(story, window, mode, top):
             return changes and changes[3] - changes[1] >= 60 * scale
 
         # Seat native focus in the dock and use the frontend's Console shortcut.
-        click(story, window, image.width // 2, top + 75 * scale)
+        click(story, window, (left + right) // 2, top + 75 * scale)
         story.key("ctrl+alt+c")
         story.wait(console_visible, "docked Inspector Console tab")
 
-    row = story.wait(lambda: prompt_row(story.picture(window), scale), f"{mode} Console prompt")
+    row = top + story.wait(
+        lambda: prompt_row(story.picture(window).crop((left, top, right, bottom)), scale),
+        f"{mode} Console prompt",
+    )
 
-    click(story, window, 32 * scale, row)
+    click(story, window, left + 32 * scale, row)
     story.key("ctrl+grave")
-    prompt = (0, row - 9 * scale, image.width // 2, row + 9 * scale)
+    prompt = (left, row - 9 * scale, (left + right) // 2, row + 9 * scale)
     empty = story.picture(window).crop(prompt)
-    request = f"{FIXTURE}?inspector={mode}"
+    request = f"{FIXTURE}?inspector={report}"
     prior = story.requests(request)
     page_input = f"{FIXTURE}?page=typed"
     page_input_before = story.requests(page_input)
@@ -91,29 +107,37 @@ def painted(story, window, condition):
 
 
 def run(story):
+    story.environment.update(GTK_A11Y="atspi", LC_ALL="C.UTF-8")
     browser = story.open(FIXTURE)
     scale = story.scale
 
     def is_full_page():
-        image = story.picture(browser)
-        return viewport_height(image, scale) == image.height
+        return painted(story, browser, lambda image: viewport_height(image, scale) == image.height)
 
-    story.wait(is_full_page, "inspector fixture painted")
+    initial = story.wait(is_full_page, "inspector fixture painted")
     original_clients = story.clients()
     story.key("F12")
-    top = story.wait(
-        lambda: docked_top(story.picture(browser), scale),
+    control, floating = dock_control(story)
+    bounds = story.wait(
+        lambda: docked_bounds(story.picture(browser), scale, floating),
         "docked Inspector frontend painted",
     )
-    prove_console(story, browser, "docked", top)
+    inspected_height = initial.height if floating else bounds[1]
+    viewport = f"{initial.width // scale}x{inspected_height // scale}"
+    prove_console(story, browser, "docked", bounds, f"docked&viewport={viewport}")
     docked_frame = story.wait(
-        lambda: painted(story, browser, lambda image: docked_top(image, scale)),
+        lambda: painted(story, browser, lambda image: docked_bounds(image, scale, floating)),
         "docked Inspector after its Console request",
     )
     story.save(docked_frame, "inspector-docked")
 
-    # The stock WebKitGTK bottom dock toolbar places Undock after Close, Left and Right.
-    click(story, browser, 88 * scale, top + 14 * scale)
+    if floating:
+        request = f"{FIXTURE}?page=clicked"
+        before = story.requests(request)
+        click(story, browser, bounds[0] // 2, (bounds[1] + bounds[3]) // 2)
+        story.wait(lambda: story.requests(request) > before, "the gutter click to reach the page")
+
+    detach(story, control, floating)
     detached = story.wait(
         lambda: next(iter(story.clients() - original_clients), None),
         "detached Inspector window",
@@ -125,7 +149,7 @@ def run(story):
         lambda: has_frontend(story.picture(detached), 50 * scale, scale),
         "detached Inspector frontend painted",
     )
-    prove_console(story, detached, "detached", 50 * scale)
+    prove_console(story, detached, "detached", None, "detached")
     detached_frame = story.wait(
         lambda: painted(story, detached, lambda image: has_frontend(image, 50 * scale, scale)),
         "detached Inspector after its Console request",
