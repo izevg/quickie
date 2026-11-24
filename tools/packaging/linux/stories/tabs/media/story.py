@@ -59,10 +59,9 @@ def player_bounds(story, image):
     top = 40 * story.scale
     page = image.crop((0, top, image.width, image.height))
     surface = Image.new("RGB", page.size, PLAYER)
-    difference = ImageChops.difference(page, surface)
-    matches = ImageChops.invert(difference.convert("L")).point(
-        lambda value: 255 if value == 255 else 0
-    )
+    red, green, blue = ImageChops.difference(page, surface).split()
+    difference = ImageChops.lighter(ImageChops.lighter(red, green), blue)
+    matches = difference.point(lambda value: 0 if value else 255)
     bounds = matches.getbbox()
     if bounds and bounds[2] - bounds[0] >= 270 * story.scale:
         x1, y1, x2, y2 = bounds
