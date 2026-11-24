@@ -101,7 +101,12 @@ pub(super) fn attach(
         .attach(app.application, window, overlay, data, isolated);
     browser.settings.attach(window, overlay, data, isolated);
     let writes = store.pending();
-    let engine = Engine::new(Rc::clone(&browser.pages), data, isolated);
+    let extensions = if isolated {
+        None
+    } else {
+        browser.settings.restore_extensions(writes.clone())
+    };
+    let engine = Engine::new(Rc::clone(&browser.pages), data, isolated, extensions);
     let home = home().map_err(|error| error.to_string())?;
     let state = Session::start(Profile::Main, engine, store, SystemClock, &home)
         .map_err(|error| error.to_string())?;

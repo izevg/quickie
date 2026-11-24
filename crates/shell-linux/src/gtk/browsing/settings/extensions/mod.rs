@@ -1,12 +1,65 @@
 //! The extension controller attached to the ordinary browsing profile.
 
+mod host;
+
 use std::ffi::{CStr, c_char, c_void};
 use std::ptr::{self, NonNull};
+use std::rc::Rc;
+
+use quickie_application::{ExtensionEvent, ExtensionHost, Extensions, ReadOutcome};
+use quickie_domain_commands::Platform;
+use quickie_store::PendingWrites;
 
 use crate::gtk::ffi::{self, Object};
 
+use super::super::{SystemClock, report};
+
 const CONTROLLER_PROPERTY: &CStr = c"web-extension-controller";
 type NewController = unsafe extern "C" fn(Object) -> Object;
+
+pub(super) struct State {
+    manager: Extensions<PendingWrites, host::Host, SystemClock>,
+}
+
+impl State {
+    pub(super) fn restore(store: PendingWrites) -> Option<(Rc<Profile>, Self)> {
+        let profile = Rc::new(Profile::open()?);
+        let host = host::Host::open(Rc::clone(&profile))
+            .inspect_err(report)
+            .ok()?;
+        let mut manager = Extensions::start(store, host, SystemClock, Platform::Linux)
+            .inspect_err(report)
+            .ok()?;
+        if let Some(error) = manager.corrupt_on_start() {
+            report(error);
+        }
+        let mut events = Vec::new();
+        manager.host_mut().drain(&mut events);
+        for event in events {
+            if let ExtensionEvent::Read { id, info } = event {
+                match manager.read(&id, info) {
+                    Ok(ReadOutcome::Unreadable { error, .. }) => report(&error),
+                    Err(error) => report(&error),
+                    _ => {}
+                }
+            }
+        }
+        Some((profile, Self { manager }))
+    }
+
+    pub(super) fn stop(mut self) {
+        let enabled: Vec<_> = self
+            .manager
+            .list()
+            .iter()
+            .filter(|extension| extension.enabled())
+            .map(|extension| extension.id().clone())
+            .collect();
+        for id in enabled {
+            self.manager.host_mut().stop(&id);
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(in crate::gtk::browsing) struct Profile {
@@ -16,7 +69,7 @@ pub(in crate::gtk::browsing) struct Profile {
 }
 
 impl Profile {
-    pub(in crate::gtk::browsing) fn open() -> Option<Self> {
+    fn open() -> Option<Self> {
         // SAFETY: RTLD_DEFAULT searches the loaded WebKitGTK library for the fork's constructor.
         let constructor = unsafe {
             dlsym(

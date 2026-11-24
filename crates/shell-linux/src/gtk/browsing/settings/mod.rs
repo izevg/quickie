@@ -10,8 +10,10 @@ use std::cell::{Cell, RefCell};
 use std::ffi::c_uint;
 use std::path::Path;
 use std::ptr;
+use std::rc::Rc;
 
 use quickie_domain_settings::PageLayout;
+use quickie_store::PendingWrites;
 
 use super::data_home;
 use crate::gtk::ffi::{self, Bool, Object};
@@ -30,6 +32,7 @@ pub(in crate::gtk) struct Settings {
     window: Cell<Option<View>>,
     keyboard: RefCell<Option<Keyboard>>,
     appearance: RefCell<Option<Writer>>,
+    extensions: RefCell<Option<extensions::State>>,
     layout: Cell<PageLayout>,
     save_poll: Cell<c_uint>,
     page_fullscreen: Cell<bool>,
@@ -82,8 +85,20 @@ impl Settings {
 
     pub(in crate::gtk) fn detach(&self) {
         self.stop_polling();
+        if let Some(extensions) = self.extensions.take() {
+            extensions.stop();
+        }
         drop(self.appearance.take());
         drop(self.keyboard.take());
+    }
+
+    pub(super) fn restore_extensions(
+        &self,
+        store: PendingWrites,
+    ) -> Option<Rc<extensions::Profile>> {
+        let (profile, state) = extensions::State::restore(store)?;
+        self.extensions.replace(Some(state));
+        Some(profile)
     }
 
     fn stop_polling(&self) {

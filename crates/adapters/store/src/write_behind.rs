@@ -122,20 +122,14 @@ impl WriteBehindStore {
         self.pending.take_error()
     }
 
-    fn send(&self, job: Job) -> Result<(), StoreError> {
-        self.pending.jobs.send(job).map_err(|_| stopped())
-    }
-
     /// Hands a snapshot to the writer.
     fn hand_over(&self, save: Save) -> Result<(), StoreError> {
-        self.send(Job::Save(save))
+        self.pending.send(Job::Save(save))
     }
 
     /// Asks the writer for something it serves after the pending saves, and waits for it.
     fn ask<T>(&self, barrier: impl FnOnce(Sender<T>) -> Barrier) -> Result<T, StoreError> {
-        let (reply, answer) = mpsc::channel();
-        self.send(Job::Barrier(barrier(reply)))?;
-        answer.recv().map_err(|_| stopped())
+        self.pending.ask(barrier)
     }
 }
 
@@ -151,15 +145,23 @@ impl Drop for WriteBehindStore {
 }
 
 impl PendingWrites {
+    fn send(&self, job: Job) -> Result<(), StoreError> {
+        self.jobs.send(job).map_err(|_| stopped())
+    }
+
+    fn ask<T>(&self, barrier: impl FnOnce(Sender<T>) -> Barrier) -> Result<T, StoreError> {
+        let (reply, answer) = mpsc::channel();
+        self.send(Job::Barrier(barrier(reply)))?;
+        answer.recv().map_err(|_| stopped())
+    }
+
     /// Queues the downloads snapshot on the existing store writer.
     ///
     /// # Errors
     ///
     /// The writer has stopped.
     pub fn save_downloads(&self, downloads: &DownloadsSnapshot) -> Result<(), StoreError> {
-        self.jobs
-            .send(Job::Save(Save::Downloads(downloads.clone())))
-            .map_err(|_| stopped())
+        self.send(Job::Save(Save::Downloads(downloads.clone())))
     }
 
     /// Waits until every save accepted before this call is on disk, or failed. Returns at once
@@ -255,6 +257,19 @@ impl AppearanceRepo for WriteBehindStore {
 
 impl ExtensionsRepo for WriteBehindStore {
     fn load_extensions(&self) -> Result<InstalledExtensionsSnapshot, StoreError> {
+        self.pending.load_extensions()
+    }
+
+    fn save_extensions(
+        &mut self,
+        extensions: InstalledExtensionsSnapshot,
+    ) -> Result<(), StoreError> {
+        self.pending.save_extensions(extensions)
+    }
+}
+
+impl ExtensionsRepo for PendingWrites {
+    fn load_extensions(&self) -> Result<InstalledExtensionsSnapshot, StoreError> {
         self.ask(Barrier::LoadExtensions)?
     }
 
@@ -262,7 +277,7 @@ impl ExtensionsRepo for WriteBehindStore {
         &mut self,
         extensions: InstalledExtensionsSnapshot,
     ) -> Result<(), StoreError> {
-        self.hand_over(Save::Extensions(extensions))
+        self.send(Job::Save(Save::Extensions(extensions)))
     }
 }
 

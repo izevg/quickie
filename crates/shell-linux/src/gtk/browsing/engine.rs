@@ -181,21 +181,22 @@ impl Pages {
 pub(super) struct Engine {
     pages: Rc<Pages>,
     jars: HashMap<Jar, Native>,
-    extensions: Option<extensions::Profile>,
+    extensions: Option<Rc<extensions::Profile>>,
     data: Object,
     isolated: bool,
 }
 
 impl Engine {
-    pub(super) fn new(pages: Rc<Pages>, data: Object, isolated: bool) -> Self {
+    pub(super) fn new(
+        pages: Rc<Pages>,
+        data: Object,
+        isolated: bool,
+        extensions: Option<Rc<extensions::Profile>>,
+    ) -> Self {
         Self {
             pages,
             jars: HashMap::new(),
-            extensions: if isolated {
-                None
-            } else {
-                extensions::Profile::open()
-            },
+            extensions,
             data,
             isolated,
         }

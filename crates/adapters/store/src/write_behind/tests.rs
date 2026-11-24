@@ -256,19 +256,28 @@ fn extensions_reach_the_disk_and_come_back_through_the_writer() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shell.sqlite");
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let mut extension_store = store.pending();
     let saved = InstalledExtensionsSnapshot {
         auto_update: true,
         ..InstalledExtensionsSnapshot::default()
     };
 
     store.save_extensions(saved.clone()).unwrap();
-
-    assert_eq!(store.load_extensions(), Ok(saved.clone()));
+    assert_eq!(extension_store.load_extensions(), Ok(saved.clone()));
+    let without_updates = InstalledExtensionsSnapshot {
+        auto_update: false,
+        ..saved
+    };
+    extension_store
+        .save_extensions(without_updates.clone())
+        .unwrap();
+    assert_eq!(store.load_extensions(), Ok(without_updates.clone()));
     drop(store);
     assert_eq!(
         SqliteStore::open(&path).unwrap().load_extensions(),
-        Ok(saved)
+        Ok(without_updates)
     );
+    assert!(extension_store.load_extensions().is_err());
 }
 
 #[test]
