@@ -2,6 +2,7 @@
 
 mod appearance;
 mod desktop;
+pub(super) mod extensions;
 pub(in crate::gtk) mod keyboard;
 mod view;
 

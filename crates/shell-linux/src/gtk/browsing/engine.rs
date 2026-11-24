@@ -12,6 +12,7 @@ use url::{Position, Url};
 
 use super::super::ffi::{self, Bool, Object};
 use super::super::{App, agent, connect, find, inspector, keys, palette, privacy};
+use super::settings::extensions;
 use super::{activate, downloads, hints, home, media, report};
 
 const LOAD_STARTED: c_int = 0;
@@ -180,6 +181,7 @@ impl Pages {
 pub(super) struct Engine {
     pages: Rc<Pages>,
     jars: HashMap<Jar, Native>,
+    extensions: Option<extensions::Profile>,
     data: Object,
     isolated: bool,
 }
@@ -189,6 +191,11 @@ impl Engine {
         Self {
             pages,
             jars: HashMap::new(),
+            extensions: if isolated {
+                None
+            } else {
+                extensions::Profile::open()
+            },
             data,
             isolated,
         }
@@ -196,6 +203,9 @@ impl Engine {
 
     fn new_view(&mut self, jar: Jar) -> Result<Object, EngineError> {
         if jar == Jar::Main && !self.isolated {
+            if let Some(profile) = &self.extensions {
+                return Ok(profile.view());
+            }
             // SAFETY: GTK and the default profile's WebKit context already exist.
             return Ok(unsafe { ffi::webkit_web_view_new() });
         }
