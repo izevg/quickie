@@ -21,7 +21,7 @@ on:
         type: string
         required: false
       webkit_api_tests:
-        description: Run sandboxed native WebKitGTK API tests on Ubuntu
+        description: Run native WebKitGTK API and packaged extension checks
         type: boolean
         default: false
   workflow_call:
@@ -57,6 +57,7 @@ env:
   MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
   QUICKIE_MIN_FREE_GB: "25"
   QUICKIE_WEBKIT_COMMIT: ${{ inputs.webkit_commit }}
+  QUICKIE_GTK_EXTENSION_STORY: ${{ inputs.webkit_api_tests && '1' || '0' }}
   QUICKIE_VERSION: ${{ inputs.version || '0.2.0' }}
 
 jobs:
@@ -218,12 +219,16 @@ jobs:
           unset WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
           check_package() {
             local binary=$1 package=$2
+            local -a groups=(--group inspector --group tabs --group hints --group origin
+              --group privacy --group library --group toasts)
+            if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
+              groups+=(--group extensions)
+            fi
             test "$("$binary" --version)" = "$QUICKIE_VERSION"
             bash tools/packaging/linux/tests/smoke "$binary"
             dbus-run-session -- /usr/bin/python3 -B tools/packaging/linux/stories/driver.py \
               "$binary" "$RUNNER_TEMP/quickie-gtk-stories/$package" \
-              --backend wayland --group inspector --group tabs --group hints --group origin \
-              --group privacy --group library --group toasts
+              --backend wayland "${groups[@]}"
           }
           check_package /usr/bin/quickie deb
           appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
@@ -270,6 +275,7 @@ jobs:
           install -d -m0755 "$RUNNER_TEMP/quickie-gtk-stories"
           docker run --rm --privileged \
             --env QUICKIE_VERSION \
+            --env QUICKIE_GTK_EXTENSION_STORY \
             --volume "$PWD/.build/gtk-packages:/packages:ro" \
             --volume "$PWD/tools/packaging/linux/tests:/tests:ro" \
             --volume "$PWD/tools/packaging/linux/stories:/stories:ro" \
@@ -285,10 +291,14 @@ jobs:
               test "$(runuser -u quickie-test -- /usr/bin/quickie --version)" = "$QUICKIE_VERSION"
               runuser -u quickie-test -- bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
               runuser -u quickie-test -- bash /tests/smoke /usr/bin/quickie
+              groups=(--group inspector --group tabs --group hints --group origin
+                --group privacy --group library --group toasts)
+              if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
+                groups+=(--group extensions)
+              fi
               runuser -u quickie-test -- dbus-run-session -- /usr/bin/python3 -B /stories/driver.py \
                 /usr/bin/quickie /captures/rpm \
-                --backend wayland --group inspector --group tabs --group hints --group origin \
-                --group privacy --group library --group toasts
+                --backend wayland "${groups[@]}"
             '
       # actions/upload-artifact v7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
