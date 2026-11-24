@@ -39,6 +39,8 @@ run_gtk_native_tests() (
   for test_name in related-popup-explicit-manager related-link-popup-explicit-manager related-popup-inherits-manager; do
     run_glib_test "$binaries/TestUIClient" "/webkit/WebKitWebView/$test_name"
   done
+  QUICKIE_TEST_SCREENCAST_PORTAL=1 run_glib_test "$binaries/TestUIClient" \
+    "/webkit/WebKitWebView/display-portal-consent"
 )
 
 case "${QUICKIE_RUN_GTK_NATIVE_TESTS:-0}" in
