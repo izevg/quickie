@@ -15,4 +15,12 @@
 </style>
 <h1>Quickie Inspector Fixture</h1>
 <div id="viewport-marker" aria-hidden="true"></div>
+<script>
+    function docked() { void fetch("?inspector=docked"); }
+    function detached() { void fetch("?inspector=detached"); }
+    addEventListener("keydown", (event) => {
+        if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey)
+            void fetch("?page=typed");
+    });
+</script>
 </html>

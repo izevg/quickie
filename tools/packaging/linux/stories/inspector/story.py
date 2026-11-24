@@ -45,19 +45,6 @@ def prompt_row(image, scale):
     return None
 
 
-def prompt_focused(image, scale, row):
-    # CodeMirror paints a contrasting vertical caret beside the empty prompt.
-    strip = image.crop(
-        (15 * scale, row - 9 * scale, 40 * scale, row + 9 * scale)
-    ).convert("L")
-    offset = 3 * scale
-    return any(
-        sum(abs(strip.getpixel((x, y)) - strip.getpixel((x + offset, y))) > 65
-            for y in range(strip.height)) >= 8 * scale
-        for x in range(strip.width - offset)
-    )
-
-
 def prove_console(story, window, mode, top):
     scale = story.scale
     image = story.picture(window)
@@ -70,40 +57,31 @@ def prove_console(story, window, mode, top):
             changes = ImageChops.difference(elements, console).getbbox()
             return changes and changes[3] - changes[1] >= 60 * scale
 
-        # The fresh Inspector opens on Elements. Undocking preserves the active Console tab.
-        click(story, window, 290 * scale, top + 14 * scale)
+        # Seat native focus in the dock and use the frontend's Console shortcut.
+        click(story, window, image.width // 2, top + 75 * scale)
+        story.key("ctrl+alt+c")
         story.wait(console_visible, "docked Inspector Console tab")
 
     row = story.wait(lambda: prompt_row(story.picture(window), scale), f"{mode} Console prompt")
 
-    def click_prompt():
-        story.click(window, 32 * scale, row)
-
-    def focus_prompt():
-        if prompt_focused(story.picture(window), scale, row):
-            return True
-        click_prompt()
-        return False
-
-    click_prompt()
-    story.wait(focus_prompt, f"{mode} Inspector prompt to gain keyboard focus")
+    click(story, window, 32 * scale, row)
+    story.key("ctrl+grave")
     prompt = (0, row - 9 * scale, image.width // 2, row + 9 * scale)
     empty = story.picture(window).crop(prompt)
     request = f"{FIXTURE}?inspector={mode}"
     prior = story.requests(request)
-    story.set_clipboard(f"void fetch('?inspector={mode}')")
-    # Reacquire the editor after preparing the clipboard and before sending Ctrl+V.
-    click_prompt()
-    story.wait(focus_prompt, f"{mode} Inspector prompt to regain keyboard focus")
-    story.key("ctrl+v")
+    page_input = f"{FIXTURE}?page=typed"
+    page_input_before = story.requests(page_input)
+    story.key(*mode, "parenleft", "parenright")
 
     def command_ready():
         changes = ImageChops.difference(empty, story.picture(window).crop(prompt)).getbbox()
         return changes and changes[2] - changes[0] >= 40 * scale
 
-    story.wait(command_ready, f"{mode} command pasted into the Console prompt")
+    story.wait(command_ready, f"{mode} command typed into the Console prompt")
     story.key("Return")
     story.wait(lambda: story.requests(request) > prior, f"{mode} Inspector Console request")
+    assert story.requests(page_input) == page_input_before, "Inspector keys reached the inspected page"
     story.move_pointer(window, 4, 4)
 
 
