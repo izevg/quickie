@@ -20,7 +20,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
@@ -46,8 +46,8 @@ const WINDOW: WindowId = WindowId::new(Profile::Main, 1);
 /// What the content script writes on the page.
 const RAN: &str = "content script ran";
 
-/// What it writes once the command reached the page, with how often it ran.
-const MARKED: &str = "command ran (";
+/// What it writes once the command reached the page with the count read back from storage.
+const MARKED: &str = "command ran (1)";
 
 fn main() -> ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
@@ -85,7 +85,13 @@ fn run(mtm: MainThreadMarker) -> Outcome {
         return Ok(());
     };
     let _window = host(&mut engine, mtm)?;
-    let id = ExtensionId::from_digest(&[7; 16]);
+    // The system controller retains service worker state by extension origin. Give each test
+    // run its own origin so an earlier test binary's listener state cannot affect this run.
+    let started = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let id = ExtensionId::from_digest(&((started << 16) | u128::from(port)).to_be_bytes());
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extension");
     extensions
         .read(
@@ -106,8 +112,10 @@ fn run(mtm: MainThreadMarker) -> Outcome {
         .map_err(|error| error.0)?;
 
     let page = Url::parse(&format!("http://127.0.0.1:{port}/")).map_err(|e| e.to_string())?;
+    let mut command_page = page.clone();
+    command_page.set_query(Some("command"));
     let main = TabId::new(Profile::Main, 1);
-    open(&mut engine, main, &page, Jar::Main)?;
+    open(&mut engine, main, &command_page, Jar::Main)?;
     extensions.arrange(&[WindowTabs {
         window: WINDOW,
         tabs: vec![main],
@@ -123,25 +131,23 @@ fn run(mtm: MainThreadMarker) -> Outcome {
     )?;
     shields_keep_content_scripts(&mut engine, &page)?;
 
-    // The background worker starts with the first event, and an event that comes before its
-    // listener is lost: the command is given again until the page shows it.
-    let give_up = Instant::now() + PATIENCE;
-    loop {
-        extensions
-            .perform_command(&id, "mark-page")
-            .map_err(|error| error.0)?;
-        let quiet = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < quiet && !text(&mut engine, main)?.contains(MARKED) {
-            spin();
-        }
-        if text(&mut engine, main)?.contains(MARKED) {
-            break;
-        }
-        check(
-            Instant::now() < give_up,
-            "the command never reached the page",
-        )?;
-    }
+    // The shields checks show their own pages. Restore the command's declared active tab.
+    engine.show(WINDOW, main).map_err(|error| error.0)?;
+    wait_for_text(
+        &mut engine,
+        main,
+        "background ready",
+        "the extension background did not answer its content script",
+    )?;
+    extensions
+        .perform_command(&id, "mark-page")
+        .map_err(|error| error.0)?;
+    wait_for_text(
+        &mut engine,
+        main,
+        MARKED,
+        "the command did not reach the page with the stored count",
+    )?;
 
     extensions.stop(&id);
     let later = TabId::new(Profile::Main, 3);
@@ -290,13 +296,16 @@ fn open(engine: &mut WebKitEngine, tab: TabId, url: &Url, jar: Jar) -> Outcome {
 /// Reads the tab's text until it holds `wanted`, or fails with `otherwise`.
 fn wait_for_text(engine: &mut WebKitEngine, tab: TabId, wanted: &str, otherwise: &str) -> Outcome {
     let give_up = Instant::now() + PATIENCE;
-    while Instant::now() < give_up {
-        if text(engine, tab)?.contains(wanted) {
+    loop {
+        let seen = text(engine, tab)?;
+        if seen.contains(wanted) {
             return Ok(());
+        }
+        if Instant::now() >= give_up {
+            return Err(format!("{otherwise}: {seen}"));
         }
         spin();
     }
-    Err(otherwise.to_owned())
 }
 
 /// Fails with `otherwise` when the tab's page shows the content script's banner within a

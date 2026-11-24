@@ -1,0 +1,11 @@
+group	widget	state	gtk_capture	notes
+popovers	shields-popover	lists-off	shields-popover-lists-off	No enabled lists on a fresh profile.
+popovers	shields-popover	off-the-web	shields-popover-off-the-web	An empty tab has no per-site controls.
+popovers	shields-popover	protected	shields-popover-protected	Native WebKitGTK blocks the matching image, applies shared cosmetic rules and scriptlets, and leaves both control resources visible.
+popovers	shields-popover	reload	shields-popover-reload	A site exception waits for reload and persists across restart.
+popovers	shields-popover	rules-failed	shields-popover-rules-failed	The GTK fixture uses a corrupt saved list and verifies that it blocks nothing.
+settings	shields	shields-no-lists	settings-shields-shields-no-lists	Global switches start off in a fresh profile.
+settings	shields	shields	settings-shields-shields	Global list changes are reflected in the next navigation.
+sheets	permission-sheet	camera	permission-sheet-camera	Native media request with a WebKit mock camera. GTK provides Allow once and Block.
+sheets	permission-sheet	microphone	permission-sheet-microphone	Native media request with a WebKit mock microphone. GTK provides Allow once and Block.
+sheets	permission-sheet	camera-and-microphone	permission-sheet-camera-and-microphone	Native media request with WebKit mock devices. GTK provides Allow once and Block.

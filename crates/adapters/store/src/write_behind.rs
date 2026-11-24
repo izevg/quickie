@@ -151,6 +151,17 @@ impl Drop for WriteBehindStore {
 }
 
 impl PendingWrites {
+    /// Queues the downloads snapshot on the existing store writer.
+    ///
+    /// # Errors
+    ///
+    /// The writer has stopped.
+    pub fn save_downloads(&self, downloads: &DownloadsSnapshot) -> Result<(), StoreError> {
+        self.jobs
+            .send(Job::Save(Save::Downloads(downloads.clone())))
+            .map_err(|_| stopped())
+    }
+
     /// Waits until every save accepted before this call is on disk, or failed. Returns at once
     /// if the writer has already stopped, since it writes everything before it stops.
     ///
@@ -212,7 +223,7 @@ impl LibraryRepo for WriteBehindStore {
     }
 
     fn save_downloads(&mut self, downloads: &DownloadsSnapshot) -> Result<(), StoreError> {
-        self.hand_over(Save::Downloads(downloads.clone()))
+        self.pending.save_downloads(downloads)
     }
 }
 

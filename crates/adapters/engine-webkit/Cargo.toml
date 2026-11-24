@@ -8,6 +8,11 @@ publish.workspace = true
 
 [dependencies]
 adblock.workspace = true
+quickie-application.workspace = true
+quickie-domain-shields.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
 block2.workspace = true
 dispatch2.workspace = true
 objc2.workspace = true
@@ -91,15 +96,12 @@ objc2-web-kit = { workspace = true, features = [
   "WKWebsiteDataStore",
   "WKWindowFeatures",
 ] }
-quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
 quickie-domain-settings.workspace = true
-quickie-domain-shields.workspace = true
-serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true
 
-[dev-dependencies]
+[target.'cfg(target_os = "macos")'.dev-dependencies]
 # The conformance test's native clicks; the thumbnails test reads pictures' pixels.
 objc2-app-kit = { workspace = true, features = [
   "NSApplication",

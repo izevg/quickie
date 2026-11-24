@@ -48,13 +48,11 @@ impl Options {
     }
 }
 
-pub fn address_bar_destination(input: &str) -> Option<CString> {
-    CString::new(Destination::of(input)?.url().as_str()).ok()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Options, address_bar_destination};
+    use std::ffi::CString;
+
+    use super::Options;
 
     #[test]
     fn startup_with_no_address_has_no_destination() {
@@ -76,14 +74,16 @@ mod tests {
     #[test]
     fn explicit_addresses_use_the_shared_destination_rules() {
         assert_eq!(
-            address_bar_destination("example.com").as_deref(),
-            Some(c"https://example.com/")
+            Options::parse(["example.com".into()].into_iter()),
+            Ok(Options::Navigate(CString::from(c"https://example.com/")))
         );
         assert_eq!(
-            address_bar_destination("rust gtk").as_deref(),
-            Some(c"https://duckduckgo.com/?q=rust+gtk")
+            Options::parse(["rust gtk".into()].into_iter()),
+            Ok(Options::Navigate(CString::from(
+                c"https://duckduckgo.com/?q=rust+gtk"
+            )))
         );
-        assert_eq!(address_bar_destination(" "), None);
+        assert!(Options::parse([" ".into()].into_iter()).is_err());
     }
 
     #[test]

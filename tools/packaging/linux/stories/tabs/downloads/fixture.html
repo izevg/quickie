@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Downloads fixture</title>
+<style>
+  html { background: #1c3956; color: white; font: 18px sans-serif; }
+  body { margin: 36px; }
+  a { background: #317877; border-radius: 6px; color: white; display: block;
+      line-height: 42px; margin: 8px 0; text-decoration: none; text-indent: 14px; width: 246px; }
+</style>
+<h1>Downloads fixture</h1>
+<a href="/saved">Download an attachment</a>
+<a href="/named" download="quarterly report.txt">Save a named link</a>
+<a href="/retry">Download an interrupted file</a>
+<a href="/cancel">Download a cancellable file</a>
+<a href="/known">Download a file with a size</a>
+<a href="/unknown">Download an open stream</a>
+<iframe hidden src="/automatic" title="Unsolicited download"></iframe>

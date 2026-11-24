@@ -1,11 +1,31 @@
 # Quickie for Linux
 
 The Linux preview is a native GTK4 browser with the same pinned WebKit fork as the macOS
-build. It opens an empty window and makes no navigation request until you enter an address or
-pass one explicitly. Use **Ctrl+L** to open the address bar, **Esc** to dismiss it, **Ctrl+R**
-to reload, **Alt+Left** and **Alt+Right** for history, and **Ctrl+Shift+I** to open Web Inspector.
-The preview has one browsing window and the native WebKitGTK inspector. Session restoration,
-Shields, the macOS inspector styling, and the agent API are outside this Linux preview.
+build. Wayland is the primary Linux display target. X11 is supported for compatibility.
+A fresh profile opens an empty window and makes its first navigation request when you enter an
+address or pass one explicitly. Use **Ctrl+L** for the address overlay, **Ctrl+Shift+P** or
+**Ctrl+K** for the command palette, and **Ctrl+P** to search open tabs and pages visited in the
+current window. In the address overlay, **Tab** completes a matching visited address when the
+shortcut is shown. The arrow keys move through results, **Enter** activates a result, and **Esc**
+returns focus to the page.
+
+Use **Ctrl+F** to find text on the page. **Enter** or **Ctrl+G** selects the next match,
+and **Shift+Enter** or **Ctrl+Shift+G** selects the previous one. The selection wraps at both
+ends. **Esc** closes the find panel and returns focus to the page.
+
+Use **Ctrl+R** to reload, **Alt+Left** and **Alt+Right** for history, and **F12** or
+**Ctrl+Shift+I** to toggle Web Inspector. **Ctrl+,** opens Settings, with access
+to Software Updates. **Ctrl+J** opens Downloads.
+
+Use **Ctrl+T** to open a tab, **Ctrl+W** to close it, and **Ctrl+Shift+T** to restore
+it from the trash. Hold **Ctrl** and press **Tab** to switch between recent tabs.
+Open the tab overview through the command palette or `Ctrl+Shift+\`. Each profile
+keeps its browsing session across launches.
+
+Open Shields with **Ctrl+Alt+S**. Enable filter lists in Shields settings and
+manage exceptions for the current site. Open **Agent** from the command palette
+to ask about the source page. The **Agent Settings** command configures the
+endpoint and stores its key in the desktop keyring.
 
 ## Packages
 

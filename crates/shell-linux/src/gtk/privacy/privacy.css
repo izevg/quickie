@@ -1,0 +1,59 @@
+.quickie-privacy .quickie-panel-content {
+    padding: 16px;
+}
+
+.quickie-privacy-title {
+    font-weight: 700;
+    font-size: 1.16em;
+    color: @quickie_panel_ink;
+}
+
+.quickie-privacy-muted {
+    color: @quickie_panel_muted;
+    font-size: 0.91em;
+}
+
+.quickie-privacy-tile {
+    padding: 8px 10px;
+    background-color: alpha(@quickie_panel_ink, 0.07);
+    border-radius: 12px;
+}
+
+.quickie-privacy-value {
+    font-size: 1.22em;
+    font-weight: 700;
+    color: @quickie_panel_ink;
+}
+
+.quickie-privacy-row-title {
+    font-weight: 600;
+    color: @quickie_panel_ink;
+}
+
+.quickie-privacy-button {
+    padding: 4px 9px;
+    border-radius: 8px;
+}
+
+.quickie-permission-scrim {
+    background-color: alpha(black, 0.5);
+}
+
+.quickie-permission .quickie-panel-content {
+    min-width: 364px;
+    background-color: @quickie_panel_tint;
+}
+
+.quickie-permission-icon {
+    padding: 8px;
+    color: @error_color;
+    background-color: alpha(@error_color, 0.12);
+    border-radius: 8px;
+}
+
+.quickie-permission-context {
+    padding: 9px 12px;
+    color: @quickie_panel_ink;
+    background-color: alpha(@quickie_panel_ink, 0.07);
+    border-radius: 8px;
+}

@@ -2,7 +2,7 @@
 
 pub mod dialog;
 pub(crate) mod install;
-mod network;
+pub(crate) mod network;
 
 use std::env;
 use std::path::{Path, PathBuf};

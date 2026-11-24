@@ -13,3 +13,25 @@ chrome.runtime.onMessage.addListener((message) => {
     banner.style.background = "#2f855a";
   }
 });
+
+if (location.search === "?command") {
+  const backgroundStatus = document.createElement("div");
+  backgroundStatus.textContent = "Test extension: waiting for background";
+  banner.after(backgroundStatus);
+
+  async function checkBackground() {
+    try {
+      const response = await browser.runtime.sendMessage({ status: true });
+      if (!response) {
+        throw new Error("the background returned no response");
+      }
+      backgroundStatus.textContent = `Test extension: background ready (${response.status})`;
+    } catch (error) {
+      backgroundStatus.textContent = `Test extension: background handshake failed (${error.message})`;
+    }
+    if (!banner.textContent.includes("command ran")) {
+      setTimeout(checkBackground, 250);
+    }
+  }
+  checkBackground();
+}

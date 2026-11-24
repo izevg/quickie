@@ -15,8 +15,8 @@ use quickie_application::{
 use quickie_domain_agents::EndpointSnapshot;
 use quickie_domain_browsing::{NextIds, Profile, Session, SessionSnapshot};
 use quickie_domain_library::{
-    Bookmarks, BookmarksSnapshot, DownloadsSnapshot, History, HistoryEntry, HistorySnapshot,
-    SearchShortcuts, SearchShortcutsSnapshot, Timestamp,
+    Bookmarks, BookmarksSnapshot, Downloads, DownloadsSnapshot, History, HistoryEntry,
+    HistorySnapshot, SearchShortcuts, SearchShortcutsSnapshot, Timestamp,
 };
 use quickie_domain_settings::{
     AppearanceSnapshot, InstalledExtensionsSnapshot, SiteZooms, SiteZoomsSnapshot, ZoomStep,
@@ -69,6 +69,14 @@ fn bookmarks() -> BookmarksSnapshot {
 
 fn shortcuts() -> SearchShortcutsSnapshot {
     SearchShortcuts::defaults().snapshot()
+}
+
+fn downloads() -> DownloadsSnapshot {
+    let mut list = Downloads::new();
+    let url = Url::parse("https://example.test/report.txt").unwrap();
+    let id = list.start(url, "report.txt".to_owned(), Timestamp::from_millis(3));
+    list.finish(id).unwrap();
+    list.snapshot()
 }
 
 /// A fresh database file in its own temporary directory.
@@ -454,10 +462,12 @@ fn a_settled_batch_is_written_without_anyone_waiting_for_it() {
 fn a_flush_puts_every_kind_on_disk() {
     let (_dir, path) = database();
     let mut store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let downloads = downloads();
     store.save(session(2)).unwrap();
     store.save_history(&history()).unwrap();
     store.save_bookmarks(&bookmarks()).unwrap();
     store.save_shortcuts(&shortcuts()).unwrap();
+    store.save_downloads(&downloads).unwrap();
 
     let flushed = store.flush();
 
@@ -470,10 +480,23 @@ fn a_flush_puts_every_kind_on_disk() {
                 history: Some(history()),
                 bookmarks: Some(bookmarks()),
                 shortcuts: Some(shortcuts()),
-                downloads: None,
+                downloads: Some(downloads),
             }
         )
     );
+}
+
+#[test]
+fn downloads_saved_through_pending_writes_reach_the_profile_after_flush() {
+    let (_dir, path) = database();
+    let store = WriteBehindStore::spawn(SqliteStore::open(&path).unwrap(), NEVER).unwrap();
+    let pending = store.pending();
+    let saved = downloads();
+
+    pending.save_downloads(&saved).unwrap();
+    pending.flush().unwrap();
+
+    assert_eq!(on_disk(&path).1.downloads, Some(saved));
 }
 
 /// The entry of `path` after a visit to it in `history`.

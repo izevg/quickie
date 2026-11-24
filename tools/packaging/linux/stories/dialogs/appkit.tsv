@@ -1,0 +1,5 @@
+group	widget	state	gtk_capture	notes
+sheets	dialog-sheet	alert	dialog-sheet-alert	Native WebKitGTK alert with a Close action.
+sheets	dialog-sheet	confirm-block	dialog-sheet-confirm-block	Near-equivalent. Native WebKitGTK offers OK and Cancel. Per-page dialog blocking is AppKit-only.
+sheets	dialog-sheet	prompt	dialog-sheet-prompt	Native WebKitGTK prompt accepts and returns Cyrillic input.
+sheets	dialog-sheet	long-message	dialog-sheet-long-message	Native WebKitGTK wraps a long confirmation message.

@@ -1,8 +1,12 @@
+use std::ffi::{c_char, c_void};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
+use std::ptr;
 use std::time::Duration;
 
-use super::{Cancellation, SoupTransport};
+use super::{
+    Cancellation, Native, SoupTransport, configure_proxy, session, soup_session_set_proxy_resolver,
+};
 use quickie_updater::Transport;
 use url::Url;
 
@@ -67,4 +71,57 @@ fn delivers_successful_bytes_to_the_bounded_receiver() {
         .expect("complete response");
     assert_eq!(actual, b"hello");
     server.join().expect("fixture server");
+}
+
+#[test]
+fn a_local_endpoint_bypasses_a_configured_proxy() {
+    // Arrange
+    let (session, _proxy) = session_with_proxy();
+    let endpoint = Url::parse("http://127.0.0.1:11434/v1/chat/completions").unwrap();
+
+    // Act
+    configure_proxy(&session, &endpoint);
+
+    // Assert
+    // SAFETY: The isolated test session is live and local to this worker.
+    let actual = unsafe { soup_session_get_proxy_resolver(session.pointer()) };
+    assert!(actual.is_null());
+}
+
+#[test]
+fn a_remote_https_endpoint_keeps_the_configured_proxy() {
+    // Arrange
+    let (session, proxy) = session_with_proxy();
+    let endpoint = Url::parse("https://example.com/v1/chat/completions").unwrap();
+
+    // Act
+    configure_proxy(&session, &endpoint);
+
+    // Assert
+    // SAFETY: The isolated test session is live and local to this worker.
+    let actual = unsafe { soup_session_get_proxy_resolver(session.pointer()) };
+    assert_eq!(actual, proxy.pointer());
+}
+
+fn session_with_proxy() -> (Native, Native) {
+    let session = session().unwrap();
+    // SAFETY: GIO copies the loopback proxy address. This fixture makes no connections.
+    let proxy = unsafe { g_simple_proxy_resolver_new(c"http://127.0.0.1:1".as_ptr(), ptr::null()) };
+    let proxy = Native::owned(proxy).unwrap();
+    // SAFETY: Both GObjects are live and the session installs its own resolver reference.
+    unsafe { soup_session_set_proxy_resolver(session.pointer(), proxy.pointer()) };
+    (session, proxy)
+}
+
+#[link(name = "gio-2.0")]
+unsafe extern "C" {
+    fn g_simple_proxy_resolver_new(
+        proxy: *const c_char,
+        ignored_hosts: *const *const c_char,
+    ) -> *mut c_void;
+}
+
+#[link(name = "soup-3.0")]
+unsafe extern "C" {
+    fn soup_session_get_proxy_resolver(session: *mut c_void) -> *mut c_void;
 }

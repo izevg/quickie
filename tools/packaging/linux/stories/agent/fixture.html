@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<meta charset="UTF-8">
+<title>Agent source fixture</title>
+<style>
+html { color-scheme: dark; }
+body { margin: 0; padding: 65px; background: #22324e; color: #f4f6ff; font: 19px system-ui; }
+h1 { margin: 0 0 16px; }
+p { margin: 0 0 20px; }
+button { font: inherit; }
+#marker { position: fixed; bottom: 3px; right: 3px; width: 34px; height: 34px; background: #5fe2b0; }
+#marker[data-clicked] { background: #e2a95f; }
+#marker[data-replaced] { background: #9fbdff; }
+</style>
+<h1>Field guide</h1>
+<p id="passage">The northern observatory opens at dusk.</p>
+<p hidden>This hidden material must stay in the source page.</p>
+<button id="control">Source page action</button>
+<button id="navigate">Open the southern guide</button>
+<span id="marker" aria-hidden="true"></span>
+<script>
+  document.querySelector('#control').onclick = () => document.querySelector('#marker').dataset.clicked = '';
+  document.querySelector('#navigate').onclick = () => location.assign('?replacement');
+  if (new URLSearchParams(location.search).has('replacement')) {
+    document.querySelector('#passage').textContent = 'The southern observatory opens at sunrise.';
+    addEventListener('load', () => requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.querySelector('#marker').dataset.replaced = '';
+    })));
+  }
+  Object.defineProperty(document.body, 'innerText', { get: () => 'Page script supplied text' });
+</script>
+</html>

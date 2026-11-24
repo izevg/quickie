@@ -1,0 +1,55 @@
+.quickie-find .quickie-panel-content {
+    padding: 0 8px 0 14px;
+}
+
+.quickie-find .quickie-panel-input {
+    min-height: 26px;
+    padding: 0 4px;
+    font-size: 1em;
+    color: @quickie_panel_ink;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.quickie-find .quickie-panel-input:focus-within {
+    border-color: alpha(@quickie_panel_accent, 0.65);
+}
+
+.quickie-find-icon {
+    color: @quickie_panel_accent;
+}
+
+.quickie-find-count {
+    min-width: 84px;
+    color: @quickie_panel_muted;
+    font-family: monospace;
+    font-size: 0.86em;
+}
+
+.quickie-find-count.quickie-find-missing {
+    color: @error_color;
+}
+
+.quickie-find-button {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    color: @quickie_panel_ink;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+.quickie-find-button:hover {
+    background-color: alpha(@quickie_panel_ink, 0.10);
+}
+
+.quickie-find-button:focus-visible {
+    border-color: @quickie_panel_accent;
+}
+
+.quickie-find-button:disabled {
+    color: alpha(@quickie_panel_muted, 0.6);
+}

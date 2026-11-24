@@ -2,7 +2,15 @@
 
 #![expect(unsafe_code, reason = "GTK4 and WebKitGTK are native GObject APIs")]
 
+mod agent;
+mod backdrop;
+mod browsing;
 pub(crate) mod ffi;
+mod find;
+mod inspector;
+pub(crate) mod keys;
+mod palette;
+mod privacy;
 mod smoke;
 mod update_controls;
 
@@ -13,7 +21,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr;
 
-use crate::launch::{Options, address_bar_destination};
+use crate::launch::Options;
 use ffi::{Bool, Object};
 use update_controls::UpdateControls;
 
@@ -22,6 +30,11 @@ struct App {
     options: Options,
     prefix: PathBuf,
     widgets: Cell<Option<Widgets>>,
+    agent: agent::Agent,
+    browsing: browsing::Browsing,
+    palette: palette::Palette,
+    find: find::Find,
+    privacy: privacy::Privacy,
     smoke: OnceCell<Result<(), String>>,
     updates: UpdateControls,
 }
@@ -29,7 +42,10 @@ struct App {
 #[derive(Clone, Copy)]
 struct Widgets {
     view: Object,
-    entry: Object,
+    agent: agent::View,
+    palette: palette::View,
+    find: find::View,
+    privacy: privacy::View,
 }
 
 pub fn run(options: Options) -> Result<(), String> {
@@ -50,6 +66,11 @@ pub fn run(options: Options) -> Result<(), String> {
         options,
         prefix,
         widgets: Cell::new(None),
+        agent: agent::Agent::default(),
+        browsing: browsing::Browsing::default(),
+        palette: palette::Palette::default(),
+        find: find::Find::default(),
+        privacy: privacy::Privacy::default(),
         smoke: OnceCell::new(),
         updates: UpdateControls::new(),
     };
@@ -62,21 +83,25 @@ pub fn run(options: Options) -> Result<(), String> {
     // SAFETY: The live application, writable argv and callback state outlive the event loop.
     let status = unsafe { ffi::g_application_run(application, 1, arguments.as_mut_ptr()) };
     app.updates.clear_sources();
+    app.agent.shutdown();
+    app.privacy.stop();
+    browsing::detach(&app);
     // SAFETY: GTK returned from its event loop and this releases our reference.
     unsafe { ffi::g_object_unref(application) };
 
     if status != 0 {
         return Err(format!("GTK exited with status {status}"));
     }
+    let smoke = app.smoke.into_inner();
     if matches!(app.options, Options::Smoke(_)) {
-        app.smoke
-            .into_inner()
-            .unwrap_or_else(|| Err("the smoke fixture did not report its completion title".into()))
-    } else {
-        app.updates
-            .finish()
-            .inspect_err(|error| crate::updates::dialog::install_error(error))
+        return smoke.unwrap_or_else(|| {
+            Err("the smoke fixture did not report its completion title".into())
+        });
     }
+    smoke.unwrap_or(Ok(()))?;
+    app.updates
+        .finish()
+        .inspect_err(|error| crate::updates::dialog::install_error(error))
 }
 
 pub(crate) fn connect(
@@ -115,26 +140,37 @@ extern "C" fn activate(application: Object, data: Object) {
     unsafe { ffi::gtk_window_set_title(window, c"Quickie".as_ptr()) };
     // SAFETY: This is the live GtkApplicationWindow.
     unsafe { ffi::gtk_window_set_default_size(window, 1200, 780) };
-    // SAFETY: GTK is initialized on this thread. The widget is adopted by the window.
+    // SAFETY: GTK is initialized on this thread. The live window adopts the new host.
+    let host = unsafe { ffi::gtk_box_new(ffi::HORIZONTAL, 0) };
+    // SAFETY: The window and host are live widgets on the GTK thread.
+    unsafe { ffi::gtk_window_set_child(window, host) };
+    // SAFETY: The live host adopts the newly created overlay.
     let overlay = unsafe { ffi::gtk_overlay_new() };
-    // SAFETY: Both are live widgets. The window adopts its child.
-    unsafe { ffi::gtk_window_set_child(window, overlay) };
-    // SAFETY: GTK and the default WebKit context are initialized on the main thread.
-    let view = unsafe { ffi::webkit_web_view_new() };
-    // SAFETY: The overlay adopts the live WebKitWebView as its main child.
-    unsafe { ffi::gtk_overlay_set_child(overlay, view) };
-    // SAFETY: The WebKitWebView owns its settings for its entire lifetime.
-    let settings = unsafe { ffi::webkit_web_view_get_settings(view) };
-    // SAFETY: Settings belong to the live WebKitWebView on this thread.
-    unsafe { ffi::webkit_settings_set_enable_developer_extras(settings, ffi::TRUE) };
-    let entry = address_bar(overlay);
-    app.widgets.set(Some(Widgets { view, entry }));
-    connect(entry, c"activate", navigate as *const _, data);
-    // SAFETY: GTK is initialized, and the returned event controller will be adopted by the window.
-    let controller = unsafe { ffi::gtk_event_controller_key_new() };
-    // SAFETY: The live key controller can be configured before adding it to a widget.
-    unsafe { ffi::gtk_event_controller_set_propagation_phase(controller, ffi::PHASE_CAPTURE) };
+    // SAFETY: The live overlay fills the available width next to the agent panel.
+    unsafe { ffi::gtk_widget_set_hexpand(overlay, ffi::TRUE) };
+    // SAFETY: The live host assumes ownership of the overlay.
+    unsafe { ffi::gtk_box_append(host, overlay) };
+    let privacy = privacy::attach(overlay, data);
+    let view = match browsing::attach(app, window, overlay, data) {
+        Ok(view) => view,
+        Err(error) => {
+            complete_smoke(app, Err(error));
+            return;
+        }
+    };
+    let agent = agent::attach(host, view, data);
+    let palette = palette::attach(overlay, data);
+    let find = find::attach(overlay, view, data);
+    app.widgets.set(Some(Widgets {
+        view,
+        agent,
+        palette,
+        find,
+        privacy,
+    }));
+    let controller = keys::capture_controller();
     connect(controller, c"key-pressed", key_pressed as *const _, data);
+    connect(controller, c"key-released", key_released as *const _, data);
     // SAFETY: The live window adopts the live controller.
     unsafe { ffi::gtk_widget_add_controller(window, controller) };
     // SAFETY: The live window's content and controller are in place.
@@ -149,7 +185,7 @@ extern "C" fn activate(application: Object, data: Object) {
             app.updates.present(data, &app.prefix);
             app.updates.check(data);
         }
-        Options::Navigate(uri) => load(view, uri),
+        Options::Navigate(uri) => privacy::navigate(app, view, uri),
         Options::Smoke(uri) => {
             connect(
                 view,
@@ -163,65 +199,18 @@ extern "C" fn activate(application: Object, data: Object) {
     }
 }
 
-fn address_bar(overlay: Object) -> Object {
-    // SAFETY: GTK is initialized on the main thread and the returned entry is adopted below.
-    let entry = unsafe { ffi::gtk_entry_new() };
-    // SAFETY: The live allocation is a GtkEntry, which implements GtkEditable.
-    unsafe { ffi::gtk_editable_set_width_chars(entry, 45) };
-    // SAFETY: The live GtkEntry copies the static placeholder text.
-    unsafe { ffi::gtk_entry_set_placeholder_text(entry, c"Address or search".as_ptr()) };
-    // SAFETY: The entry is a live widget.
-    unsafe { ffi::gtk_widget_set_halign(entry, ffi::ALIGN_CENTER) };
-    // SAFETY: The entry is a live widget.
-    unsafe { ffi::gtk_widget_set_valign(entry, ffi::ALIGN_START) };
-    // SAFETY: The entry is a live widget.
-    unsafe { ffi::gtk_widget_set_margin_top(entry, 12) };
-    // SAFETY: The live overlay adopts the entry as an overlay child.
-    unsafe { ffi::gtk_overlay_add_overlay(overlay, entry) };
-    // SAFETY: The entry is a live widget retained by the overlay.
-    unsafe { ffi::gtk_widget_set_visible(entry, ffi::FALSE) };
-    entry
-}
-
-extern "C" fn navigate(entry: Object, data: Object) {
-    // SAFETY: GTK passed our live App reference, and the widget signal runs on its main thread.
-    let app = unsafe { &*data.cast::<App>() };
-    if let Some(widgets) = app.widgets.get() {
-        // SAFETY: This GtkEntry implements GtkEditable and its text is valid until edited.
-        let text = unsafe { ffi::gtk_editable_get_text(entry) };
-        // SAFETY: A live GtkEditable always returns a NUL-terminated string.
-        let text = unsafe { CStr::from_ptr(text) };
-        if let Some(uri) = text.to_str().ok().and_then(address_bar_destination) {
-            dismiss_address_bar(widgets);
-            load(widgets.view, &uri);
-        }
+fn active_view_changed(app: &App, view: Object) {
+    if let Some(mut widgets) = app.widgets.get() {
+        find::rebind(app, &mut widgets, view);
+        widgets.view = view;
+        app.widgets.set(Some(widgets));
+        privacy::refresh(app, &widgets);
     }
 }
 
 fn load(view: Object, uri: &CStr) {
     // SAFETY: The live WebKitWebView copies the validated URI from a NUL-terminated string.
     unsafe { ffi::webkit_web_view_load_uri(view, uri.as_ptr()) };
-}
-
-fn show_address_bar(widgets: Widgets) {
-    // SAFETY: The live WebKitWebView returns a borrowed URI or null when nothing has loaded.
-    let uri = unsafe { ffi::webkit_web_view_get_uri(widgets.view) };
-    let uri = if uri.is_null() { c"".as_ptr() } else { uri };
-    // SAFETY: The live GtkEntry copies the URI, which remains valid until subsequent navigation.
-    unsafe { ffi::gtk_editable_set_text(widgets.entry, uri) };
-    // SAFETY: The entry is a live widget retained by the overlay.
-    unsafe { ffi::gtk_widget_set_visible(widgets.entry, ffi::TRUE) };
-    // SAFETY: The visible entry is a focusable live widget.
-    unsafe { ffi::gtk_widget_grab_focus(widgets.entry) };
-    // SAFETY: The GtkEntry implements GtkEditable. End -1 means the end of the text.
-    unsafe { ffi::gtk_editable_select_region(widgets.entry, 0, -1) };
-}
-
-fn dismiss_address_bar(widgets: Widgets) {
-    // SAFETY: The entry is a live widget retained by the overlay.
-    unsafe { ffi::gtk_widget_set_visible(widgets.entry, ffi::FALSE) };
-    // SAFETY: The WebKitWebView is a focusable live widget retained by the overlay.
-    unsafe { ffi::gtk_widget_grab_focus(widgets.view) };
 }
 
 extern "C" fn key_pressed(
@@ -233,40 +222,26 @@ extern "C" fn key_pressed(
 ) -> Bool {
     // SAFETY: GTK passed our live App reference, and the widget signal runs on its main thread.
     let app = unsafe { &*data.cast::<App>() };
+    if browsing::downloads::key_pressed(app, key, modifiers)
+        || browsing::key_pressed(app, key, modifiers)
+    {
+        return ffi::TRUE;
+    }
     let Some(widgets) = app.widgets.get() else {
         return ffi::FALSE;
     };
-    match (key, modifiers & (ffi::SHIFT | ffi::CONTROL | ffi::ALT)) {
-        (ffi::KEY_COMMA, ffi::CONTROL) => app.updates.present(data, &app.prefix),
-        (0x6c, ffi::CONTROL) => show_address_bar(widgets),
-        (0x72, ffi::CONTROL) => {
-            // SAFETY: This is a live WebKitWebView retained by the overlay.
-            unsafe { ffi::webkit_web_view_reload(widgets.view) };
-        }
-        (0x49, modifiers) if modifiers == ffi::SHIFT | ffi::CONTROL => {
-            // SAFETY: The live WebKitWebView owns its inspector for its lifetime.
-            let inspector = unsafe { ffi::webkit_web_view_get_inspector(widgets.view) };
-            // SAFETY: The inspector belongs to the live WebKitWebView and developer extras are on.
-            unsafe { ffi::webkit_web_inspector_show(inspector) };
-        }
-        (ffi::KEY_LEFT, ffi::ALT) => {
-            // SAFETY: This is a live WebKitWebView retained by the overlay.
-            unsafe { ffi::webkit_web_view_go_back(widgets.view) };
-        }
-        (ffi::KEY_RIGHT, ffi::ALT) => {
-            // SAFETY: This is a live WebKitWebView retained by the overlay.
-            unsafe { ffi::webkit_web_view_go_forward(widgets.view) };
-        }
-        (ffi::KEY_ESCAPE, 0) => {
-            // SAFETY: GTK retains the GtkEntry, so its visibility can be read here.
-            if unsafe { ffi::gtk_widget_get_visible(widgets.entry) } == ffi::FALSE {
-                return ffi::FALSE;
-            }
-            dismiss_address_bar(widgets);
-        }
-        _ => return ffi::FALSE,
-    }
-    ffi::TRUE
+    Bool::from(
+        privacy::key_pressed(app, &widgets, key, modifiers)
+            || find::key_pressed(app, &widgets, key, modifiers)
+            || palette::key_pressed(app, &widgets, key, modifiers, data)
+            || agent::key_pressed(app, &widgets, key, modifiers),
+    )
+}
+
+extern "C" fn key_released(_: Object, key: c_uint, _: c_uint, modifiers: c_uint, data: Object) {
+    // SAFETY: The live controller supplies the App reference on the GTK thread.
+    let app = unsafe { &*data.cast::<App>() };
+    browsing::key_released(app, key, modifiers);
 }
 
 extern "C" fn smoke_title_changed(view: Object, _property: Object, data: Object) {

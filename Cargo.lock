@@ -1044,9 +1044,20 @@ dependencies = [
 name = "quickie-linux"
 version = "0.0.0"
 dependencies = [
+ "quickie-application",
+ "quickie-domain-agents",
  "quickie-domain-browsing",
+ "quickie-domain-commands",
+ "quickie-domain-library",
+ "quickie-domain-palette",
+ "quickie-domain-settings",
+ "quickie-domain-shields",
+ "quickie-engine-webkit",
+ "quickie-llm",
+ "quickie-store",
  "quickie-updater",
  "rustix",
+ "serde_json",
  "tempfile",
  "url",
 ]

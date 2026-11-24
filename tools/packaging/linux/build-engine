@@ -6,6 +6,50 @@ cd -- "$root"
 build_dir=${QUICKIE_BUILD_DIR:-"$root/.build"}
 stage="$build_dir/gtk-stage"
 
+run_glib_test() {
+  local program=$1 test_path=$2 output status
+  printf 'Running %s %s with the WebKit sandbox enabled\n' "${program##*/}" "$test_path"
+  if output=$(timeout --kill-after=5s 90s xvfb-run -a dbus-run-session -- "$program" -p "$test_path"); then
+    printf '%s\n' "$output"
+  else
+    status=$?
+    printf '%s\n' "$output"
+    return "$status"
+  fi
+  if ! rg -Fxq "ok 1 $test_path" <<< "$output"; then
+    printf 'Expected one passing GLib test at %s\n' "$test_path" >&2
+    return 1
+  fi
+}
+
+run_gtk_native_tests() (
+  local binaries="$build_dir/gtk/bin/TestWebKitAPI/WebKitGTK"
+  local runtime_dir
+  runtime_dir=$(mktemp -d)
+  trap 'rm -rf -- "$runtime_dir"' EXIT
+  export XDG_RUNTIME_DIR="$runtime_dir"
+  export WEBKIT_TESTS_ENABLE_SANDBOX=1 GDK_BACKEND=x11 GTK_A11Y=none
+  unset WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS WEBKIT_INSPECTOR_SERVER WEBKIT_INSPECTOR_HTTP_SERVER
+  unset WEBKIT_EXEC_PATH WEBKIT_INJECTED_BUNDLE_PATH WEBKIT_INSPECTOR_RESOURCES_PATH
+
+  local test_name
+  for test_name in local-browsing-contexts local-close-drops-queued-replies local-rejects-inspector-environment; do
+    run_glib_test "$binaries/TestLocalAutomationSession" "/webkit/WebKitAutomationSession/$test_name"
+  done
+  for test_name in related-popup-explicit-manager related-link-popup-explicit-manager related-popup-inherits-manager; do
+    run_glib_test "$binaries/TestUIClient" "/webkit/WebKitWebView/$test_name"
+  done
+)
+
+case "${QUICKIE_RUN_GTK_NATIVE_TESTS:-0}" in
+  0) api_tests=OFF ;;
+  1) api_tests=ON ;;
+  *)
+    printf '%s\n' 'QUICKIE_RUN_GTK_NATIVE_TESTS must be 0 or 1.' >&2
+    exit 1
+    ;;
+esac
+
 engine/webkit/scripts/sync
 revision=$(git -C "$build_dir/webkit" rev-parse HEAD)
 printf '%s\n' "$revision" > "$build_dir/gtk-revision"
@@ -13,6 +57,21 @@ if ! rg -q 'WEBKIT_OPTION_DEFINE\(ENABLE_QUICKIE_RELOCATABLE_GTK' \
   "$build_dir/webkit/Source/cmake/OptionsGTK.cmake"; then
   printf '%s\n' 'The selected WebKit revision lacks the relocatable Quickie GTK runtime.' >&2
   exit 1
+fi
+
+if [[ $api_tests == ON ]]; then
+  harness="$build_dir/webkit/Tools/TestWebKitAPI/glib/WebKitGLib/TestMain.cpp"
+  if ! rg -Fq 'WEBKIT_TESTS_ENABLE_SANDBOX' "$harness"; then
+    printf '%s\n' 'The selected WebKit revision lacks the sandboxed GLib test harness.' >&2
+    exit 1
+  fi
+  for tool in bwrap xdg-dbus-proxy xvfb-run Xvfb xauth dbus-run-session timeout; do
+    if ! command -v "$tool" >/dev/null; then
+      printf 'Sandboxed GLib tests require %s.\n' "$tool" >&2
+      exit 1
+    fi
+  done
+  bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
 fi
 
 # Keep the GTK packages on WebKit's C++ path when the runner has swiftc.
@@ -25,11 +84,17 @@ cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DENABLE_QUICKIE_RELOCATABLE_GTK=ON -DENABLE_BUBBLEWRAP_SANDBOX=ON \
   -DENABLE_BACK_FORWARD_LIST_SWIFT=OFF -DENABLE_IPC_TESTING_SWIFT=OFF \
-  -DDEVELOPER_MODE=OFF -DENABLE_API_TESTS=OFF -DENABLE_LAYOUT_TESTS=OFF \
+  -DDEVELOPER_MODE=OFF "-DENABLE_API_TESTS=$api_tests" -DENABLE_LAYOUT_TESTS=OFF \
   -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
   -DENABLE_MINIBROWSER=OFF -DENABLE_WEBDRIVER=OFF \
   -DUSE_LIBBACKTRACE=OFF -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF
-cmake --build "$build_dir/gtk"
+if [[ $api_tests == ON ]]; then
+  # Ninja's Source/all includes the engine and its install dependencies.
+  cmake --build "$build_dir/gtk" --target Source/all TestLocalAutomationSession TestUIClient
+  run_gtk_native_tests
+else
+  cmake --build "$build_dir/gtk"
+fi
 if [[ -e $stage ]]; then
   printf 'Move the previous engine stage before rebuilding: %s\n' "$stage" >&2
   exit 1
