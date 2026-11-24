@@ -117,9 +117,18 @@ mod tests {
             sha256: Some(hex(&sha256(&[&package]))),
         };
 
-        let installed = files
-            .unpack(&PackageSource::Crx(package.clone()), Some(&expected))
-            .unwrap();
+        let source = PackageSource::Crx(package.clone());
+        let installed = files.unpack(&source, Some(&expected)).unwrap();
+        let wrong_digest = Expected {
+            id: expected.id.clone(),
+            sha256: Some("0".repeat(64)),
+        };
+        let wrong_id = Expected {
+            id: ExtensionId::from_digest(&[0_u8; 16]),
+            sha256: expected.sha256.clone(),
+        };
+        assert!(files.unpack(&source, Some(&wrong_digest)).is_err());
+        assert!(files.unpack(&source, Some(&wrong_id)).is_err());
         let mut changed = package;
         *changed.last_mut().unwrap() ^= 1;
 
