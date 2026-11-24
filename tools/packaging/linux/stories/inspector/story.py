@@ -34,10 +34,22 @@ def click(story, window, x, y):
     story.move_pointer(window, 4, 4)
 
 
-def prompt_focused(image, scale):
+def prompt_row(image, scale):
+    # Inspector versions can reserve a row for the evaluation preview below the prompt.
+    # Find the bottommost prompt chevron so the click and caret check follow the editor.
+    for y in range(image.height - 5 * scale, image.height - 52 * scale, -1):
+        for x in range(5 * scale, 15 * scale):
+            red, green, blue = image.getpixel((x, y))[:3]
+            if blue - red > 60 and blue - green > 25:
+                return y - 4 * scale
+    return None
+
+
+def prompt_focused(image, scale, row):
     # CodeMirror paints a contrasting vertical caret beside the empty prompt.
-    left, top = 15 * scale, image.height - 23 * scale
-    strip = image.crop((left, top, 40 * scale, image.height - 4 * scale)).convert("L")
+    strip = image.crop(
+        (15 * scale, row - 9 * scale, 40 * scale, row + 9 * scale)
+    ).convert("L")
     offset = 3 * scale
     return any(
         sum(abs(strip.getpixel((x, y)) - strip.getpixel((x + offset, y))) > 65
@@ -62,19 +74,20 @@ def prove_console(story, window, mode, top):
         click(story, window, 290 * scale, top + 14 * scale)
         story.wait(console_visible, "docked Inspector Console tab")
 
+    row = story.wait(lambda: prompt_row(story.picture(window), scale), f"{mode} Console prompt")
+
     def click_prompt():
-        height = story.picture(window).height
-        story.click(window, 32 * scale, height - 14 * scale)
+        story.click(window, 32 * scale, row)
 
     def focus_prompt():
-        if prompt_focused(story.picture(window), scale):
+        if prompt_focused(story.picture(window), scale, row):
             return True
         click_prompt()
         return False
 
     click_prompt()
     story.wait(focus_prompt, f"{mode} Inspector prompt to gain keyboard focus")
-    prompt = (0, image.height - 30 * scale, image.width // 2, image.height)
+    prompt = (0, row - 9 * scale, image.width // 2, row + 9 * scale)
     empty = story.picture(window).crop(prompt)
     request = f"{FIXTURE}?inspector={mode}"
     prior = story.requests(request)
