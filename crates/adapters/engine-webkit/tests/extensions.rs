@@ -15,7 +15,7 @@
 )]
 
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -76,6 +76,7 @@ fn report(outcome: Outcome) -> ExitCode {
 
 fn run(mtm: MainThreadMarker) -> Outcome {
     let port = serve()?;
+    accepts_a_request_behind_an_idle_connection(port)?;
     let mut engine = WebKitEngine::new(&[], mtm);
     let Some(mut extensions) = engine.web_extensions() else {
         #[expect(clippy::print_stdout, reason = "the test runner's own report")]
@@ -155,6 +156,24 @@ fn run(mtm: MainThreadMarker) -> Outcome {
     absent(&mut engine, later, "it ran after it stopped")
 }
 
+fn accepts_a_request_behind_an_idle_connection(port: u16) -> Outcome {
+    let host = ("127.0.0.1", port);
+    let _idle = TcpStream::connect(host).map_err(|error| error.to_string())?;
+    let mut request = TcpStream::connect(host).map_err(|error| error.to_string())?;
+    request
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .and_then(|()| request.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+        .map_err(|error| error.to_string())?;
+    let mut status = [0; 15];
+    request
+        .read_exact(&mut status)
+        .map_err(|error| format!("an idle connection held the extension fixture: {error}"))?;
+    check(
+        &status == b"HTTP/1.1 200 OK",
+        "the extension fixture refused a request",
+    )
+}
+
 fn check_manifest(info: &ExtensionInfo) -> Outcome {
     check(
         info.name == "Quickie Test Extension",
@@ -184,25 +203,31 @@ fn check_manifest(info: &ExtensionInfo) -> Outcome {
     )
 }
 
-/// Serves one small page on `127.0.0.1`, to every request, from a thread; returns the port.
+/// Serves one small page on `127.0.0.1`; each connection has its own request reader.
 fn serve() -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     thread::spawn(move || {
-        let body = "<!doctype html><title>Local</title><p>A local page</p>";
         for stream in listener.incoming().flatten() {
-            let mut stream = stream;
-            let mut request = [0_u8; 2048];
-            let _ = stream.read(&mut request);
-            let _ = write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
-                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
+            thread::spawn(move || answer(stream));
         }
     });
     Ok(port)
+}
+
+fn answer(mut stream: TcpStream) {
+    const BODY: &str = "<!doctype html><title>Local</title><p>A local page</p>";
+    let mut request = [0_u8; 2048];
+    if stream.set_read_timeout(Some(PATIENCE)).is_ok()
+        && stream.read(&mut request).is_ok_and(|bytes| bytes > 0)
+    {
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+             Content-Length: {}\r\nConnection: close\r\n\r\n{BODY}",
+            BODY.len()
+        );
+    }
 }
 
 /// A window, off screen, whose host the engine's pages fill.

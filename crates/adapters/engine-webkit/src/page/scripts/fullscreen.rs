@@ -1,8 +1,7 @@
 //! Full screen in the tab's own window. `WebKit` on macOS shows an element that asks for full
 //! screen in a full-screen window of its own, on a Space of its own, and has no setting for
 //! anything else. So every page gets the Fullscreen API from a script of ours instead
-//! (`fullscreen.js`): the element fills the page view, and the browser takes the tab's window
-//! full screen, as Chrome does.
+//! (`fullscreen.js`): the element fills the view in the tab's existing window.
 //!
 //! The script must replace the page's own functions, so it runs in the page's world, where the
 //! page could post to a handler as well. It reports to Quickie's world instead, with an event
@@ -31,7 +30,7 @@ pub(crate) const HANDLER: &str = "quickieFullscreen";
 
 /// In Quickie's world of the main frame, at document start: passes the page script's reports
 /// on to [`HANDLER`]. Entering counts only while the user's click is fresh, so a page cannot
-/// take the window full screen by itself; leaving always counts, and a page that goes away
+/// enter fullscreen by itself; leaving always counts, and a page that goes away
 /// while full screen leaves.
 pub(crate) const RELAY_SCRIPT: &str = r"(() => {
   let entered = false;

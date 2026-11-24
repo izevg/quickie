@@ -22,7 +22,7 @@ use url::Url;
 
 pub use event::{
     Answer, Ask, AskKind, Dialog, DownloadEvent, DownloadToken, EngineEvent, FindStep, Followed,
-    Found, Fullscreen, LinkTarget, PageRect, ReplyToken, Ticket,
+    Found, Fullscreen, LinkTarget, NativePictureInPicture, PageRect, ReplyToken, Ticket,
 };
 pub use extensions::{
     Access, Expected, ExtensionCommand, ExtensionEvent, ExtensionHost, ExtensionInfo,
@@ -169,6 +169,22 @@ pub trait PageVideo: PageSurface {
     ///
     /// The tab has no page, or the engine cannot play videos.
     fn play_video(&mut self, tab: TabId, play: bool) -> Result<(), EngineError>;
+
+    /// The tab's current native picture-in-picture state.
+    fn picture_in_picture(&self, _tab: TabId) -> NativePictureInPicture {
+        NativePictureInPicture::Unavailable
+    }
+
+    /// Requests a native picture-in-picture transition. Returns whether the request was
+    /// dispatched. [`EngineEvent::PictureInPicture`] reports the actual transition.
+    fn toggle_picture_in_picture(&mut self, _tab: TabId) -> bool {
+        false
+    }
+
+    /// Whether the engine reports the tab is playing audio.
+    fn is_playing_audio(&self, _tab: TabId) -> bool {
+        false
+    }
 }
 
 /// One engine: everything a profile's pages need, the network the browser's own requests take,

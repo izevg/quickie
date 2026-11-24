@@ -22,8 +22,8 @@ use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
 use quickie_application::{
     AgentLinks, Answer, Capabilities, DevTools, DownloadToken, Downloads, Engine, EngineError,
-    EngineEvent, EnginePort, FindStep, Found, Inspector, Navigation, PageAsks, PageContent,
-    PageSurface, PageVideo, PageZoom, ReplyToken, Ticket,
+    EngineEvent, EnginePort, FindStep, Found, Inspector, NativePictureInPicture, Navigation,
+    PageAsks, PageContent, PageSurface, PageVideo, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
@@ -209,6 +209,16 @@ impl WebKitEngine {
         }
     }
 
+    /// Restores a floating page and queues any video state selected when its controls dock.
+    fn dock_and_report(&self, page: &WebPage) {
+        if let Some(report) = page.dock_video() {
+            let view = page::scripts::view_key(page.web_view());
+            self.inbox.videos.borrow_mut().push((view, report));
+            Inbox::schedule(&self.inbox);
+        }
+        page.reframe();
+    }
+
     /// A tab's page zoom, `1.0` for actual size; `None` for a tab without a page.
     #[must_use]
     pub fn zoom(&self, tab: TabId) -> Option<f64> {
@@ -310,12 +320,12 @@ impl EnginePort for WebKitEngine {
     /// host is not attached yet gets the page when [`PageSurface::attach_host`] runs. A page
     /// that floats in the mini player docks first.
     fn show(&mut self, window: WindowId, tab: TabId) -> Result<(), EngineError> {
-        let frame = self.page(tab)?.frame().retain();
+        let page = self.page(tab)?;
+        page.restore_frame();
+        let frame = page.frame().retain();
         if self.floated == Some(tab) {
             self.floated = None;
-            let page = self.page(tab)?;
-            page.dock_video();
-            page.reframe();
+            self.dock_and_report(self.page(tab)?);
         }
         let previous = self.shown.insert(window, tab);
         if let Some(previous) = previous.filter(|&previous| previous != tab)
@@ -324,7 +334,7 @@ impl EnginePort for WebKitEngine {
             // The page as the user left it, for the tab overview; drawn while still laid out.
             page.cancel_authentication();
             self.snapshot(previous);
-            page.frame().removeFromSuperview();
+            page.leave_frame();
         }
         if let Some(host) = self.hosts.get(&window) {
             place(&frame, host);
@@ -519,6 +529,7 @@ impl PageVideo for WebKitEngine {
             self.dock_video(previous);
         }
         let page = self.page(tab)?;
+        page.discard_background_frame();
         page.float_video();
         // The page alone, out of its frame: a docked inspector stays behind, off screen.
         place(page.view(), slot);
@@ -534,8 +545,7 @@ impl PageVideo for WebKitEngine {
         }
         self.floated = None;
         if let Some(page) = self.pages.get(&tab) {
-            page.dock_video();
-            page.reframe();
+            self.dock_and_report(page);
             self.lay_out(page);
         }
     }
@@ -543,6 +553,23 @@ impl PageVideo for WebKitEngine {
     fn play_video(&mut self, tab: TabId, play: bool) -> Result<(), EngineError> {
         self.page(tab)?.play_video(play);
         Ok(())
+    }
+
+    fn picture_in_picture(&self, tab: TabId) -> NativePictureInPicture {
+        self.pages.get(&tab).map_or(
+            NativePictureInPicture::Unavailable,
+            WebPage::picture_in_picture,
+        )
+    }
+
+    fn toggle_picture_in_picture(&mut self, tab: TabId) -> bool {
+        self.pages
+            .get(&tab)
+            .is_some_and(WebPage::toggle_picture_in_picture)
+    }
+
+    fn is_playing_audio(&self, tab: TabId) -> bool {
+        self.pages.get(&tab).is_some_and(WebPage::is_playing_audio)
     }
 }
 
@@ -706,7 +733,15 @@ impl Engine for WebKitEngine {
             }
         }
         self.videos_reported();
+        let before = into.len();
         self.inbox.drain(into);
+        for event in &into[before..] {
+            if let EngineEvent::PictureInPicture { tab, active: false } = *event
+                && let Some(page) = self.pages.get(&tab)
+            {
+                page.discard_background_frame();
+            }
+        }
     }
 }
 
