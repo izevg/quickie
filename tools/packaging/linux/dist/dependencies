@@ -6,7 +6,7 @@ case "${1:-}" in
     sudo apt-get update
     sudo apt-get install -y --no-install-recommends \
       apparmor-profiles bison bubblewrap ccache clang-20 cmake dbus-x11 desktop-file-utils dpkg-dev \
-      flex g++ gettext git gperf ninja-build pkg-config python3 python3-packaging python3-yaml ripgrep ruby \
+      flex g++ gettext git gperf nasm ninja-build pkg-config python3 python3-packaging python3-yaml ripgrep ruby \
       unifdef wayland-protocols xauth xdg-dbus-proxy xvfb \
       libasound2-dev libavif-dev libatk-bridge2.0-dev libcairo2-dev libdrm-dev libenchant-2-dev libepoxy-dev \
       libevent-dev libexpat1-dev \
@@ -22,7 +22,7 @@ case "${1:-}" in
   fedora)
     dnf -y install \
       binutils bison bubblewrap ccache clang cmake dbus-daemon desktop-file-utils diffutils findutils \
-      flex gcc-c++ gettext git gperf gzip ninja-build pkgconf-pkg-config python3 python3-packaging python3-pyyaml \
+      flex gcc-c++ gettext git gperf gzip nasm ninja-build pkgconf-pkg-config python3 python3-packaging python3-pyyaml \
       perl ripgrep rpm-build ruby shadow-utils unifdef util-linux \
       wayland-devel wayland-protocols-devel xdg-dbus-proxy xorg-x11-server-Xvfb xorg-x11-xauth \
       alsa-lib-devel at-spi2-core-devel cairo-devel enchant2-devel expat-devel flite-devel \

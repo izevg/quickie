@@ -41,6 +41,10 @@ run_gtk_native_tests() (
   done
   QUICKIE_TEST_SCREENCAST_PORTAL=1 run_glib_test "$binaries/TestUIClient" \
     "/webkit/WebKitWebView/display-portal-consent"
+  if [[ $extensions == ON ]]; then
+    run_glib_test "$binaries/TestWebKitWebExtensionContext" \
+      "/webkit/WebKitWebExtensionContext/granted-content-world"
+  fi
 )
 
 case "${QUICKIE_RUN_GTK_NATIVE_TESTS:-0}" in
@@ -61,6 +65,13 @@ if ! rg -q 'WEBKIT_OPTION_DEFINE\(ENABLE_QUICKIE_RELOCATABLE_GTK' \
   exit 1
 fi
 
+extensions=OFF
+extension_api=webkit_web_extension_get_requested_host_match_patterns
+extension_header="$build_dir/webkit/Source/WebKit/UIProcess/API/glib/WebKitWebExtension.h.in"
+if rg -q "^${extension_api}[[:space:]]+\(" "$extension_header"; then
+  extensions=ON
+fi
+
 if [[ $api_tests == ON ]]; then
   harness="$build_dir/webkit/Tools/TestWebKitAPI/glib/WebKitGLib/TestMain.cpp"
   if ! rg -Fq 'WEBKIT_TESTS_ENABLE_SANDBOX' "$harness"; then
@@ -76,7 +87,9 @@ if [[ $api_tests == ON ]]; then
   bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
 fi
 
-# Keep the GTK packages on WebKit's C++ path when the runner has swiftc.
+# The native tests link WebKit's private test helpers. Developer mode exposes
+# them in the opt-in test build. Keep normal packages on the public symbol map.
+# Keep the engine on WebKit's C++ path when the runner has swiftc.
 cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_BUILD_TYPE=Release \
   "-DCMAKE_C_COMPILER=${CC:-clang}" "-DCMAKE_CXX_COMPILER=${CXX:-clang++}" \
@@ -86,8 +99,10 @@ cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DENABLE_QUICKIE_RELOCATABLE_GTK=ON -DENABLE_BUBBLEWRAP_SANDBOX=ON \
   -DENABLE_WEB_RTC=ON -DENABLE_EXPERIMENTAL_FEATURES=OFF \
+  "-DENABLE_WK_WEB_EXTENSIONS=$extensions" \
   -DENABLE_BACK_FORWARD_LIST_SWIFT=OFF -DENABLE_IPC_TESTING_SWIFT=OFF \
-  -DDEVELOPER_MODE=OFF "-DENABLE_API_TESTS=$api_tests" -DENABLE_LAYOUT_TESTS=OFF \
+  "-DDEVELOPER_MODE=$api_tests" "-DENABLE_API_TESTS=$api_tests" -DENABLE_LAYOUT_TESTS=OFF \
+  -DENABLE_THUNDER=OFF \
   -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
   -DENABLE_MINIBROWSER=OFF -DENABLE_WEBDRIVER=OFF \
   -DUSE_LIBBACKTRACE=OFF -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF
@@ -97,10 +112,18 @@ if ! rg -Fxq '#define ENABLE_WEB_RTC 1' "$configuration" ||
   printf '%s\n' 'The packaged WebKitGTK build requires WebRTC with bundled libwebrtc.' >&2
   exit 1
 fi
+if [[ $extensions == ON ]] && ! rg -Fxq '#define ENABLE_WK_WEB_EXTENSIONS 1' "$configuration"; then
+  printf '%s\n' 'The configured WebKitGTK build did not enable the available extension API.' >&2
+  exit 1
+fi
 
 if [[ $api_tests == ON ]]; then
   # Ninja's Source/all includes the engine and its install dependencies.
-  cmake --build "$build_dir/gtk" --target Source/all TestLocalAutomationSession TestUIClient
+  targets=(Source/all TestLocalAutomationSession TestUIClient)
+  if [[ $extensions == ON ]]; then
+    targets+=(TestWebKitWebExtensionContext)
+  fi
+  cmake --build "$build_dir/gtk" --target "${targets[@]}"
   run_gtk_native_tests
 else
   cmake --build "$build_dir/gtk"
@@ -113,6 +136,10 @@ DESTDIR="$stage" cmake --install "$build_dir/gtk"
 
 runtime="$stage/opt/quickie"
 test -e "$runtime/lib/libwebkitgtk-6.0.so"
+if [[ $extensions == ON ]]; then
+  nm -D --defined-only "$runtime/lib/libwebkitgtk-6.0.so" |
+    awk -v api="$extension_api" '{ sub(/@.*/, "", $NF); if ($NF == api) found = 1 } END { exit !found }'
+fi
 test -f "$runtime/lib/webkitgtk-6.0/injected-bundle/libwebkitgtkinjectedbundle.so"
 for helper in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess; do
   test -x "$runtime/libexec/webkitgtk-6.0/$helper"
