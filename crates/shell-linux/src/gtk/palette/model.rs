@@ -1,6 +1,9 @@
 //! The Linux palette offers only actions its shell can run.
 
-use quickie_domain_browsing::{Destination, Tab, TabId};
+use quickie_application::{
+    PaletteIndex, PaletteItem, Suggestion, SuggestionKind, Target as Choice,
+};
+use quickie_domain_browsing::{Destination, TabId};
 use quickie_domain_commands::Catalog;
 use quickie_domain_palette::{Candidate, Kind, Mode as QueryMode, Query, Ranker};
 
@@ -28,6 +31,7 @@ pub(super) enum Command {
     LinkHints,
     BackgroundLinkHints,
     CopyUrl,
+    Bookmark,
     Updates,
     Settings,
     GoTo,
@@ -45,7 +49,7 @@ pub(super) enum Command {
 }
 
 impl Command {
-    const ALL: [Self; 27] = [
+    const ALL: [Self; 28] = [
         Self::Address,
         Self::Back,
         Self::Forward,
@@ -59,6 +63,7 @@ impl Command {
         Self::LinkHints,
         Self::BackgroundLinkHints,
         Self::CopyUrl,
+        Self::Bookmark,
         Self::Updates,
         Self::Settings,
         Self::GoTo,
@@ -90,6 +95,7 @@ impl Command {
             Self::LinkHints => "quickie.hints.toggle",
             Self::BackgroundLinkHints => "quickie.hints.openInBackground",
             Self::CopyUrl => "quickie.page.copyUrl",
+            Self::Bookmark => "quickie.page.bookmark",
             Self::Settings | Self::Updates => "quickie.app.settings",
             Self::GoTo => "quickie.palette.goto",
             Self::NewTab => "quickie.tab.new",
@@ -122,6 +128,7 @@ impl Command {
             Self::Reload | Self::HardReload => "view-refresh-symbolic",
             Self::Inspector => "utilities-terminal-symbolic",
             Self::CopyUrl => "edit-copy-symbolic",
+            Self::Bookmark => "bookmark-new-symbolic",
             Self::LinkHints | Self::BackgroundLinkHints => "insert-link-symbolic",
             Self::Updates => "system-software-update-symbolic",
             Self::GoTo | Self::OpenCommands | Self::NextTab | Self::PreviousTab => {
@@ -168,11 +175,6 @@ pub(super) struct Item {
     pub emphasis: Vec<u32>,
 }
 
-pub(super) struct Visit {
-    pub title: String,
-    pub address: String,
-}
-
 pub(super) struct Model {
     catalog: Catalog,
     ranker: Ranker,
@@ -193,8 +195,7 @@ impl Model {
         mode: Mode,
         input: &str,
         current: &str,
-        history: &[Visit],
-        tabs: &[Tab],
+        index: Option<&mut PaletteIndex>,
     ) -> Vec<Item> {
         if mode != Mode::Address && input.starts_with('?') {
             let query = Query::parse(input);
@@ -216,26 +217,15 @@ impl Model {
                 if input == current && !current.is_empty() {
                     return self.command_item(Command::CopyUrl).into_iter().collect();
                 }
-                if input.trim().is_empty() {
-                    return Vec::new();
-                }
-                let direct = destination(input);
-                let direct_url = direct.as_ref().and_then(|item| match &item.target {
-                    Target::Navigate(address) => Some(address.as_str()),
-                    _ => None,
-                });
-                let matching = self.go_to(input, history, tabs);
-                let matching = matching
-                    .into_iter()
-                    .filter(|item| {
-                        !matches!(item.target, Target::Visit(_))
-                            || Some(item.detail.as_str()) != direct_url
-                    })
-                    .take(LIMIT - 1)
-                    .collect::<Vec<_>>();
-                direct.into_iter().chain(matching).collect()
+                index.map_or_else(Vec::new, |index| address_rows(index, input))
             }
-            Mode::GoTo => self.go_to(input, history, tabs),
+            Mode::GoTo => index.map_or_else(Vec::new, |index| {
+                index
+                    .pages(input, LIMIT)
+                    .into_iter()
+                    .filter_map(palette_row)
+                    .collect()
+            }),
             Mode::Commands => {
                 let command = input.trim_start().strip_prefix('>').unwrap_or(input);
                 let query = Query::parse(&format!(">{command}"));
@@ -268,30 +258,6 @@ impl Model {
         })
     }
 
-    fn go_to(&mut self, input: &str, history: &[Visit], tabs: &[Tab]) -> Vec<Item> {
-        let live = tabs.iter().map(|tab| Item {
-            target: Target::Tab(tab.id),
-            title: if tab.title.trim().is_empty() {
-                if tab.url.as_str() == "about:blank" {
-                    "New Tab".into()
-                } else {
-                    tab.url.as_str().into()
-                }
-            } else {
-                tab.title.clone()
-            },
-            detail: tab.url.as_str().into(),
-            shortcut: String::new(),
-            icon: "web-browser-symbolic",
-            emphasis: Vec::new(),
-        });
-        let visited = history
-            .iter()
-            .filter(|visit| !tabs.iter().any(|tab| tab.url.as_str() == visit.address))
-            .map(visit_item);
-        self.rank(&Query::go_to(input), live.chain(visited).collect())
-    }
-
     fn rank(&mut self, query: &Query, items: Vec<Item>) -> Vec<Item> {
         let hits = self.ranker.rank(
             query,
@@ -315,31 +281,77 @@ impl Model {
     }
 }
 
-fn visit_item(visit: &Visit) -> Item {
-    Item {
-        target: Target::Visit(visit.address.clone()),
-        title: visit.title.clone(),
-        detail: visit.address.clone(),
-        shortcut: String::new(),
-        icon: "document-open-recent-symbolic",
-        emphasis: Vec::new(),
-    }
-}
-
-fn destination(input: &str) -> Option<Item> {
-    let destination = Destination::of(input)?;
-    let (title, detail, icon) = match &destination {
-        Destination::Address(url) => ("Open Page", url.as_str(), "web-browser-symbolic"),
-        Destination::Search(_) => ("Search with DuckDuckGo", input.trim(), "edit-find-symbolic"),
+fn row(
+    choice: Choice,
+    kind: Kind,
+    title: String,
+    detail: String,
+    emphasis: Vec<u32>,
+) -> Option<Item> {
+    let target = match choice {
+        Choice::Tab(tab) => Target::Tab(tab),
+        Choice::Url(url) if matches!(kind, Kind::Bookmark | Kind::History) => {
+            Target::Visit(url.into())
+        }
+        Choice::Url(url) | Choice::Search(url) => Target::Navigate(url.into()),
+        _ => return None,
+    };
+    let icon = match kind {
+        Kind::Bookmark => "bookmark-new-symbolic",
+        Kind::History => "document-open-recent-symbolic",
+        Kind::SearchShortcut => "edit-find-symbolic",
+        _ => "web-browser-symbolic",
     };
     Some(Item {
-        target: Target::Navigate(destination.url().as_str().into()),
-        title: title.into(),
-        detail: detail.into(),
+        target,
+        title,
+        detail,
         shortcut: String::new(),
         icon,
-        emphasis: Vec::new(),
+        emphasis,
     })
+}
+
+fn palette_row(item: PaletteItem) -> Option<Item> {
+    row(
+        item.target,
+        item.kind,
+        item.title,
+        item.detail,
+        item.title_matches,
+    )
+}
+
+fn address_row(item: Suggestion) -> Option<Item> {
+    let kind = match item.kind {
+        SuggestionKind::OpenTab => Kind::OpenTab,
+        SuggestionKind::Bookmark => Kind::Bookmark,
+        SuggestionKind::History => Kind::History,
+        SuggestionKind::Search => Kind::SearchShortcut,
+        SuggestionKind::GoTo => Kind::Command,
+    };
+    row(item.target, kind, item.title, item.url, item.title_matches)
+}
+
+fn address_rows(index: &mut PaletteIndex, input: &str) -> Vec<Item> {
+    let mut rows: Vec<_> = index
+        .suggest(input, false)
+        .rows
+        .into_iter()
+        .filter_map(address_row)
+        .collect();
+    // A typed address is an explicit navigation in the current tab, including a
+    // throwaway tab. Only choosing a tab suggestion can switch to another jar.
+    if let Some(first) = rows.first_mut()
+        && matches!(first.target, Target::Tab(_))
+        && let Some(Destination::Address(url)) = Destination::of(input)
+        && first.detail == url.as_str()
+    {
+        first.title = format!("Go to {}", input.trim());
+        first.target = Target::Navigate(url.into());
+        first.emphasis.clear();
+    }
+    rows
 }
 
 pub(super) fn completion<'a>(items: &'a [Item], typed: &str) -> Option<&'a str> {
@@ -365,14 +377,63 @@ pub(super) fn completion<'a>(items: &'a [Item], typed: &str) -> Option<&'a str> 
 
 #[cfg(test)]
 mod tests {
-    use quickie_domain_browsing::{Jar, Profile, Tab, TabId};
+    use quickie_application::{Palette, Sources};
+    use quickie_domain_browsing::{Focus, Jar, JarChoice, Profile, Session, Tab, TabId, Timestamp};
+    use quickie_domain_commands::{Catalog, Keymap, Platform};
+    use quickie_domain_library::{Bookmarks, History, SearchShortcuts};
     use url::Url;
 
-    use super::{Command, Mode, Model, Target, Visit, completion};
+    use super::{Command, Item, Mode, Model, Target, completion};
+    use crate::gtk::browsing::SystemClock;
+
+    struct Visit {
+        title: String,
+        address: String,
+    }
+
+    fn items(mode: Mode, query: &str, current: &str, visits: &[Visit], tabs: &[Tab]) -> Vec<Item> {
+        let mut session = Session::new(Profile::Main);
+        let window = session.open_window();
+        let live: Vec<_> = tabs
+            .iter()
+            .map(|tab| {
+                let id = session
+                    .open(window, tab.url.clone(), JarChoice::Main, Focus::Foreground)
+                    .unwrap();
+                session
+                    .navigated(id, tab.url.clone(), tab.title.clone())
+                    .unwrap();
+                (id, tab.id)
+            })
+            .collect();
+        let mut history = History::new();
+        for visit in visits {
+            history.record_visit(
+                &Url::parse(&visit.address).unwrap(),
+                &visit.title,
+                Timestamp::from_millis(1),
+            );
+        }
+        let mut index = Palette::new(Catalog::builtin(), SystemClock).open(&Sources {
+            session: &session,
+            history: &history,
+            bookmarks: &Bookmarks::new(),
+            shortcuts: &SearchShortcuts::defaults(),
+            keymap: &Keymap::defaults(Platform::Linux),
+            extensions: &[],
+        });
+        let mut items = Model::default().items(mode, query, current, Some(&mut index));
+        for item in &mut items {
+            if let Target::Tab(tab) = &mut item.target {
+                *tab = live.iter().find(|(id, _)| id == tab).unwrap().1;
+            }
+        }
+        items
+    }
 
     #[test]
     fn command_search_returns_an_executable_reload_with_match_positions() {
-        let items = Model::default().items(Mode::Commands, "reload tab", "", &[], &[]);
+        let items = items(Mode::Commands, "reload tab", "", &[], &[]);
 
         assert_eq!(items[0].target, Target::Command(Command::Reload));
         assert_ne!(items[0].emphasis, [] as [u32; 0]);
@@ -380,14 +441,14 @@ mod tests {
 
     #[test]
     fn unsupported_command_search_has_no_action() {
-        let items = Model::default().items(Mode::Commands, ">unavailable-shortcut", "", &[], &[]);
+        let items = items(Mode::Commands, ">unavailable-shortcut", "", &[], &[]);
 
         assert!(items.is_empty());
     }
 
     #[test]
     fn address_punctuation_is_plain_text_and_uses_shared_destination_rules() {
-        let items = Model::default().items(Mode::Address, "? GTK", "", &[], &[]);
+        let items = items(Mode::Address, "? GTK", "", &[], &[]);
 
         assert!(
             matches!(&items[0].target, Target::Navigate(url) if url.starts_with("https://duckduckgo.com/"))
@@ -407,7 +468,7 @@ mod tests {
             },
         ];
 
-        let items = Model::default().items(Mode::GoTo, "сувер", "", &history, &[]);
+        let items = items(Mode::GoTo, "сувер", "", &history, &[]);
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].title, "Суверенитет");
@@ -420,9 +481,23 @@ mod tests {
             address: "https://example.org/history".into(),
         }];
 
-        let items = Model::default().items(Mode::GoTo, "zzzxxxx", "", &history, &[]);
+        let items = items(Mode::GoTo, "zzzxxxx", "", &history, &[]);
 
         assert_eq!(items.len(), 0);
+    }
+
+    #[test]
+    fn go_to_searches_a_leading_punctuation_character_literally() {
+        let history = [Visit {
+            title: "@alice".into(),
+            address: "https://example.org/alice".into(),
+        }];
+        let items = items(Mode::GoTo, "@alice", "", &history, &[]);
+
+        assert_eq!(
+            items[0].target,
+            Target::Visit("https://example.org/alice".into())
+        );
     }
 
     #[test]
@@ -431,7 +506,7 @@ mod tests {
             title: "Суверенитет".into(),
             address: "https://example.org/history".into(),
         }];
-        let items = Model::default().items(Mode::Address, "сувер", "", &history, &[]);
+        let items = items(Mode::Address, "сувер", "", &history, &[]);
 
         assert!(
             matches!(&items[0].target, Target::Navigate(url) if url.starts_with("https://duckduckgo.com/"))
@@ -448,10 +523,16 @@ mod tests {
             title: "Example".into(),
             address: url.into(),
         }];
-        let items = Model::default().items(Mode::Address, url, "", &history, &[]);
+        let items = items(Mode::Address, url, "", &history, &[]);
 
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].target, Target::Navigate(url.into()));
+        assert_eq!(items[0].target, Target::Visit(url.into()));
+        assert_eq!(
+            items
+                .iter()
+                .filter(|item| item.target == Target::Visit(url.into()))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -461,7 +542,7 @@ mod tests {
             title: "Visited Page".into(),
             address: complete.into(),
         }];
-        let items = Model::default().items(Mode::Address, "example.org/his", "", &history, &[]);
+        let items = items(Mode::Address, "example.org/his", "", &history, &[]);
 
         assert_eq!(completion(&items, "example.org/his"), Some(complete));
         assert_eq!(completion(&items, "Visited Page"), None);
@@ -483,7 +564,7 @@ mod tests {
             address: address.into(),
         }];
 
-        let items = Model::default().items(Mode::GoTo, "обзор", "", &history, &[tab]);
+        let items = items(Mode::GoTo, "обзор", "", &history, &[tab]);
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].target, Target::Tab(id));
@@ -499,17 +580,31 @@ mod tests {
             jar: Jar::Main,
         };
 
-        let items = Model::default().items(Mode::Address, "independent", "", &[], &[tab]);
+        let items = items(Mode::Address, "independent", "", &[], &[tab]);
 
         assert!(matches!(items[0].target, Target::Navigate(_)));
         assert_eq!(items[1].target, Target::Tab(id));
     }
 
     #[test]
+    fn an_exact_typed_address_opens_in_the_current_tab() {
+        let address = "https://example.org/independent-page";
+        let tab = Tab {
+            id: TabId::new(Profile::Main, 42),
+            url: Url::parse(address).unwrap(),
+            title: "Independent page".into(),
+            jar: Jar::Main,
+        };
+        let items = items(Mode::Address, address, "", &[], &[tab]);
+
+        assert_eq!(items[0].target, Target::Navigate(address.into()));
+    }
+
+    #[test]
     fn an_explicit_question_exposes_one_typed_agent_action() {
         let question = "Where does this page say the train stops?";
 
-        let items = Model::default().items(Mode::Commands, &format!("? {question}"), "", &[], &[]);
+        let items = items(Mode::Commands, &format!("? {question}"), "", &[], &[]);
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].target, Target::Ask(question.into()));

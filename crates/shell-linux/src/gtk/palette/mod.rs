@@ -6,6 +6,7 @@ mod view;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::ffi::{CStr, CString, c_char, c_int, c_uint};
 
+use quickie_application::PaletteIndex;
 use quickie_domain_browsing::{Direction, JarChoice, PinnedSlot};
 use quickie_domain_commands::{
     CommandId, ContextFlag, FocusedView, Key, KeyStroke, Modifiers, WhenContext,
@@ -13,7 +14,7 @@ use quickie_domain_commands::{
 
 use super::ffi::{self, Bool, Object};
 use super::{App, Widgets, agent, browsing, connect, inspector, keys, privacy};
-use model::{Command, Item, Mode, Model, Target, Visit};
+use model::{Command, Item, Mode, Model, Target};
 pub(super) use view::{Allocation, View, panel_widgets};
 
 #[derive(Default)]
@@ -21,7 +22,7 @@ pub(super) struct Palette {
     mode: Cell<Option<Mode>>,
     model: OnceCell<RefCell<Model>>,
     items: RefCell<Vec<Item>>,
-    history: RefCell<Vec<Visit>>,
+    index: RefCell<Option<PaletteIndex>>,
     geometry: Cell<Option<(view::Allocation, c_int, c_int)>>,
 }
 
@@ -73,9 +74,6 @@ fn show(app: &App, widgets: &Widgets, mode: Mode) {
     browsing::dismiss_panels(app);
     privacy::close(app, widgets, false);
     app.palette.mode.set(Some(mode));
-    if mode != Mode::Commands {
-        app.palette.history.replace(visits(widgets.view));
-    }
     // SAFETY: WebKit's URI belongs to the live view on its GTK thread.
     let uri = unsafe { ffi::webkit_web_view_get_uri(widgets.view) };
     // SAFETY: WebKit returns a nullable NUL-terminated URI for this live view.
@@ -91,6 +89,10 @@ fn show(app: &App, widgets: &Widgets, mode: Mode) {
 
 pub(super) fn open_address(app: &App, widgets: &Widgets) {
     show(app, widgets, Mode::Address);
+}
+
+pub(in crate::gtk) fn sources_changed(app: &App) {
+    app.palette.index.take();
 }
 
 pub(super) fn hide(app: &App, widgets: &Widgets, restore_page_focus: bool) {
@@ -116,17 +118,19 @@ fn requery(app: &App, widgets: &Widgets) {
     let current = unsafe { ffi::webkit_web_view_get_uri(widgets.view) };
     // SAFETY: The nullable URI is read synchronously before any navigation can occur.
     let current = unsafe { borrowed(current) }.to_str().unwrap_or_default();
-    let tabs = if mode == Mode::Commands {
-        Vec::new()
-    } else {
-        app.browsing.tabs()
+    let mut items = {
+        let mut index = app.palette.index.borrow_mut();
+        if mode != Mode::Commands && index.is_none() {
+            *index = app
+                .keys
+                .with_keymap(|keymap| app.browsing.palette_index(keymap));
+        }
+        app.palette
+            .model
+            .get_or_init(RefCell::default)
+            .borrow_mut()
+            .items(mode, input, current, index.as_mut())
     };
-    let mut items = app
-        .palette
-        .model
-        .get_or_init(RefCell::default)
-        .borrow_mut()
-        .items(mode, input, current, &app.palette.history.borrow(), &tabs);
     for item in &mut items {
         if let Target::Command(command) = item.target
             && command != Command::Updates
@@ -267,6 +271,7 @@ fn run_command(
                 unsafe { gdk_clipboard_set_text(clipboard, uri) };
             }
         }
+        Command::Bookmark => browsing::bookmark(app),
         Command::Updates => app.updates.present(data, &app.prefix),
         Command::Settings => browsing::settings::show(app, data),
         Command::NewTab => browsing::new_tab(app, JarChoice::Main),
@@ -354,34 +359,6 @@ extern "C" fn row_activated(_: Object, row: Object, data: Object) {
     }
 }
 
-fn visits(view: Object) -> Vec<Visit> {
-    const HISTORY_LIMIT: c_int = 12;
-    // SAFETY: This WebKit view owns its history, and its items remain valid while being read.
-    let history = unsafe { webkit_web_view_get_back_forward_list(view) };
-    (-HISTORY_LIMIT..=HISTORY_LIMIT)
-        .filter_map(|offset| {
-            // SAFETY: The borrowed list contributes items without changing history.
-            let item = unsafe { webkit_back_forward_list_get_nth_item(history, offset) };
-            if item.is_null() {
-                return None;
-            }
-            // SAFETY: The list owns the item and its URI for the duration of the lookup.
-            let address = unsafe { webkit_back_forward_list_item_get_uri(item) };
-            // SAFETY: The nullable URI is copied before the item can be removed.
-            let address = unsafe { borrowed(address) }.to_str().ok()?;
-            // SAFETY: The list owns the item and its title for the duration of the lookup.
-            let title = unsafe { webkit_back_forward_list_item_get_title(item) };
-            // SAFETY: The nullable title is copied before the item can be removed.
-            let title = unsafe { borrowed(title) }.to_str().ok()?;
-            let title = if title.is_empty() { address } else { title };
-            Some(Visit {
-                title: title.into(),
-                address: address.into(),
-            })
-        })
-        .collect()
-}
-
 unsafe fn borrowed<'a>(text: *const c_char) -> &'a CStr {
     if text.is_null() {
         c""
@@ -401,8 +378,4 @@ unsafe extern "C" {
 #[link(name = "webkitgtk-6.0")]
 unsafe extern "C" {
     fn webkit_web_view_reload_bypass_cache(view: Object);
-    fn webkit_web_view_get_back_forward_list(view: Object) -> Object;
-    fn webkit_back_forward_list_get_nth_item(list: Object, index: c_int) -> Object;
-    fn webkit_back_forward_list_item_get_uri(item: Object) -> *const c_char;
-    fn webkit_back_forward_list_item_get_title(item: Object) -> *const c_char;
 }

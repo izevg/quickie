@@ -10,12 +10,12 @@ use std::ffi::c_uint;
 use std::path::{Path, PathBuf};
 use std::ptr;
 
-use quickie_application::{Clock, LibraryRepo};
+use quickie_application::Clock;
 use quickie_domain_browsing::{Jar, TabId};
 use quickie_domain_library::{
     Download, DownloadId, DownloadState, Downloads as List, DownloadsSnapshot,
 };
-use quickie_store::{PendingWrites, WriteBehindStore};
+use quickie_store::PendingWrites;
 use url::Url;
 
 use super::SystemClock;
@@ -107,32 +107,10 @@ impl Downloads {
         self.transfers.detach(self);
     }
 
-    pub(super) fn restore(&self, store: &WriteBehindStore) {
-        let snapshot = match store.load_library() {
-            Ok(library) => library.downloads,
-            Err(error) => {
-                super::report(&error);
-                return;
-            }
-        };
-        let mut list = match snapshot.map(List::restore).transpose() {
-            Ok(list) => list.unwrap_or_default(),
-            Err(error) => {
-                super::report(&error);
-                return;
-            }
-        };
-        let interrupted: Vec<_> = list
-            .all()
-            .filter(|download| running(download))
-            .map(|download| download.id)
-            .collect();
-        for id in interrupted {
-            let _ = list.fail(id, "Quickie quit before it finished".to_owned());
-        }
+    pub(super) fn restore(&self, list: List, writes: PendingWrites) {
         self.saved.replace(Some(list.snapshot()));
         self.list.replace(list);
-        let _ = self.writes.set(store.pending());
+        let _ = self.writes.set(writes);
     }
 
     fn save(&self) {

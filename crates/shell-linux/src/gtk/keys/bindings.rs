@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use quickie_application::{Rejection, check_binding as verify_binding, keymap_lines};
 use quickie_domain_commands::{
-    BindingError, Catalog, Chord, CommandId, KeyStroke, KeymapError, Platform, Resolution,
+    BindingError, Catalog, Chord, CommandId, KeyStroke, Keymap, KeymapError, Platform, Resolution,
     WhenContext,
 };
 
@@ -67,6 +67,10 @@ impl Keybindings {
             .bindings_for(id)
             .next()
             .map_or_else(String::new, |binding| binding.chord.glyphs(Platform::Linux))
+    }
+
+    pub(in crate::gtk) fn with_keymap<T>(&self, read: impl FnOnce(&Keymap) -> T) -> T {
+        read(&self.state.borrow().keymap)
     }
 
     pub(in crate::gtk) fn resolve(

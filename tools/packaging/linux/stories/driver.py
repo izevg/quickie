@@ -21,7 +21,7 @@ from desktop.x11 import X11
 STORIES = Path(__file__).resolve().parent
 GROUPS = (
     "palette", "find", "inspector", "dialogs", "tabs", "privacy", "agent", "agent-providers",
-    "media", "downloads", "settings", "keyboard", "hints", "origin",
+    "media", "downloads", "settings", "keyboard", "hints", "origin", "library",
 )
 NESTED_GROUPS = {
     "agent-providers": "agent.providers",
@@ -31,6 +31,7 @@ NESTED_GROUPS = {
     "keyboard": "tabs.settings.keyboard",
     "hints": "tabs.hints",
     "origin": "tabs.origin",
+    "library": "tabs.library",
 }
 
 

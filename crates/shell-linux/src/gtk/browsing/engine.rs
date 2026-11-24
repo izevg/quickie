@@ -1,6 +1,6 @@
 //! The application's page port over independent native `WebKit` views.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_int, c_uint};
 use std::ptr;
@@ -8,11 +8,11 @@ use std::rc::Rc;
 
 use quickie_application::{EngineError, EnginePort, Navigation};
 use quickie_domain_browsing::{Focus, Jar, JarId, TabId, WindowId};
-use url::Url;
+use url::{Position, Url};
 
 use super::super::ffi::{self, Bool, Object};
-use super::super::{App, agent, connect, find, inspector, keys, privacy};
-use super::{activate, downloads, hints, home, media};
+use super::super::{App, agent, connect, find, inspector, keys, palette, privacy};
+use super::{activate, downloads, hints, home, media, report};
 
 const LOAD_STARTED: c_int = 0;
 const LOAD_COMMITTED: c_int = 2;
@@ -57,7 +57,7 @@ impl Drop for Native {
 pub(super) struct Page {
     widget: Native,
     jar: Jar,
-    committed: Cell<bool>,
+    committed: RefCell<Option<Url>>,
 }
 
 impl Page {
@@ -76,14 +76,14 @@ impl Page {
         hints::observe(view, data);
         media::bind(view, data);
         connect(view, c"load-changed", load_changed as *const _, data);
-        connect(view, c"notify::title", metadata_changed as *const _, data);
-        connect(view, c"notify::uri", metadata_changed as *const _, data);
+        connect(view, c"notify::title", title_changed as *const _, data);
+        connect(view, c"notify::uri", uri_changed as *const _, data);
         connect(view, c"create", create_requested as *const _, data);
         connect(view, c"close", close_requested as *const _, data);
         Ok(Self {
             widget,
             jar,
-            committed: Cell::new(false),
+            committed: RefCell::default(),
         })
     }
 }
@@ -304,57 +304,106 @@ impl EnginePort for Engine {
 extern "C" fn load_changed(view: Object, event: c_int, data: Object) {
     // SAFETY: The handlers run on the GTK thread with the registered App reference.
     let app = unsafe { &*data.cast::<App>() };
-    if event == LOAD_STARTED {
-        keys::focus::reset(view);
-        hints::cancel_for(app, view);
-    }
-    if matches!(event, LOAD_STARTED | LOAD_COMMITTED)
-        && let Some(tab) = app.browsing.pages.tab(view)
-        && let Some(page) = app.browsing.pages.entries.borrow().get(&tab)
-    {
-        page.committed.set(event == LOAD_COMMITTED);
-    }
-    if event == LOAD_COMMITTED {
-        observe_origin(view, app);
-    }
-    if matches!(event, LOAD_COMMITTED | LOAD_FINISHED) {
-        record_metadata(view, app);
+    match event {
+        LOAD_STARTED => {
+            keys::focus::reset(view);
+            hints::cancel_for(app, view);
+            if let Some(tab) = app.browsing.pages.tab(view)
+                && let Some(page) = app.browsing.pages.entries.borrow().get(&tab)
+            {
+                page.committed.take();
+            }
+        }
+        LOAD_COMMITTED => {
+            record_metadata(view, app, Metadata::Commit);
+            observe_origin(view, app);
+        }
+        LOAD_FINISHED => record_metadata(view, app, Metadata::Title),
+        _ => {}
     }
 }
 
-extern "C" fn metadata_changed(view: Object, _: Object, data: Object) {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Metadata {
+    Commit,
+    Title,
+    Location,
+}
+
+extern "C" fn title_changed(view: Object, _: Object, data: Object) {
+    metadata_notification(view, data, Metadata::Title);
+}
+
+extern "C" fn uri_changed(view: Object, _: Object, data: Object) {
+    metadata_notification(view, data, Metadata::Location);
+}
+
+fn metadata_notification(view: Object, data: Object, event: Metadata) {
     // SAFETY: The view is live while it emits a property notification.
     if unsafe { webkit_web_view_is_loading(view) } != ffi::FALSE {
         return;
     }
     // SAFETY: The handlers run on the GTK thread with the registered App reference.
     let app = unsafe { &*data.cast::<App>() };
-    record_metadata(view, app);
+    record_metadata(view, app, event);
 }
 
-fn record_metadata(view: Object, app: &App) {
+fn record_metadata(view: Object, app: &App, event: Metadata) {
     let Some(tab) = app.browsing.pages.tab(view) else {
         return;
     };
-    if !app
-        .browsing
-        .pages
-        .entries
-        .borrow()
-        .get(&tab)
-        .is_some_and(|page| page.committed.get())
-    {
-        return;
-    }
     // SAFETY: WebKit owns the nullable URI while this callback executes.
     let uri = unsafe { ffi::webkit_web_view_get_uri(view) };
     let Some(url) = utf8(uri).and_then(|uri| Url::parse(&uri).ok()) else {
         return;
     };
+    let same_document = {
+        let entries = app.browsing.pages.entries.borrow();
+        let Some(page) = entries.get(&tab) else {
+            return;
+        };
+        if event == Metadata::Commit {
+            page.committed.replace(Some(url.clone()));
+            true
+        } else {
+            let committed = page.committed.borrow();
+            let Some(committed) = committed.as_ref() else {
+                return;
+            };
+            committed[..Position::AfterQuery] == url[..Position::AfterQuery]
+        }
+    };
     // SAFETY: WebKit owns the nullable title while this callback executes.
-    let title = unsafe { ffi::webkit_web_view_get_title(view) };
-    app.browsing
-        .run(|state| state.navigated(tab, url, utf8(title).unwrap_or_default()));
+    let title = utf8(unsafe { ffi::webkit_web_view_get_title(view) }).unwrap_or_default();
+    let browsing = &app.browsing;
+    let Some((jar, tab_changed)) = browsing
+        .run(|state| {
+            let Some(known) = state.session().tab(tab) else {
+                return Ok(None);
+            };
+            let jar = known.jar;
+            let changed = known.url != url || known.title != title;
+            if changed {
+                state.navigated(tab, url.clone(), title.clone())?;
+            }
+            Ok(Some((jar, changed)))
+        })
+        .flatten()
+    else {
+        return;
+    };
+    let library_changed = match event {
+        Metadata::Commit => browsing.library.visit(tab, jar, &url, &title),
+        Metadata::Title if same_document => browsing.library.retitle(tab, jar, &url, &title),
+        _ => Ok(false),
+    }
+    .unwrap_or_else(|error| {
+        report(&error);
+        true
+    });
+    if tab_changed || library_changed {
+        palette::sources_changed(app);
+    }
 }
 
 pub(super) fn observe_origin(view: Object, app: &App) -> bool {
@@ -370,7 +419,7 @@ pub(super) fn observe_origin(view: Object, app: &App) -> bool {
         .entries
         .borrow()
         .get(&tab)
-        .is_some_and(|page| page.committed.get())
+        .is_some_and(|page| page.committed.borrow().is_some())
     {
         return false;
     }

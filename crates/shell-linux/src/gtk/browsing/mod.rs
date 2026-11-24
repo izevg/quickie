@@ -3,6 +3,7 @@
 pub(super) mod downloads;
 mod engine;
 pub(super) mod hints;
+mod library;
 pub(super) mod media;
 mod origin;
 mod panels;
@@ -19,11 +20,11 @@ use std::ptr;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use quickie_application::{AppError, Browsing as Session, Clock};
+use quickie_application::{AppError, Browsing as Session, Clock, Palette, PaletteIndex, Sources};
 use quickie_domain_browsing::{
-    Direction, Focus, JarChoice, PinnedSlot, Profile, Tab, TabId, Timestamp, WindowId,
+    Direction, Focus, JarChoice, PinnedSlot, Profile, TabId, Timestamp, WindowId,
 };
-use quickie_domain_commands::{ContextFlag, FocusedView, WhenContext};
+use quickie_domain_commands::{Catalog, ContextFlag, FocusedView, Keymap, WhenContext};
 use quickie_store::{PendingWrites, SqliteStore, WriteBehindStore};
 use url::Url;
 
@@ -43,6 +44,7 @@ pub(super) struct Browsing {
     mounted: Cell<Object>,
     panels: panels::Panels,
     hints: hints::Hints,
+    library: library::ProfileLibrary,
     origin: origin::Chip,
     media: media::Playback,
     downloads: downloads::Downloads,
@@ -50,7 +52,7 @@ pub(super) struct Browsing {
 }
 
 #[derive(Debug)]
-struct SystemClock;
+pub(super) struct SystemClock;
 
 impl Clock for SystemClock {
     fn now(&self) -> Timestamp {
@@ -69,9 +71,16 @@ pub(super) fn attach(
 ) -> Result<Object, String> {
     let browser = &app.browsing;
     let isolated = matches!(app.options, Options::Smoke(_) | Options::Updates);
-    let (store, lock) = open_store(isolated)?;
+    let profile = lock_profile(isolated)?;
+    let path = profile.as_ref().map(|(path, _)| path.as_path());
+    let store = open_store(path)?;
+    let library = open_store(path)?;
+    let downloads = browser
+        .library
+        .restore(library)
+        .map_err(|error| error.to_string())?;
     if !isolated {
-        browser.downloads.restore(&store);
+        browser.downloads.restore(downloads, store.pending());
     }
     privacy::start(app, isolated);
     browser.media.attach(window, overlay, data);
@@ -101,7 +110,7 @@ pub(super) fn attach(
     browser.window.set(Some(logical));
     browser.mounted.set(initial);
     browser.state.replace(Some(state));
-    browser.profile_lock.replace(lock);
+    browser.profile_lock.replace(profile.map(|(_, lock)| lock));
     browser.writes.replace(Some(writes));
     browser.settings.mount(initial);
     browser.panels.attach(window, overlay, data);
@@ -109,12 +118,18 @@ pub(super) fn attach(
     Ok(initial)
 }
 
-fn open_store(isolated: bool) -> Result<(WriteBehindStore, Option<File>), String> {
-    if isolated {
+fn open_store(profile: Option<&Path>) -> Result<WriteBehindStore, String> {
+    if let Some(profile) = profile {
+        WriteBehindStore::open(&profile.join("shell.sqlite")).map_err(|error| error.to_string())
+    } else {
         let store = SqliteStore::in_memory().map_err(|error| error.to_string())?;
-        let store =
-            WriteBehindStore::spawn(store, Duration::ZERO).map_err(|error| error.to_string())?;
-        return Ok((store, None));
+        WriteBehindStore::spawn(store, Duration::ZERO).map_err(|error| error.to_string())
+    }
+}
+
+fn lock_profile(isolated: bool) -> Result<Option<(PathBuf, File)>, String> {
+    if isolated {
+        return Ok(None);
     }
     let root = data_home()?;
     prepare_profile(&root)?;
@@ -128,9 +143,7 @@ fn open_store(isolated: bool) -> Result<(WriteBehindStore, Option<File>), String
         .map_err(|error| error.to_string())?;
     rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
         .map_err(|error| format!("cannot lock the Quickie browsing session: {error}"))?;
-    let store =
-        WriteBehindStore::open(&root.join("shell.sqlite")).map_err(|error| error.to_string())?;
-    Ok((store, Some(lock)))
+    Ok(Some((root, lock)))
 }
 
 fn prepare_profile(root: &Path) -> Result<(), String> {
@@ -191,6 +204,7 @@ impl Browsing {
     }
 
     fn settle(&self, app: &App) {
+        palette::sources_changed(app);
         let Some(window) = self.window.get() else {
             return;
         };
@@ -215,24 +229,6 @@ impl Browsing {
         }
     }
 
-    pub(super) fn tabs(&self) -> Vec<Tab> {
-        let Some(window) = self.window.get() else {
-            return Vec::new();
-        };
-        let Ok(state) = self.state.try_borrow() else {
-            return Vec::new();
-        };
-        let Some(session) = state.as_ref().map(Session::session) else {
-            return Vec::new();
-        };
-        session
-            .mru(window)
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|&tab| session.tab(tab).cloned())
-            .collect()
-    }
-
     pub(in crate::gtk) fn active_tab(&self) -> Option<TabId> {
         self.state
             .try_borrow()
@@ -240,6 +236,21 @@ impl Browsing {
             .as_ref()?
             .session()
             .active(self.window.get()?)
+    }
+
+    pub(super) fn palette_index(&self, keymap: &Keymap) -> Option<PaletteIndex> {
+        let state = self.state.try_borrow().ok()?;
+        let session = state.as_ref()?.session();
+        self.library.with(|library| {
+            Palette::new(Catalog::builtin(), SystemClock).open(&Sources {
+                session,
+                history: library.history(),
+                bookmarks: library.bookmarks(),
+                shortcuts: library.shortcuts(),
+                keymap,
+                extensions: &[],
+            })
+        })
     }
 
     fn close(&self, app: &App, tab: TabId) -> bool {
@@ -278,6 +289,21 @@ pub(super) fn new_tab(app: &App, jar: JarChoice) {
 pub(super) fn close_active(app: &App) {
     if let Some(active) = app.browsing.active_tab() {
         app.browsing.close(app, active);
+    }
+}
+
+pub(super) fn bookmark(app: &App) {
+    let Some(id) = app.browsing.active_tab() else {
+        return;
+    };
+    let state = app.browsing.state.borrow();
+    let Some(tab) = state.as_ref().and_then(|state| state.session().tab(id)) else {
+        return;
+    };
+    match app.browsing.library.bookmark(tab) {
+        Ok(Some(saved)) if saved.created => palette::sources_changed(app),
+        Ok(_) => {}
+        Err(error) => report(&error),
     }
 }
 
@@ -360,6 +386,7 @@ pub(super) fn detach(app: &App) {
     app.browsing.media.shutdown(app);
     app.browsing.panels.detach();
     app.browsing.settings.detach();
+    app.browsing.library.flush();
     if let Some(writes) = app.browsing.writes.take()
         && let Err(error) = writes.flush()
     {
