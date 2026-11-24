@@ -220,7 +220,7 @@ jobs:
           check_package() {
             local binary=$1 package=$2
             local -a groups=(--group inspector --group tabs --group hints --group origin
-              --group privacy --group library --group toasts)
+              --group privacy --group library --group toasts --group media)
             if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
               groups+=(--group extensions)
             fi
@@ -292,7 +292,7 @@ jobs:
               runuser -u quickie-test -- bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
               runuser -u quickie-test -- bash /tests/smoke /usr/bin/quickie
               groups=(--group inspector --group tabs --group hints --group origin
-                --group privacy --group library --group toasts)
+                --group privacy --group library --group toasts --group media)
               if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
                 groups+=(--group extensions)
               fi
