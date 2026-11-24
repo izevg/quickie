@@ -31,14 +31,26 @@
     microphone: { audio: true },
     "camera-and-microphone": { video: true, audio: true },
   };
+  const displayRequests = {
+    display: false,
+    "display-with-audio": true,
+    "display-navigates": false,
+  };
+  const display = Object.hasOwn(displayRequests, scene);
   const headline = document.querySelector("#headline");
-  if (devices[scene]) {
+  if (devices[scene] || display) {
     headline.textContent = "Press F8 to request " + scene.replaceAll("-", " ") + ".";
     window.addEventListener("keydown", async (event) => {
       if (event.key !== "F8") return;
+      if (!event.isTrusted) return;
       event.preventDefault();
+      if (scene === "display-navigates") {
+        setTimeout(() => location.assign("fixture.html?scene=display"), 3500);
+      }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia(devices[scene]);
+        const stream = display
+          ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: displayRequests[scene] })
+          : await navigator.mediaDevices.getUserMedia(devices[scene]);
         const kinds = stream.getTracks().map((track) => track.kind).sort().join("-");
         stream.getTracks().forEach((track) => track.stop());
         await report("allowed-" + kinds);

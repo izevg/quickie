@@ -10,6 +10,14 @@ use super::super::{App, Widgets, connect, ffi, find, keys, palette};
 use super::view::{button, class, column, label, row, set_label, visible};
 use ffi::{Bool, Object};
 
+const FRAME_CONTEXT: &str = "The request comes from this tab. It may be from an embedded frame.";
+const DISPLAY_CONTEXT: &str = "Your desktop picker selects what is shared as video. The request may come from an embedded frame.";
+
+enum Capture {
+    UserMedia(Permission),
+    Display,
+}
+
 #[derive(Default)]
 pub(super) struct Permissions(RefCell<Option<Request>>);
 
@@ -55,6 +63,7 @@ pub(super) struct View {
     icon: Object,
     title: Object,
     detail: Object,
+    note: Object,
     block: Object,
 }
 
@@ -75,11 +84,7 @@ impl View {
         let headline = column(heading, 3);
         let title = label(headline, c"", c"quickie-privacy-title");
         let detail = label(headline, c"", c"quickie-privacy-row-title");
-        let note = label(
-            content,
-            c"The request comes from this tab. It may be from an embedded frame.",
-            c"quickie-permission-context",
-        );
+        let note = label(content, c"", c"quickie-permission-context");
         // SAFETY: The live context label can wrap to this natural character width.
         unsafe { gtk_label_set_max_width_chars(note, 50) };
         let actions = column(content, 7);
@@ -104,26 +109,39 @@ impl View {
             icon,
             title,
             detail,
+            note,
             block,
         }
     }
 
-    fn show(self, origin: &Origin, permission: Permission) {
+    fn show(self, origin: &Origin, capture: &Capture) {
         set_label(self.title, &origin.ascii_serialization());
-        let symbol = match permission {
-            Permission::Microphone => c"audio-input-microphone-symbolic",
-            Permission::Camera | Permission::CameraAndMicrophone => c"camera-video-symbolic",
+        let (symbol, detail, note) = match capture {
+            Capture::UserMedia(Permission::Camera) => (
+                c"camera-video-symbolic",
+                "Wants to use your camera",
+                FRAME_CONTEXT,
+            ),
+            Capture::UserMedia(Permission::Microphone) => (
+                c"audio-input-microphone-symbolic",
+                "Wants to use your microphone",
+                FRAME_CONTEXT,
+            ),
+            Capture::UserMedia(Permission::CameraAndMicrophone) => (
+                c"camera-video-symbolic",
+                "Wants to use your camera and microphone",
+                FRAME_CONTEXT,
+            ),
+            Capture::Display => (
+                c"video-display-symbolic",
+                "Wants to share your screen",
+                DISPLAY_CONTEXT,
+            ),
         };
         // SAFETY: The live native image copies the static symbolic icon name.
         unsafe { gtk_image_set_from_icon_name(self.icon, symbol.as_ptr()) };
-        set_label(
-            self.detail,
-            match permission {
-                Permission::Camera => "Wants to use your camera",
-                Permission::Microphone => "Wants to use your microphone",
-                Permission::CameraAndMicrophone => "Wants to use your camera and microphone",
-            },
-        );
+        set_label(self.detail, detail);
+        set_label(self.note, note);
         visible(self.scrim, true);
         // SAFETY: The block button on the live sheet is visible and accepts keyboard focus.
         unsafe { ffi::gtk_widget_grab_focus(self.block) };
@@ -224,7 +242,7 @@ extern "C" fn requested(web: Object, permission: Object, data: Object) -> Bool {
             origin: origin.clone(),
             answered: false,
         }));
-        widgets.privacy.permission.show(&origin, device);
+        widgets.privacy.permission.show(&origin, &device);
     } else {
         // SAFETY: This request is borrowed from the current signal and can be denied immediately.
         unsafe { webkit_permission_request_deny(permission) };
@@ -232,29 +250,29 @@ extern "C" fn requested(web: Object, permission: Object, data: Object) -> Bool {
     ffi::TRUE
 }
 
-fn media(permission: Object) -> Option<Permission> {
+fn media(permission: Object) -> Option<Capture> {
     // SAFETY: The request is live and can be tested against WebKit's GType.
     let kind = unsafe { webkit_user_media_permission_request_get_type() };
     // SAFETY: GType checks the dynamic type before using media-specific functions.
     if unsafe { g_type_check_instance_is_a(permission, kind) } == ffi::FALSE {
         return None;
     }
+    // The display decision covers the portal request even when the page asks for system audio.
+    // SAFETY: The type check confirmed a live WebKitUserMediaPermissionRequest.
+    if unsafe { webkit_user_media_permission_is_for_display_device(permission) } != ffi::FALSE {
+        return Some(Capture::Display);
+    }
     // SAFETY: The type check confirmed a live WebKitUserMediaPermissionRequest.
     let audio = unsafe { webkit_user_media_permission_is_for_audio_device(permission) };
     // SAFETY: The type check confirmed a live WebKitUserMediaPermissionRequest.
     let video = unsafe { webkit_user_media_permission_is_for_video_device(permission) };
-    // SAFETY: The type check confirmed a live WebKitUserMediaPermissionRequest.
-    let display = unsafe { webkit_user_media_permission_is_for_display_device(permission) };
-    match (
-        audio != ffi::FALSE,
-        video != ffi::FALSE,
-        display != ffi::FALSE,
-    ) {
-        (true, true, false) => Some(Permission::CameraAndMicrophone),
-        (true, false, false) => Some(Permission::Microphone),
-        (false, true, false) => Some(Permission::Camera),
+    match (audio != ffi::FALSE, video != ffi::FALSE) {
+        (true, true) => Some(Permission::CameraAndMicrophone),
+        (true, false) => Some(Permission::Microphone),
+        (false, true) => Some(Permission::Camera),
         _ => None,
     }
+    .map(Capture::UserMedia)
 }
 
 fn answer(app: &App, widgets: &Widgets, allow: bool) {

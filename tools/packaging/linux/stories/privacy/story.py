@@ -185,20 +185,23 @@ def settings_and_site(story, window):
     story.close(window)
 
 
+def permission_sheet(story, window, scene):
+    page = ready(story, window)
+    story.key("F8")
+    return changed_frame(
+        story, window, page,
+        (page.width // 5, page.height // 4, page.width * 4 // 5, page.height * 3 // 4),
+        f"native permission sheet for {scene}",
+    )
+
+
 def permissions(story):
-    for scene, tracks in (("camera", "video"), ("microphone", "audio"), ("camera-and-microphone", "audio-video")):
+    for scene, tracks in (
+        ("camera", "video"), ("microphone", "audio"), ("camera-and-microphone", "audio-video"),
+        ("display", "video"), ("display-with-audio", "video"),
+    ):
         window = open_permission_fixture(story, scene)
-        page = ready(story, window)
-
-        def sheet():
-            story.key("F8")
-            return changed_frame(
-                story, window, page,
-                (page.width // 5, page.height // 4, page.width * 4 // 5, page.height * 3 // 4),
-                f"native permission sheet for {scene}",
-            )
-
-        shown = sheet()
+        shown = permission_sheet(story, window, scene)
         assert all(
             abs(channel * 2 - initial) <= 2
             for channel, initial in zip(marker(shown, story.scale), READY)
@@ -212,14 +215,39 @@ def permissions(story):
         story.close(window)
 
         window = open_permission_fixture(story, scene)
-        page = ready(story, window)
-        sheet()
+        permission_sheet(story, window, scene)
         story.key("Return")
         assert marker(story.picture(window), story.scale) != READY, "Return does not grant media access"
         previous = story.requests(allowed)
         story.key("1")
         story.wait(lambda: story.requests(allowed) > previous, f"{scene} grant returns {tracks} tracks")
+        if scene == "display":
+            permission_sheet(story, window, scene)
+            previous = story.requests(denied)
+            story.key("Escape")
+            story.wait(lambda: story.requests(denied) > previous, "a new display request requires consent again")
         story.close(window)
+    display_navigation(story)
+
+
+def display_navigation(story):
+    scene = "display-navigates"
+    destination = result("display", "ready")
+    refused = result("display", "NotAllowedError")
+    stale_grant = result(scene, "allowed-video")
+    previous_destination = story.requests(destination)
+    previous_grant = story.requests(stale_grant)
+    window = open_permission_fixture(story, scene)
+    permission_sheet(story, window, scene)
+    story.wait(lambda: story.requests(destination) > previous_destination, "fixture navigated with display consent open")
+    ready(story, window)
+    story.key("1")
+    permission_sheet(story, window, "display")
+    previous_denial = story.requests(refused)
+    story.key("Escape")
+    story.wait(lambda: story.requests(refused) > previous_denial, "only the new page can request consent")
+    assert story.requests(stale_grant) == previous_grant, "navigation must not grant the previous document's request"
+    story.close(window)
 
 
 def open_permission_fixture(story, scene):

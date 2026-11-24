@@ -83,11 +83,19 @@ cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   "-DCMAKE_INSTALL_RPATH=\$ORIGIN;\$ORIGIN/..;\$ORIGIN/../../lib" \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DENABLE_QUICKIE_RELOCATABLE_GTK=ON -DENABLE_BUBBLEWRAP_SANDBOX=ON \
+  -DENABLE_WEB_RTC=ON -DENABLE_EXPERIMENTAL_FEATURES=OFF \
   -DENABLE_BACK_FORWARD_LIST_SWIFT=OFF -DENABLE_IPC_TESTING_SWIFT=OFF \
   -DDEVELOPER_MODE=OFF "-DENABLE_API_TESTS=$api_tests" -DENABLE_LAYOUT_TESTS=OFF \
   -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
   -DENABLE_MINIBROWSER=OFF -DENABLE_WEBDRIVER=OFF \
   -DUSE_LIBBACKTRACE=OFF -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF
+configuration="$build_dir/gtk/cmakeconfig.h"
+if ! rg -Fxq '#define ENABLE_WEB_RTC 1' "$configuration" ||
+   ! rg -Fxq '#define USE_LIBWEBRTC 1' "$configuration"; then
+  printf '%s\n' 'The packaged WebKitGTK build requires WebRTC with bundled libwebrtc.' >&2
+  exit 1
+fi
+
 if [[ $api_tests == ON ]]; then
   # Ninja's Source/all includes the engine and its install dependencies.
   cmake --build "$build_dir/gtk" --target Source/all TestLocalAutomationSession TestUIClient

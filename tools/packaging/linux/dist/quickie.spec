@@ -13,6 +13,8 @@ Requires: xdg-dbus-proxy
 Requires: polkit
 Requires: gstreamer1-plugins-base
 Requires: gstreamer1-plugins-good
+Requires: pipewire-gstreamer
+Requires: xdg-desktop-portal
 # WebKit loads GLES dynamically, so automatic ELF requirements omit it.
 Requires: libglvnd-gles%{?_isa}
 Requires: shared-mime-info

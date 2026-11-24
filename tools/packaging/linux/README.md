@@ -36,6 +36,13 @@ Ubuntu 24.04 LTS with the runtime dependencies of the matching Debian package. L
 `./Quickie-0.2.0-x86_64.AppImage` (mark it executable first). If FUSE is unavailable, the
 AppImage runtime supports `--appimage-extract-and-run`.
 
+Screen sharing uses the active desktop's ScreenCast portal and PipeWire session. The DEB
+and RPM install the portal service and GStreamer PipeWire plugin. AppImage users need them
+on the host (`xdg-desktop-portal` and `gstreamer1.0-pipewire` on Ubuntu, or
+`xdg-desktop-portal` and `pipewire-gstreamer` on Fedora). Use the ScreenCast backend for your
+desktop session, for example `xdg-desktop-portal-gnome`, `xdg-desktop-portal-kde`, or
+`xdg-desktop-portal-wlr` on Sway.
+
 The WebKit subprocess sandbox uses Bubblewrap and xdg-dbus-proxy. On Ubuntu systems with
 AppArmor user namespace restrictions, install and load the distribution's
 `bwrap-userns-restrict` profile from the `apparmor-profiles` package if it is required by

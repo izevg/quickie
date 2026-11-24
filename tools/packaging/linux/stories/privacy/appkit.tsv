@@ -9,3 +9,5 @@ settings	shields	shields	settings-shields-shields	Global list changes are reflec
 sheets	permission-sheet	camera	permission-sheet-camera	Native media request with a WebKit mock camera. GTK provides Allow once and Block.
 sheets	permission-sheet	microphone	permission-sheet-microphone	Native media request with a WebKit mock microphone. GTK provides Allow once and Block.
 sheets	permission-sheet	camera-and-microphone	permission-sheet-camera-and-microphone	Native media request with WebKit mock devices. GTK provides Allow once and Block.
+sheets	permission-sheet	display	permission-sheet-display	Native display consent for a WebKit mock display. The story checks that a second request requires its own decision.
+sheets	permission-sheet	display-with-audio	permission-sheet-display-with-audio	The page requests display audio. The GTK fixture receives a video track and no microphone track.
