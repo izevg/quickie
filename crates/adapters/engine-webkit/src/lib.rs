@@ -70,5 +70,8 @@ pub mod cosmetic_rules;
 #[path = "page/scripts/hints.rs"]
 pub mod link_hints;
 
+#[path = "page/observation/mod.rs"]
+pub mod observation;
+
 #[cfg(target_os = "macos")]
 include!("appkit.rs");

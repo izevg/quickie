@@ -97,11 +97,12 @@ pub struct Browser {
     /// The engine's network, for the browser's own requests (filter lists, the agent's endpoint,
     /// extension packages): every request of the product goes through the engine's stack.
     http: Network,
-    browsing: RefCell<App>,
+    pub(crate) browsing: RefCell<App>,
     library: RefCell<Lib>,
     shields: RefCell<Guard>,
     agent: RefCell<Agents>,
     agent_ui: agent::AgentUi,
+    pub(crate) mcp: crate::mcp::McpUi,
     zoom: RefCell<Zooms>,
     extensions: RefCell<Option<Addons>>,
     extension_ui: system::ExtensionUi,
@@ -158,8 +159,14 @@ pub struct Browser {
     notices: RefCell<Vec<String>>,
     /// The profile folder, shown in Finder on request.
     profile: PathBuf,
-    this: Weak<Self>,
-    mtm: MainThreadMarker,
+    pub(crate) this: Weak<Self>,
+    pub(crate) mtm: MainThreadMarker,
+}
+
+impl Drop for Browser {
+    fn drop(&mut self) {
+        self.shutdown_mcp();
+    }
 }
 
 impl Browser {
@@ -214,6 +221,7 @@ impl Browser {
             shields: RefCell::new(services.shields),
             agent: RefCell::new(services.agent),
             agent_ui: agent::AgentUi::new(services.secrets, mtm),
+            mcp: crate::mcp::McpUi::new(mtm),
             zoom: RefCell::new(services.zoom),
             extensions: RefCell::new(services.extensions),
             extension_ui: system::ExtensionUi::new(services.extension_files, mtm),
@@ -262,6 +270,7 @@ impl Browser {
         browser.wire_shields();
         browser.wire_engine();
         browser.wire_extensions();
+        browser.wire_mcp();
         browser
     }
 
@@ -316,7 +325,7 @@ impl Browser {
     }
 
     /// Shows `text` as an info toast in the current window.
-    fn toast(&self, text: &str) {
+    pub(crate) fn toast(&self, text: &str) {
         self.notify(Toast::info(text));
     }
 
@@ -340,7 +349,7 @@ impl Browser {
     /// After a command: the active tab's sheet comes up if it asked something, the window's
     /// active page takes the keyboard (unless an overlay or a sheet has it), and window titles
     /// follow the session.
-    fn settle(&self, window: WindowId) {
+    pub(crate) fn settle(&self, window: WindowId) {
         self.present_asks();
         let view = {
             let browsing = self.browsing.borrow();
@@ -352,7 +361,8 @@ impl Browser {
             || self.navigation.overview_open()
             || self.extension_ui.popup_open()
             || self.sheet_open(window)
-            || self.extension_sheet_open(window);
+            || self.extension_sheet_open(window)
+            || self.mcp_sheet_open(window);
         if let (Some(ns_window), Some(view)) = (self.window(window), view)
             && !overlay
         {
@@ -361,6 +371,7 @@ impl Browser {
         self.refresh_titles();
         self.page_changes();
         self.arrange_extensions();
+        self.refresh_mcp_indicator();
     }
 
     fn refresh_titles(&self) {
@@ -414,7 +425,7 @@ impl Browser {
     }
 
     /// The window commands act on: the key window, else the first one.
-    fn current(&self) -> Option<(WindowId, Retained<NSWindow>)> {
+    pub(crate) fn current(&self) -> Option<(WindowId, Retained<NSWindow>)> {
         let key = NSApplication::sharedApplication(self.mtm).keyWindow();
         if key
             .as_deref()
@@ -428,12 +439,16 @@ impl Browser {
             .map(|(&id, window)| (id, window.clone()))
     }
 
-    fn window(&self, id: WindowId) -> Option<Retained<NSWindow>> {
+    pub(crate) fn window(&self, id: WindowId) -> Option<Retained<NSWindow>> {
         self.windows.borrow().get(&id).cloned()
     }
 
-    fn active(&self, window: WindowId) -> Option<TabId> {
+    pub(crate) fn active(&self, window: WindowId) -> Option<TabId> {
         self.browsing.borrow().session().active(window)
+    }
+
+    pub(crate) fn is_window_fullscreen(&self, window: WindowId) -> bool {
+        self.page_fullscreen(window)
     }
 
     /// Runs a browsing use case; a failure is told in a toast and yields `None`.

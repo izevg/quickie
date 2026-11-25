@@ -257,10 +257,7 @@ pub(super) fn install_theme(widget: Object) {
     unsafe { ffi::g_object_unref(provider) };
 }
 
-pub(in crate::gtk) fn panel_widgets(
-    orientation: c_int,
-    spacing: c_int,
-) -> (Object, Object, Object) {
+pub(crate) fn panel_widgets(orientation: c_int, spacing: c_int) -> (Object, Object, Object) {
     // SAFETY: GTK is initialized on the main thread.
     let panel = unsafe { ffi::gtk_overlay_new() };
     class(panel, c"quickie-panel");

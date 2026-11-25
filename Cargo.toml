@@ -39,6 +39,7 @@ cxx = "=1.0.202"
 # only, never in the product. MIT OR Apache-2.0.
 divan = "0.1"
 indexmap = "2"
+libc = "0.2"
 # The matcher only: the high-level `nucleo` crate spawns worker threads, which the pure domain
 # must not do.
 nucleo-matcher = "0.3"
@@ -85,6 +86,19 @@ quickie-updater = { path = "crates/adapters/updater", version = "0.0.0" }
 quickie-ui-screens = { path = "crates/ui/screens", version = "0.0.0" }
 quickie-ui-shared = { path = "crates/ui/shared", version = "0.0.0" }
 quickie-ui-widgets = { path = "crates/ui/widgets", version = "0.0.0" }
+# MCP server protocol and generic async stream transport (adapter mcp). No HTTP or client features.
+rmcp = { version = "=3.11.0", default-features = false, features = [
+  "server",
+  "transport-async-rw",
+] }
+# Current-thread I/O runtime for the MCP transport adapter (adapter mcp).
+tokio = { version = "1", default-features = false, features = [
+  "io-util",
+  "net",
+  "rt",
+  "sync",
+  "time",
+] }
 
 # Every crate opts in with `[lints] workspace = true`; `cargo xtask layers` checks that it does.
 [workspace.lints.rust]

@@ -1,5 +1,6 @@
 //! Typed in-process automation in an isolated `WebKit` session.
 
+mod agent;
 mod interactive;
 mod native;
 mod reply;
@@ -19,6 +20,19 @@ use url::Url;
 use native::Session;
 use reply::Reply;
 
+pub use agent::{
+    AgentAutomation, AgentAutomationCapabilities, ApprovedOrigin, AutomationEvent,
+    AutomationRequestId, CancelInteractionSequenceCommand, DomBounds, ElementSignals, InputSource,
+    InputSourceState, InputSourceType, InteractionDelta, InteractionSequenceCommand,
+    InteractionStep, KeyModifier, KeyboardCommand, KeyboardStep, LocatedDomElement, LocatorQuery,
+    LocatorSnapshot, MAX_BROWSING_CONTEXTS, MAX_HANDLE_BYTES, MAX_IN_FLIGHT_REQUESTS,
+    MAX_INBOUND_MESSAGE_BYTES, MAX_INPUT_SOURCES, MAX_INTERACTION_STEPS, MAX_KEY_MODIFIERS,
+    MAX_KEYBOARD_INTERACTIONS, MAX_KEYBOARD_TEXT_BYTES, MAX_PAGE_LOAD_TIMEOUT_MS,
+    MAX_SCREENSHOT_BASE64_BYTES, MAX_SEQUENCE_DURATION_MS, MAX_STEP_DURATION_MS,
+    MAX_VIEWPORT_COORD, MouseButton, MouseCommand, MouseInteraction, MouseMoveOrigin,
+    NavigationCommand, ObservedPageState, PageLoadStrategy, ScreenshotCommand, ScreenshotData,
+    ViewportPoint, VirtualKey, WaitOutcome, WaitQuery,
+};
 pub use interactive::InteractiveAutomation;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -26,11 +40,19 @@ const PAGE_TIMEOUT_MS: u32 = 9_000;
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// A page controlled by this automation session.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct BrowsingContext {
     handle: String,
     /// The page's current URL as reported by `WebKit`.
     pub url: String,
+}
+
+impl BrowsingContext {
+    /// The opaque `WebKit` browsing context handle.
+    #[must_use]
+    pub fn handle(&self) -> &str {
+        &self.handle
+    }
 }
 
 /// Failure to open or operate a local automation session.
@@ -54,9 +76,24 @@ pub enum AutomationError {
     /// The explicitly requested navigation is not an ordinary web URL.
     #[error("automation requires an HTTP or HTTPS URL without credentials")]
     InvalidUrl,
-    /// The interactive session is already running a navigation.
-    #[error("local WebKit automation is already navigating")]
+    /// The session cannot accept another concurrent command right now.
+    #[error("local WebKit automation is busy")]
     Busy,
+    /// The individual automation operation was cancelled before completion.
+    #[error("local WebKit automation command was cancelled")]
+    Cancelled,
+    /// The isolated automation session was closed or disconnected.
+    #[error("local WebKit automation session is disconnected")]
+    Disconnected,
+    /// The command parameters violated protocol or safety bounds.
+    #[error("invalid local WebKit automation command parameters")]
+    InvalidCommand,
+    /// The navigation URL did not match the provenance-approved origin.
+    #[error("automation navigation URL does not match the approved origin")]
+    OriginMismatch,
+    /// The reply exceeded the configured response size bound.
+    #[error("local WebKit automation reply exceeded the size bound")]
+    ResponseTooLarge,
 }
 
 /// Owns a separate process pool, a nonpersistent data store, and an offscreen view.

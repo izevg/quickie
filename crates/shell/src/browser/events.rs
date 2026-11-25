@@ -71,6 +71,7 @@ impl Browser {
                 self.crashed.borrow_mut().remove(&tab);
                 self.asks_navigated(tab);
                 self.record_navigation(tab, &url, &title, true, drained);
+                self.mcp_tab_committed(tab, &url);
             }
             EngineEvent::Titled { tab, url, title } => {
                 self.record_navigation(tab, &url, &title, false, drained);
@@ -88,6 +89,9 @@ impl Browser {
             EngineEvent::Video { tab, video } => self.video_reported(tab, video),
             EngineEvent::PictureInPicture { tab, active } => {
                 self.native_player_reported(tab, active);
+            }
+            EngineEvent::PictureInPictureReturnRequested { tab } => {
+                self.native_player_return_requested(tab);
             }
             EngineEvent::Asked(ask) => self.asked(ask),
             EngineEvent::Found(found) => self.found(&found),
@@ -174,6 +178,7 @@ impl Browser {
     /// A page's process is gone and the page blank. The tab stays; its window says so now if
     /// it shows the tab, else when it comes forward.
     fn crashed(&self, tab: TabId) {
+        self.mcp_process_terminated(tab);
         match self.showing(tab) {
             Some(window) => self.toast_in(window, CRASHED),
             None => {
