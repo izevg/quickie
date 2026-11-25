@@ -8,16 +8,17 @@ pub type Bool = c_int;
 pub const TRUE: Bool = 1;
 pub const FALSE: Bool = 0;
 pub const NON_UNIQUE: c_uint = 1 << 5;
-pub const ALIGN_START: c_int = 1;
 pub const ALIGN_CENTER: c_int = 3;
 pub const PHASE_CAPTURE: c_int = 1;
 pub const SHIFT: c_uint = 1;
 pub const CONTROL: c_uint = 1 << 2;
 pub const ALT: c_uint = 1 << 3;
+pub const SUPER: c_uint = 1 << 26;
+pub const HYPER: c_uint = 1 << 27;
+pub const META: c_uint = 1 << 28;
 pub const KEY_ESCAPE: c_uint = 0xff1b;
 pub const KEY_LEFT: c_uint = 0xff51;
 pub const KEY_RIGHT: c_uint = 0xff53;
-pub const KEY_COMMA: c_uint = 0x2c;
 pub const HORIZONTAL: c_int = 0;
 pub const VERTICAL: c_int = 1;
 
@@ -85,7 +86,6 @@ unsafe extern "C" {
     pub fn gtk_editable_get_text(editable: Object) -> *const c_char;
     pub fn gtk_editable_set_width_chars(editable: Object, chars: c_int);
     pub fn gtk_editable_select_region(editable: Object, start: c_int, end: c_int);
-    pub fn gtk_widget_set_halign(widget: Object, align: c_int);
     pub fn gtk_widget_set_valign(widget: Object, align: c_int);
     pub fn gtk_widget_set_margin_top(widget: Object, margin: c_int);
     pub fn gtk_widget_set_margin_bottom(widget: Object, margin: c_int);
@@ -95,7 +95,7 @@ unsafe extern "C" {
     pub fn gtk_widget_set_sensitive(widget: Object, sensitive: Bool);
     pub fn gtk_widget_add_css_class(widget: Object, class: *const c_char);
     pub fn gtk_widget_set_visible(widget: Object, visible: Bool);
-    pub fn gtk_widget_get_visible(widget: Object) -> Bool;
+    pub fn gtk_widget_get_root(widget: Object) -> Object;
     pub fn gtk_widget_grab_focus(widget: Object) -> Bool;
     pub fn gtk_event_controller_key_new() -> Object;
     pub fn gtk_event_controller_set_propagation_phase(controller: Object, phase: c_int);
@@ -137,6 +137,15 @@ unsafe extern "C" {
         destroy_data: Option<unsafe extern "C" fn(Object, Object)>,
         flags: c_uint,
     ) -> c_ulong;
+    pub fn g_signal_connect_object(
+        instance: Object,
+        detailed_signal: *const c_char,
+        handler: *const c_void,
+        object: Object,
+        flags: c_uint,
+    ) -> c_ulong;
+    pub fn g_object_get_data(object: Object, key: *const c_char) -> Object;
+    pub fn g_object_set_data(object: Object, key: *const c_char, data: Object);
     pub fn g_object_unref(object: Object);
 }
 
@@ -152,7 +161,10 @@ unsafe extern "C" {
     pub fn webkit_web_view_get_settings(view: Object) -> Object;
     pub fn webkit_settings_set_enable_developer_extras(settings: Object, enabled: Bool);
     pub fn webkit_web_view_get_inspector(view: Object) -> Object;
+    pub fn webkit_web_inspector_get_web_view(inspector: Object) -> Object;
+    pub fn webkit_web_inspector_is_attached(inspector: Object) -> Bool;
     pub fn webkit_web_inspector_show(inspector: Object);
+    pub fn webkit_web_inspector_close(inspector: Object);
     pub fn webkit_web_view_load_uri(view: Object, uri: *const c_char);
     pub fn webkit_web_view_get_uri(view: Object) -> *const c_char;
     pub fn webkit_web_view_get_title(view: Object) -> *const c_char;

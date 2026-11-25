@@ -171,6 +171,14 @@ agent, CI) can see a widget in seconds, and so that a change in looks or behavio
   PNG before committing it. `cargo xtask ui accept [<filter>]` without `--from` takes local
   renders, and is refused for a subset when the references come from another renderer.
 
+### GTK stories
+
+UI changes carry both AppKit and GTK stories. Use matching scenario IDs for the same
+interaction. The GTK suite runs the built browser under headless Wayland with XWayland
+disabled, asserts real UI behavior, and captures native screenshots. Xvfb is the X11 compatibility
+run. The GTK guide lists the runner, dependencies, and controls for theme and scale.
+[GTK stories](../tools/packaging/linux/stories/README.md)
+
 ## Video diagnostics
 
 After a playback pass, collect Core Animation presentation counters for the

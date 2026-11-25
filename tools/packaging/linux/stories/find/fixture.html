@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Find in Page Story</title>
+<style>
+  html { color-scheme: dark; color: #edeaf8; background: #1c192b; font: 16px system-ui, sans-serif; }
+  body { margin: 44px 60px; }
+  h1 { font-size: 32px; margin: 0 0 12px; }
+  article { position: absolute; top: 150px; left: 60px; width: 580px; }
+  p { height: 50px; margin: 0; display: flex; align-items: center; padding: 0 14px; box-sizing: border-box; }
+  p:nth-child(odd) { background: #26233a; }
+  #ready { position: fixed; right: 10px; bottom: 10px; width: 16px; height: 16px; background: #5fe2b0; }
+  #ready[data-page-key] { background: #6d82ee; }
+  #ready[data-fragment] { background: #e2a95f; }
+</style>
+<h1>Find in Page</h1>
+<article aria-label="Searchable passages">
+  <p>A sovereign state.</p>
+  <p>Local sovereign communities.</p>
+  <p>Friends of the sovereign.</p>
+  <p>A sovereign declaration.</p>
+  <p lang="ru">Суверенное государство.</p>
+  <p lang="ru">История суверенных стран.</p>
+</article>
+<div id="ready" aria-hidden="true"></div>
+<script>
+  addEventListener("keydown", (event) => {
+    if (event.key === "F5") location.search = "next-document";
+    if (event.key === "F6") location.hash = "find-story";
+    if (event.key === "F8") document.getElementById("ready").dataset.pageKey = "";
+    if (event.key === "F7") document.querySelector("article p:last-child").append(" A sovereign note.");
+    if (event.key === "F9") {
+      const text = document.querySelector("article p:nth-child(3)").firstChild;
+      const start = text.data.indexOf("sovereign");
+      const range = new Range();
+      range.setStart(text, start);
+      range.setEnd(text, start + "sovereign".length);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    }
+  });
+  addEventListener("hashchange", () => document.getElementById("ready").dataset.fragment = "");
+</script>
+</html>

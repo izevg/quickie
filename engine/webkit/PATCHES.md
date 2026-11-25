@@ -20,13 +20,14 @@ the main-based candidate along with the native Inspector redesign.
 The app calls I1's SPI through the `quickie.devtools.*` commands. The first
 Inspector opens at the bottom, and later launches respect the saved dock choice.
 
-Planned next: **V1 `media/fullscreen-in-window`**. Page Fullscreen API calls (quickie #74)
-and a site's `webkitSetPresentationMode("fullscreen")` call from inline playback expand
-within the tab's window. The fullscreen button in WebKit's native `<video controls>` still
-opens the engine's own full-screen window. The patch gives
-`WKFullScreenWindowController` (`UIProcess/mac/WKFullScreenWindowController.mm`) an in-window mode
-behind a `WKWebViewConfiguration` SPI flag: the element fills the web view's own window and the
-shim goes away.
+**V1 in-window fullscreen** adds the `QuickieFullscreenInView` bundle opt-in in
+`UIProcess/mac/PageClientImplMac.mm`. The normal WebKit element fullscreen lifecycle
+completes within the existing `WKWebView`. The app applies its fullscreen layout to the
+original window. The page script maps video presentation calls to the same window and
+reflects native DOM fullscreen state.
+
+Quickie enables native picture-in-picture in WebKit and keeps the departing tab's view
+attached during the handoff so the system player can use its originating window.
 
 The research below was done on WebKit main at `a6331649580b` (2026-11-20), before the base moved
 to the stable branch; file paths are at that commit

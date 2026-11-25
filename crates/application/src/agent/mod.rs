@@ -19,6 +19,7 @@ mod local;
 mod navigation;
 #[cfg(test)]
 mod tests;
+mod workspace;
 
 use quickie_domain_agents::{
     ApiKey, BaseUrl, CorruptEndpoint, LlmEndpoint, ModelId, PageText, Prompt, Request, TokenBudget,
@@ -27,6 +28,10 @@ use quickie_domain_agents::{
 pub use ask::{AnswerEvent, AskError, Asking, PageReader};
 pub use local::{LocalFound, detect_local, list_models};
 pub use navigation::{AgentLink, AgentLinks, SelectingLink, SelectionError};
+pub use workspace::{
+    AgentPage, AgentTool, AgentToolCall, Conversation, ToolChatMessage, ToolChatReply,
+    ToolChatRequest, complete_workspace_step,
+};
 
 use crate::{AgentRepo, AppError, Entropy, SecretStore};
 

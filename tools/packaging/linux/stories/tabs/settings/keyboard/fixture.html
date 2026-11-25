@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Keyboard shortcuts</title>
+<style>
+  html { background: rgb(27, 69, 94); color: white; font: 20px system-ui; }
+  body { padding: 48px; }
+  label { position: fixed; left: 56px; top: 183px; }
+  input { width: 220px; }
+</style>
+<h1>Keyboard shortcuts</h1>
+<label>Page input <input type="text"></label>
+<script>
+  const input = document.querySelector('input');
+  const announce = (focus) => { void fetch(`${location.pathname}?focus=${focus}`); };
+  input.addEventListener('focus', () => announce('input'));
+  input.addEventListener('blur', () => announce('page'));
+</script>

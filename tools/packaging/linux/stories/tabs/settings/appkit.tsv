@@ -1,0 +1,4 @@
+group	widget	state	gtk_capture	notes
+settings	general	general	general	Make Default updates the HTTP and HTTPS associations in the isolated desktop.
+settings	general	general-default	general-default	Quickie is the default, and the button is unavailable.
+settings	general	general-inset	general-inset	Inset page changes the live viewport and survives a restart.

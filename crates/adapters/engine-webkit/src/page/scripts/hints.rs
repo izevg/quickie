@@ -1,14 +1,13 @@
 //! The link-hint scripts, and their answers read: where the targets are on screen and what
 //! following one asks of the browser. Pure, so the arithmetic is tested without `WebKit`.
 
-use objc2_foundation::NSSize;
 use quickie_application::{Followed, LinkTarget, PageRect};
 use url::Url;
 
 /// Finds the links and controls the user can see, in document order, and keeps them in the
 /// world's own global for [`follow_script`]. Answers `innerWidth,innerHeight` and then
 /// `left,top,width,height,link` per target, in CSS pixels of the viewport, `;`-separated.
-pub(crate) const COLLECT_SCRIPT: &str = r#"(() => {
+pub const COLLECT_SCRIPT: &str = r#"(() => {
   const W = innerWidth, H = innerHeight;
   const sel = 'a[href],area[href],button,input:not([type=hidden]),select,textarea,summary,' +
     'label[for],[role=button],[role=link],[role=checkbox],[role=tab],[role=menuitem],' +
@@ -38,7 +37,8 @@ pub(crate) const COLLECT_SCRIPT: &str = r#"(() => {
 /// Follows target `index` of the last [`COLLECT_SCRIPT`]: `bg:` and the URL of a link to open
 /// in a background tab when `background`, `new:` and the URL of a link that asks for a new
 /// window, otherwise it focuses the element, clicks it unless it takes text, and answers `""`.
-pub(crate) fn follow_script(index: usize, background: bool) -> String {
+#[must_use]
+pub fn follow_script(index: usize, background: bool) -> String {
     format!(
         r"(() => {{
   const el = (window.__quickieHints || [])[{index}];
@@ -58,22 +58,21 @@ pub(crate) fn follow_script(index: usize, background: bool) -> String {
     )
 }
 
-/// The targets in `answer`, as the collect script wrote them, placed in a view of `view`
-/// size, the origin at its top left. The page's viewport fills the view's width and ends at
-/// its bottom edge; a viewport shorter than the view sits under a top inset. A malformed entry
-/// is skipped.
-pub(crate) fn targets(answer: &str, view: NSSize) -> Vec<LinkTarget> {
+/// The targets in `answer` in a view of `width`, measured from its top left. Supply a viewport
+/// bottom coordinate when a shorter viewport sits beneath a top inset. A malformed entry is skipped.
+#[must_use]
+pub fn targets(answer: &str, width: f64, bottom: Option<f64>) -> Vec<LinkTarget> {
     let mut entries = answer.split(';');
     let Some([css_width, css_height]) = entries.next().and_then(numbers::<2>) else {
         return Vec::new();
     };
     let scale = if css_width > 0.0 {
-        view.width / css_width
+        width / css_width
     } else {
         1.0
     };
     // The viewport's top edge, in the view.
-    let inset = view.height - css_height * scale;
+    let inset = bottom.map_or(0.0, |height| height - css_height * scale);
     entries
         .filter_map(numbers::<5>)
         .map(|[left, top, width, height, link]| LinkTarget {
@@ -89,7 +88,8 @@ pub(crate) fn targets(answer: &str, view: NSSize) -> Vec<LinkTarget> {
 }
 
 /// What the follow script's `answer` asks for.
-pub(crate) fn followed(answer: &str) -> Followed {
+#[must_use]
+pub fn followed(answer: &str) -> Followed {
     let url = |rest: &str| Url::parse(rest).ok();
     if let Some(url) = answer.strip_prefix("bg:").and_then(url) {
         return Followed::Background(url);
@@ -117,7 +117,6 @@ fn numbers<const N: usize>(entry: &str) -> Option<[f64; N]> {
 
 #[cfg(test)]
 mod tests {
-    use objc2_foundation::NSSize;
     use quickie_application::{Followed, LinkTarget, PageRect};
     use url::Url;
 
@@ -143,10 +142,7 @@ mod tests {
 
     #[test]
     fn targets_keep_their_place_from_the_view_top_left() {
-        let found = targets(
-            "800,600;10,20,100,30,1;0,570,50,30,0",
-            NSSize::new(800.0, 600.0),
-        );
+        let found = targets("800,600;10,20,100,30,1;0,570,50,30,0", 800.0, Some(600.0));
 
         assert_eq!(
             found,
@@ -166,35 +162,46 @@ mod tests {
     #[test]
     fn a_top_inset_leaves_the_bottom_aligned() {
         // The view is 28 points taller than the viewport: a title bar inset.
-        let found = targets("800,572;0,0,10,10,0", NSSize::new(800.0, 600.0));
+        let found = targets("800,572;0,0,10,10,0", 800.0, Some(600.0));
 
         assert_eq!(found[0].frame, rect(0.0, 28.0, 10.0, 10.0));
     }
 
     #[test]
     fn a_zoomed_page_scales_into_view_points() {
-        let found = targets("400,300;10,10,20,20,1", NSSize::new(800.0, 600.0));
+        let found = targets("400,300;10,10,20,20,1", 800.0, Some(600.0));
+
+        assert_eq!(found[0].frame, rect(20.0, 20.0, 40.0, 40.0));
+    }
+
+    #[test]
+    fn a_viewport_with_room_below_it_stays_top_aligned() {
+        let found = targets("400,200;10,10,20,20,1", 800.0, None);
 
         assert_eq!(found[0].frame, rect(20.0, 20.0, 40.0, 40.0));
     }
 
     #[test]
     fn malformed_answers_and_entries_are_skipped() {
-        let view = NSSize::new(100.0, 100.0);
+        let view = 100.0;
 
-        assert_eq!(targets("", view), []);
-        assert_eq!(targets("100", view), []);
-        assert_eq!(targets("100,100,1", view), []);
+        assert_eq!(targets("", view, None), []);
+        assert_eq!(targets("100", view, None), []);
+        assert_eq!(targets("100,100,1", view, None), []);
         assert_eq!(
-            targets("100,100;1,2,3;x,1,1,1,1;1,1,1,1,1,1;NaN,1,1,1,1", view),
+            targets(
+                "100,100;1,2,3;x,1,1,1,1;1,1,1,1,1,1;NaN,1,1,1,1",
+                view,
+                None
+            ),
             []
         );
-        assert_eq!(targets("100,100;1,2,3,4,0", view).len(), 1);
+        assert_eq!(targets("100,100;1,2,3,4,0", view, None).len(), 1);
     }
 
     #[test]
     fn a_zero_wide_viewport_does_not_scale() {
-        let found = targets("0,100;1,2,3,4,0", NSSize::new(50.0, 100.0));
+        let found = targets("0,100;1,2,3,4,0", 50.0, Some(100.0));
 
         assert_eq!(found[0].frame, rect(1.0, 2.0, 3.0, 4.0));
     }

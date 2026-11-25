@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Quickie fullscreen story</title>
+<style>
+  html { background: #315475; color: white; font: 18px sans-serif; }
+  body { margin: 0; display: grid; place-items: center; min-height: 100vh; }
+  #scene { background: #684783; display: grid; place-items: center; width: 60%; height: 50vh; }
+  #scene:fullscreen { background: #237650; width: 100%; height: 100%; }
+  button { padding: 0.75rem 1rem; }
+</style>
+<main id="scene"><button>Enter fullscreen</button></main>
+<script>
+  const scene = document.querySelector("#scene");
+  const button = scene.querySelector("button");
+  const report = state => fetch(`fixture.html?state=${state}`);
+  button.addEventListener("click", () => scene.requestFullscreen().catch(() => report("error")));
+  document.addEventListener("fullscreenchange", () => {
+    report(document.fullscreenElement === scene ? "entered" : "left");
+  });
+</script>

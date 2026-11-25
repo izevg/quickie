@@ -1,0 +1,38 @@
+.quickie-toast {
+    color: @quickie_panel_ink;
+    background-color: alpha(@quickie_panel_tint, 0.93);
+    background-image: linear-gradient(145deg, alpha(white, 0.09), transparent 70%);
+    border: 1px solid @quickie_panel_separator;
+    border-radius: 100px;
+    padding: 6px 16px 6px 12px;
+    box-shadow: 0 5px 14px -4px alpha(black, 0.46);
+    font-size: 13px;
+}
+
+.quickie-toast.success {
+    background-color: alpha(mix(@quickie_panel_tint, @success_color, 0.22), 0.96);
+    border-color: alpha(@success_color, 0.48);
+}
+
+.quickie-toast-title {
+    font-weight: 600;
+}
+
+.quickie-toast-detail {
+    color: @quickie_panel_muted;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.quickie-toast.info .quickie-toast-icon {
+    color: @quickie_panel_accent;
+}
+
+.quickie-toast.done .quickie-toast-icon,
+.quickie-toast.success .quickie-toast-icon {
+    color: @success_color;
+}
+
+.quickie-toast.problem .quickie-toast-icon {
+    color: @error_color;
+}

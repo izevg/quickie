@@ -8,7 +8,7 @@
 //! jars'):
 //!
 //! - **Page world**, at document start, in every frame: each known host's scriptlet calls and
-//!   Quickie's own scriptlet library ([`library`]), evaluated only on a host that has some.
+//!   Quickie's own scriptlet library , evaluated only on a host that has some.
 //!   Scriptlets must patch the page's own `JSON.parse`, `fetch`, and globals, so they run where
 //!   the page runs, as in uBlock Origin. Nothing in them talks to Quickie.
 //! - **Shields world** (Quickie's own content world for shields), at document start, in every
@@ -18,23 +18,18 @@
 //!   ids (`hidden_class_id_selectors`).
 //!
 //! Lookups never block the main thread: the filters are built, and each host is looked up, on
-//! worker threads; hosts are cached ([`bundle::HostTable`]). A navigation asks for its host
+//! worker threads; hosts are cached ([`HostTable`]). A navigation asks for its host
 //! when it starts and waits, at most [`WAIT`], only between its response and its document, so
 //! the scripts are in place before the page's first script runs.
 
-mod bundle;
-mod library;
-
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use adblock::Engine;
-use adblock::lists::{FilterSet, ParseOptions};
 use block2::{DynBlock, RcBlock};
 use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
 use objc2::rc::Retained;
@@ -45,12 +40,13 @@ use objc2_web_kit::{
     WKContentWorld, WKScriptMessage, WKScriptMessageHandlerWithReply, WKUserContentController,
     WKUserScript, WKUserScriptInjectionTime,
 };
-use quickie_application::{BlockerRules, ListRules};
-use quickie_domain_shields::{ContentHash, Site};
-use serde_json::Value;
+use quickie_application::BlockerRules;
+use quickie_domain_shields::Site;
 use url::Url;
 
-use bundle::{HostBundle, HostTable, cosmetic_script, page_script, unshielded};
+use crate::cosmetic_rules::{
+    CHANNEL, Filters, HostBundle, HostTable, Report, lists_name, page_script,
+};
 
 /// How long a document waits for its host's filters before it loads without them.
 pub(crate) const WAIT: Duration = Duration::from_millis(300);
@@ -58,81 +54,8 @@ pub(crate) const WAIT: Duration = Duration::from_millis(300);
 /// How many hosts' filters are kept, and so carried by the scripts.
 const HOSTS: usize = 96;
 
-/// The name the shields world's script posts its classes and ids under.
-const HANDLER: &str = "quickieShields";
-
-/// The most classes or ids one report is read for, and the longest name read: the page writes
-/// them, so they are untrusted and bounded.
-const MOST_NAMES: usize = 4096;
-const LONGEST_NAME: usize = 256;
-
 /// What is done when a host's filters are known.
 type Then = Box<dyn FnOnce()>;
-
-/// The cosmetic filters of the enabled lists, built off the main thread and read from any.
-pub(crate) struct Filters {
-    engine: Engine,
-    /// The selectors every host hides, unless it excepts them.
-    generic: BTreeSet<String>,
-}
-
-impl Filters {
-    /// Builds the filters of `lists`: only their cosmetic rules and the `$generichide`
-    /// exceptions, since `WebKit`'s content rule lists do the network blocking. Lists that may
-    /// use the trusted scriptlets get their permission. Slow: a worker thread runs it.
-    fn build(lists: &[ListRules]) -> Self {
-        let mut set = FilterSet::new(false);
-        for list in lists {
-            let text = String::from_utf8_lossy(&list.body);
-            let cosmetic: String = text
-                .lines()
-                .filter(|line| {
-                    line.contains('#') || line.contains("generichide") || line.contains("ghide")
-                })
-                .flat_map(|line| [line, "\n"])
-                .collect();
-            let options = ParseOptions {
-                permissions: if list.list.trusted() {
-                    library::TRUSTED
-                } else {
-                    adblock::resources::PermissionMask::default()
-                },
-                ..ParseOptions::default()
-            };
-            set.add_filter_list(cosmetic, options);
-        }
-        let mut engine = Engine::new_with_filter_set(set);
-        engine.use_resources(library::resources());
-        let generic = engine
-            .url_cosmetic_resources("https://quickie.invalid/")
-            .hide_selectors
-            .into_iter()
-            .collect();
-        Self { engine, generic }
-    }
-
-    /// What `host` gets.
-    fn lookup(&self, host: &str, unshielded_sites: &[Site]) -> HostBundle {
-        if unshielded(host, unshielded_sites) {
-            return HostBundle::off();
-        }
-        let resources = self
-            .engine
-            .url_cosmetic_resources(&format!("https://{host}/"));
-        HostBundle::of(resources, &self.generic)
-    }
-
-    /// The generic rules that hide elements with these classes or ids.
-    fn hidden(
-        &self,
-        classes: &[String],
-        ids: &[String],
-        exceptions: &HashSet<String>,
-    ) -> Vec<String> {
-        self.engine
-            .hidden_class_id_selectors(classes, ids, exceptions)
-    }
-}
 
 /// The cosmetic side of the shields of every page of an engine. Lives on the main thread.
 pub(crate) struct Cosmetics {
@@ -184,7 +107,7 @@ impl Cosmetics {
                 controller.addScriptMessageHandlerWithReply_contentWorld_name(
                     ProtocolObject::from_ref(&*handler),
                     &this.world,
-                    &NSString::from_str(HANDLER),
+                    &NSString::from_str(CHANNEL),
                 );
             }
         }
@@ -354,22 +277,14 @@ impl Cosmetics {
             return answer_now(&reply);
         };
         let bundle = this.table.borrow_mut().get(&report.host);
-        if bundle
-            .as_ref()
-            .is_some_and(|bundle| bundle.off || bundle.generichide)
-        {
-            return answer_now(&reply);
-        }
-        let exceptions = bundle.map_or_else(HashSet::new, |bundle| bundle.exceptions.clone());
         let reply = MainThreadBound::new(reply, this.mtm);
         let spawned = thread::Builder::new()
             .name("quickie-cosmetic-classes".to_owned())
             .spawn(move || {
-                let selectors = catch_unwind(AssertUnwindSafe(|| {
-                    filters.hidden(&report.classes, &report.ids, &exceptions)
+                let json = catch_unwind(AssertUnwindSafe(|| {
+                    filters.answer(&report, bundle.as_deref())
                 }))
-                .unwrap_or_default();
-                let json = Value::from(selectors).to_string();
+                .unwrap_or_else(|_| "[]".to_owned());
                 DispatchQueue::main().exec_async(move || {
                     if let Some(mtm) = MainThreadMarker::new() {
                         answer(&reply.into_inner(mtm), &json);
@@ -412,10 +327,7 @@ impl Cosmetics {
         let scripts = page_script(&table)
             .map(|source| (source, page))
             .into_iter()
-            .chain([(
-                cosmetic_script(&filters.generic, &table),
-                self.world.clone(),
-            )]);
+            .chain([(filters.script(&table), self.world.clone())]);
         for (source, world) in scripts {
             // SAFETY: the source is a complete script, injected at document start into every
             // frame of the given world.
@@ -434,52 +346,6 @@ impl Cosmetics {
             }
             installed.push(script);
         }
-    }
-}
-
-/// Names the lists filters are built from; `None` for no lists.
-fn lists_name(lists: &[ListRules]) -> Option<String> {
-    if lists.is_empty() {
-        return None;
-    }
-    let text: Vec<String> = lists
-        .iter()
-        .map(|list| format!("{}={}", list.list, list.hash))
-        .collect();
-    Some(ContentHash::of(text.join(" ").as_bytes()).to_string())
-}
-
-/// What a frame reported: the classes and ids it saw since its last report.
-struct Report {
-    host: String,
-    classes: Vec<String>,
-    ids: Vec<String>,
-}
-
-impl Report {
-    /// Reads a report as the shields script posts it: JSON text. Bounded, as the page wrote
-    /// the names.
-    fn parse(text: &str) -> Option<Self> {
-        let value: Value = serde_json::from_str(text).ok()?;
-        let names = |key: &str| -> Vec<String> {
-            value
-                .get(key)
-                .and_then(Value::as_array)
-                .map_or_else(Vec::new, |names| {
-                    names
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .filter(|name| name.len() <= LONGEST_NAME)
-                        .take(MOST_NAMES)
-                        .map(str::to_owned)
-                        .collect()
-                })
-        };
-        Some(Self {
-            host: value.get("host")?.as_str()?.to_owned(),
-            classes: names("classes"),
-            ids: names("ids"),
-        })
     }
 }
 
@@ -533,203 +399,5 @@ impl ShieldsHandler {
         let this = Self::alloc(mtm).set_ivars(HandlerIvars { cosmetics });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-    use std::sync::Arc;
-
-    use quickie_application::ListRules;
-    use quickie_domain_shields::{ContentHash, FilterListId, Site};
-
-    use super::{Filters, LONGEST_NAME, Report, lists_name};
-
-    fn list(id: FilterListId, text: &str) -> ListRules {
-        ListRules {
-            list: id,
-            hash: ContentHash::of(text.as_bytes()),
-            body: Arc::from(text.as_bytes()),
-        }
-    }
-
-    const LIST: &str = "##div[data-ad]\n\
-                        ##.generic-ad\n\
-                        video.test##.host-ad\n\
-                        video.test##+js(json-prune, adPlacements)\n\
-                        video.test##+js(trusted-replace-fetch-response, ads, x)\n\
-                        quiet.test#@#div[data-ad]\n\
-                        quiet.test#@#.generic-ad\n\
-                        @@||plain.test^$generichide\n\
-                        ||tracker.test^\n";
-
-    #[test]
-    fn a_host_gets_its_own_rules_and_the_scriptlets_its_list_may_run() {
-        let filters = Filters::build(&[list(FilterListId::EasyList, LIST)]);
-
-        let bundle = filters.lookup("www.video.test", &[]);
-
-        assert_eq!(bundle.css, [".host-ad{display:none!important}"]);
-        assert!(
-            bundle
-                .scriptlets
-                .contains("quickie_json_prune(\"adPlacements\")")
-        );
-        assert!(
-            !bundle.scriptlets.contains("trusted"),
-            "{}",
-            bundle.scriptlets
-        );
-    }
-
-    #[test]
-    fn a_trusted_list_may_run_the_trusted_scriptlets() {
-        let filters = Filters::build(&[list(FilterListId::UblockFilters, LIST)]);
-
-        let bundle = filters.lookup("video.test", &[]);
-
-        assert!(
-            bundle
-                .scriptlets
-                .contains("quickie_trusted_replace_fetch_response(")
-        );
-    }
-
-    #[test]
-    fn generic_rules_apply_everywhere_but_where_they_are_excepted() {
-        let filters = Filters::build(&[list(FilterListId::EasyList, LIST)]);
-
-        assert!(filters.generic.contains("div[data-ad]"));
-        let quiet = filters.lookup("quiet.test", &[]);
-        assert_eq!(quiet.remove, ["div[data-ad]"]);
-        let classes = [String::from("generic-ad")];
-        assert_eq!(
-            filters.hidden(&classes, &[], &HashSet::new()),
-            [".generic-ad"]
-        );
-        assert_eq!(
-            filters.hidden(&classes, &[], &quiet.exceptions),
-            Vec::<String>::new()
-        );
-        assert!(filters.lookup("plain.test", &[]).generichide);
-        assert!(!filters.lookup("other.test", &[]).differs());
-    }
-
-    #[test]
-    fn a_procedural_filter_reaches_the_cosmetic_script_as_json() {
-        let filters = Filters::build(&[list(
-            FilterListId::EasyList,
-            "localhost##div:has-text(Sponsored)\n",
-        )]);
-
-        let bundle = filters.lookup("localhost", &[]);
-
-        assert_eq!(
-            bundle.procedural,
-            [
-                r#"{"selector":[{"type":"css-selector","arg":"div"},{"type":"has-text","arg":"Sponsored"}]}"#
-            ]
-        );
-    }
-
-    // The Shorts feed's ad rules as uBlock filters and EasyList write them (November 2026).
-    const SHORTS: &str = "www.youtube.com##+js(json-prune-fetch-response, \
-        reelWatchSequenceResponse.entries.[-].command.reelWatchEndpoint.adClientParams.isAd \
-        entries.[-].command.reelWatchEndpoint.adClientParams.isAd, , propsToMatch, \
-        url:/reel_watch_sequence?)\n\
-        www.youtube.com##+js(json-prune, entries.[-].command.reelWatchEndpoint.adClientParams.isAd)\n\
-        youtube.com###shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer)\n";
-
-    #[test]
-    fn the_shorts_feed_s_ad_rules_reach_the_host_intact() {
-        let filters = Filters::build(&[list(FilterListId::UblockFilters, SHORTS)]);
-
-        let bundle = filters.lookup("www.youtube.com", &[]);
-
-        assert!(
-            bundle.scriptlets.contains(
-                "quickie_json_prune_fetch_response(\"reelWatchSequenceResponse.entries.[-].command.reelWatchEndpoint.adClientParams.isAd entries.[-].command.reelWatchEndpoint.adClientParams.isAd\", \"\", \"propsToMatch\", \"url:/reel_watch_sequence?\")"
-            ),
-            "{}",
-            bundle.scriptlets
-        );
-        assert!(
-            bundle.scriptlets.contains(
-                "quickie_json_prune(\"entries.[-].command.reelWatchEndpoint.adClientParams.isAd\")"
-            ),
-            "{}",
-            bundle.scriptlets
-        );
-        assert_eq!(
-            bundle.css,
-            [
-                "#shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer){display:none!important}"
-            ],
-            "{:?}",
-            bundle.procedural
-        );
-    }
-
-    // The extensions test relies on it: a page on 127.0.0.1 makes the shields replace their
-    // scripts.
-    #[test]
-    fn an_ip_address_host_gets_its_own_rules() {
-        let filters = Filters::build(&[list(FilterListId::EasyList, "127.0.0.1##.local-ad\n")]);
-
-        let bundle = filters.lookup("127.0.0.1", &[]);
-
-        assert_eq!(bundle.css, [".local-ad{display:none!important}"]);
-    }
-
-    #[test]
-    fn an_unshielded_site_gets_nothing() {
-        let filters = Filters::build(&[list(FilterListId::EasyList, LIST)]);
-
-        let bundle = filters.lookup("video.test", &[Site::try_from("video.test").unwrap()]);
-
-        assert!(bundle.off);
-        assert_eq!(bundle.scriptlets, "");
-    }
-
-    #[test]
-    fn classes_and_ids_find_their_generic_rules() {
-        let filters = Filters::build(&[list(
-            FilterListId::EasyList,
-            "##.banner-ad\n###top-ad\n##.unused\n",
-        )]);
-
-        let mut hidden = filters.hidden(
-            &["banner-ad".to_owned(), "article".to_owned()],
-            &["top-ad".to_owned()],
-            &HashSet::new(),
-        );
-        hidden.sort();
-
-        assert_eq!(hidden, ["#top-ad", ".banner-ad"]);
-    }
-
-    #[test]
-    fn lists_are_named_by_their_content() {
-        let a = [list(FilterListId::EasyList, "##.a")];
-        let b = [list(FilterListId::EasyList, "##.b")];
-
-        assert_eq!(lists_name(&[]), None);
-        assert_eq!(lists_name(&a), lists_name(&a));
-        assert_ne!(lists_name(&a), lists_name(&b));
-    }
-
-    #[test]
-    fn a_report_is_read_within_bounds() {
-        let long = "x".repeat(LONGEST_NAME + 1);
-        let text = format!(r#"{{"host":"a.test","classes":["ad","{long}",3],"ids":["top"]}}"#);
-
-        let report = Report::parse(&text).unwrap();
-
-        assert_eq!(report.host, "a.test");
-        assert_eq!(report.classes, ["ad"]);
-        assert_eq!(report.ids, ["top"]);
-        assert!(Report::parse("[]").is_none());
-        assert!(Report::parse("not json").is_none());
     }
 }

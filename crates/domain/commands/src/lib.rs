@@ -19,6 +19,7 @@
 mod command;
 mod key;
 mod keymap;
+pub mod link_hint;
 
 pub use command::{Catalog, Category, Command};
 pub use key::{

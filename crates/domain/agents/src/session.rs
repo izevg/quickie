@@ -77,8 +77,14 @@ impl AgentSession {
     /// as the prompt sent them: never text past the budget the model did not see.
     #[must_use]
     pub fn new(prompt: &Prompt, asked_at: Timestamp) -> Self {
+        Self::for_texts(prompt.sent_texts(), asked_at)
+    }
+
+    /// Checks citations against precisely the text made available to the model.
+    #[must_use]
+    pub fn for_texts(sent: &[String], asked_at: Timestamp) -> Self {
         Self {
-            sources: Sources::of(prompt.sent_texts()),
+            sources: Sources::of(sent),
             scanner: Scanner::default(),
             asked_at,
             first_token_at: None,

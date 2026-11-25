@@ -3,17 +3,28 @@
 //!
 //! A CRX from the Chrome Web Store, or one the user chose, is kept only once its signatures
 //! hold and prove the expected id ([`crx`]); a ZIP the user chose has no signature and takes
-//! the id of where it was found, as Chrome's unpacked extensions do. What is kept is the ZIP
-//! archive itself, which `WKWebExtension` opens directly, at
-//! `<root>/<id>/<first 16 hex digits of its SHA-256>.zip`: a new version never overwrites the
-//! one running. A folder the user chose is used where it is and never copied or deleted.
+//! the id of where it was found, as Chrome's unpacked extensions do. macOS keeps the original
+//! archive for `WKWebExtension`. Linux extracts a directory for `WebKitGTK`. A version is stored
+//! by its content hash and cannot overwrite the one running. A folder the user chose is used
+//! where it is and never copied or deleted.
 //!
 //! - [`crx`]: the CRX3 format and its signature check.
 //! - [`crypto`]: SHA-256 and signature checks from the system.
 
+#[cfg(target_os = "linux")]
+mod archive;
 mod crx;
+#[cfg(target_os = "macos")]
+#[expect(
+    unsafe_code,
+    reason = "CommonCrypto's SHA-256 and Security.framework's SecKeyCreateWithData"
+)]
+mod crypto;
+#[cfg(target_os = "linux")]
+#[path = "packages/crypto/linux.rs"]
 mod crypto;
 #[cfg(test)]
+#[cfg(target_os = "macos")]
 mod tests;
 
 use std::fmt::Write as _;
@@ -65,15 +76,17 @@ impl ExtensionFiles {
 
     /// Writes `archive` as `id`'s, unless the same archive is already there.
     fn keep(&self, id: &ExtensionId, archive: &[u8]) -> Result<Unpacked, PackageError> {
+        #[cfg(target_os = "linux")]
+        {
+            fs::create_dir_all(&self.root).map_err(|error| failed(&self.root, &error))?;
+            real_directory(&self.root)?;
+        }
         let directory = self.root.join(id.as_str());
         fs::create_dir_all(&directory).map_err(|error| failed(&directory, &error))?;
+        #[cfg(target_os = "linux")]
+        real_directory(&directory)?;
         let name = hex(&crypto::sha256(&[archive]));
-        let path = directory.join(format!("{}.zip", &name[..16]));
-        if !path.is_file() {
-            let partial = directory.join(format!(".{}.partial", &name[..16]));
-            fs::write(&partial, archive).map_err(|error| failed(&partial, &error))?;
-            fs::rename(&partial, &path).map_err(|error| failed(&path, &error))?;
-        }
+        let path = keep_archive(&directory, &name, archive)?;
         Ok(Unpacked {
             id: id.clone(),
             location: location(&path)?,
@@ -127,20 +140,36 @@ impl ExtensionPackages for ExtensionFiles {
     }
 
     fn prune(&self, keep: &[String]) -> Result<(), PackageError> {
-        let Ok(directories) = fs::read_dir(&self.root) else {
-            return Ok(());
+        #[cfg(target_os = "linux")]
+        match self.root.symlink_metadata() {
+            Ok(metadata) if !metadata.is_dir() => return Err(not_directory(&self.root)),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(failed(&self.root, &error)),
+        }
+        let directories = match fs::read_dir(&self.root) {
+            Ok(directories) => directories,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(failed(&self.root, &error)),
         };
-        for directory in directories.flatten().map(|entry| entry.path()) {
-            if !directory.is_dir() {
+        for entry in directories {
+            let entry = entry.map_err(|error| failed(&self.root, &error))?;
+            let directory = entry.path();
+            if !entry
+                .file_type()
+                .map_err(|error| failed(&directory, &error))?
+                .is_dir()
+            {
                 continue;
             }
             let files = fs::read_dir(&directory).map_err(|error| failed(&directory, &error))?;
-            for file in files.flatten().map(|entry| entry.path()) {
+            for entry in files {
+                let file = entry.map_err(|error| failed(&directory, &error))?.path();
                 let kept = file
                     .to_str()
                     .is_some_and(|file| keep.iter().any(|k| k == file));
                 if !kept {
-                    fs::remove_file(&file).map_err(|error| failed(&file, &error))?;
+                    remove_package(&file)?;
                 }
             }
             // Only an empty folder goes; one still holding a kept package stays.
@@ -148,6 +177,41 @@ impl ExtensionPackages for ExtensionFiles {
         }
         Ok(())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn keep_archive(directory: &Path, name: &str, archive: &[u8]) -> Result<PathBuf, PackageError> {
+    let path = directory.join(format!("{}.zip", &name[..16]));
+    if !path.is_file() {
+        let partial = directory.join(format!(".{}.partial", &name[..16]));
+        fs::write(&partial, archive).map_err(|error| failed(&partial, &error))?;
+        fs::rename(&partial, &path).map_err(|error| failed(&path, &error))?;
+    }
+    Ok(path)
+}
+
+#[cfg(target_os = "macos")]
+fn remove_package(path: &Path) -> Result<(), PackageError> {
+    fs::remove_file(path).map_err(|error| failed(path, &error))
+}
+
+#[cfg(target_os = "linux")]
+use archive::{keep_archive, remove_package};
+
+#[cfg(target_os = "linux")]
+fn real_directory(path: &Path) -> Result<(), PackageError> {
+    let metadata = path
+        .symlink_metadata()
+        .map_err(|error| failed(path, &error))?;
+    if !metadata.is_dir() {
+        return Err(not_directory(path));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn not_directory(path: &Path) -> PackageError {
+    PackageError(format!("{} is not a package directory", path.display()))
 }
 
 /// The id of a package found at `path`: Chrome's for an unpacked extension.

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickie UI fixture</title>
+<style>
+  :root { font: 16px system-ui, sans-serif; color: #f8f5ff; background: #1c1534; color-scheme: dark; }
+  body { margin: 0; }
+  header {
+    min-height: 370px;
+    display: grid;
+    align-items: end;
+    background: radial-gradient(ellipse at 70% 5%, #f37c9c, transparent 40%),
+      radial-gradient(ellipse at 20% 60%, #435adc, transparent 48%),
+      linear-gradient(122deg, #353661, #5c214c 72%, #392239);
+  }
+  header::after {
+    content: "";
+    height: 226px;
+    background: repeating-linear-gradient(118deg, transparent 0 12px, #ffffff24 12px 16px, transparent 16px 32px);
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 36px 24px; }
+  h1 { margin: 0 0 14px; font-size: clamp(30px, 5vw, 60px); line-height: 1.1; }
+  a { color: #c1c8ff; }
+  #ready { position: fixed; right: 10px; bottom: 10px; width: 16px; height: 16px; }
+</style>
+<header></header>
+<main>
+  <h1>Quickie GTK fixture</h1>
+  <a href="?page=webkit">WebKit release notes</a> ·
+  <a href="?page=cyrillic">Обзор WebKit</a> ·
+  <a href="?page=long">Long title</a>
+</main>
+<div id="ready" aria-hidden="true"></div>
+<script>
+  const pages = {
+    home: ['Quickie GTK fixture', '#5fe2b0'],
+    webkit: ['WebKit release notes', '#f6b95e'],
+    cyrillic: ['Обзор WebKit', '#7da9fb'],
+    long: ['A long browser scheduling and rendering title that exceeds a single command palette line', '#ec8bba'],
+  };
+  const page = new URLSearchParams(location.search).get('page');
+  const [title, ready] = pages[page] ?? pages.home;
+  document.querySelector('h1').textContent = title;
+  document.title = title;
+  document.getElementById('ready').style.background = ready;
+</script>
+</html>

@@ -11,6 +11,7 @@ mod observer;
 pub(crate) mod scripts;
 
 use std::cell::Cell;
+use std::ptr::NonNull;
 use std::rc::Rc;
 
 pub(crate) use scripts::FocusReports;
@@ -28,14 +29,15 @@ pub(crate) struct Reports {
 }
 
 use block2::RcBlock;
-use objc2::rc::Retained;
+use objc2::rc::{Retained, Weak};
 use objc2::runtime::ProtocolObject;
-use objc2::{MainThreadMarker, MainThreadOnly, sel};
+use objc2::{MainThreadMarker, MainThreadOnly, msg_send, sel};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSImage, NSPrintInfo, NSPrintingPaginationMode, NSView,
 };
 use objc2_foundation::{
-    NSData, NSError, NSNumber, NSObjectProtocol, NSRect, NSSize, NSString, NSURL, NSURLRequest,
+    NSData, NSError, NSNumber, NSObjectProtocol, NSRect, NSSize, NSString, NSTimer, NSURL,
+    NSURLRequest,
 };
 use objc2_web_kit::{
     WKContentWorld, WKFullscreenState, WKScriptMessageHandler, WKSnapshotConfiguration,
@@ -44,6 +46,7 @@ use objc2_web_kit::{
 };
 use quickie_application::{
     AgentLinks, AskKind, DevTools, EngineError, FindStep, Followed, LinkTarget,
+    NativePictureInPicture,
 };
 use quickie_domain_browsing::{FindMatches, Focus};
 use url::Url;
@@ -79,6 +82,8 @@ pub(crate) struct Hooks {
     /// Navigations, titles, loading, links to open elsewhere, closing, full screen, crashes,
     /// blocked loads.
     pub(crate) on_event: Box<dyn Fn(PageEvent)>,
+    /// The native delegate sees picture-in-picture even without a playback controls manager.
+    pub(crate) native_pip_active: Cell<bool>,
     /// A dialog or a permission, from the origin in the URL, waiting for its reply.
     pub(crate) on_ask: Box<dyn Fn(Url, AskKind, Reply)>,
     pub(crate) security_key_presenter: Option<Rc<SecurityKeyPresenter>>,
@@ -91,6 +96,14 @@ pub(crate) struct Hooks {
     )]
     pub(crate) open:
         Box<dyn Fn(&WKWebViewConfiguration, Url, Focus) -> Option<Retained<WKWebView>>>,
+}
+
+impl Hooks {
+    fn reset_picture_in_picture(&self) {
+        if self.native_pip_active.replace(false) {
+            (self.on_event)(PageEvent::PictureInPicture(false));
+        }
+    }
 }
 
 /// A page and its view. Dropping it stops observation and takes the view off screen.
@@ -109,6 +122,8 @@ pub(crate) struct WebPage {
     /// How many times the page floated or docked its video: a float's chain of frames stops
     /// once a later call came.
     floats: Rc<Cell<u64>>,
+    /// Keeps the originating window available while `WebKit` creates its native player.
+    picture_in_picture_host: Cell<Option<Retained<NSTimer>>>,
 }
 
 impl WebPage {
@@ -167,6 +182,12 @@ impl WebPage {
         // all (`allowfullscreen`), which the script reads from it.
         // SAFETY: a plain boolean setter.
         unsafe { preferences.setElementFullscreenEnabled(true) };
+        // macOS WebKit requires the embedder to opt in to native picture-in-picture.
+        if preferences.respondsToSelector(sel!(_setAllowsPictureInPictureMediaPlayback:)) {
+            // SAFETY: the selector is the BOOL setter declared in WKPreferencesPrivate.h.
+            let () =
+                unsafe { msg_send![&preferences, _setAllowsPictureInPictureMediaPlayback: true] };
+        }
         // Web Inspector, on our fork; a page it opens copies the preferences.
         inspector::allow(&preferences);
         Self::with_configuration(&configuration, hooks, reports, mtm)
@@ -216,7 +237,7 @@ impl WebPage {
             .fullscreen
             .borrow_mut()
             .insert(scripts::view_key(&view), Rc::downgrade(&hooks));
-        let observer = PageObserver::new(Rc::clone(&hooks), mtm);
+        let observer = PageObserver::new(Rc::clone(&hooks), &frame, mtm);
         observer.attach(&view);
         let ui = PageUi::new(hooks, &frame, mtm);
         // SAFETY: the delegate is weak; the page keeps it alive and clears it on drop.
@@ -229,6 +250,7 @@ impl WebPage {
             world,
             reports,
             floats: Rc::default(),
+            picture_in_picture_host: Cell::default(),
         }
     }
 
@@ -240,6 +262,46 @@ impl WebPage {
     /// The view to embed in a window: the page, and its Web Inspector when it docks.
     pub(crate) fn frame(&self) -> &NSView {
         &self.frame
+    }
+
+    pub(crate) fn leave_frame(&self) {
+        if self.frame.window().is_none()
+            || !(self.ui.native_pip_active()
+                || (self.is_playing_audio() && self.can_toggle_picture_in_picture()))
+        {
+            self.frame.removeFromSuperview();
+            return;
+        }
+        self.frame.setHidden(true);
+        let frame = Weak::new(&*self.frame);
+        let ui = Weak::new(&*self.ui);
+        let expire = RcBlock::new(move |_: NonNull<NSTimer>| {
+            if ui.load().is_some_and(|ui| !ui.native_pip_active())
+                && let Some(frame) = frame.load()
+                && frame.isHidden()
+            {
+                frame.removeFromSuperview();
+            }
+        });
+        // SAFETY: the main run loop retains the block and calls it once on this thread.
+        let timer =
+            unsafe { NSTimer::scheduledTimerWithTimeInterval_repeats_block(2.0, false, &expire) };
+        self.picture_in_picture_host.set(Some(timer));
+    }
+
+    pub(crate) fn restore_frame(&self) {
+        if let Some(timer) = self.picture_in_picture_host.take() {
+            timer.invalidate();
+            self.frame.setHidden(false);
+        }
+    }
+
+    pub(crate) fn discard_background_frame(&self) {
+        if let Some(timer) = self.picture_in_picture_host.take() {
+            timer.invalidate();
+            self.frame.removeFromSuperview();
+            self.frame.setHidden(false);
+        }
     }
 
     pub(crate) fn cancel_authentication(&self) {
@@ -487,7 +549,7 @@ impl WebPage {
     pub(crate) fn link_targets(&self, done: impl FnOnce(Vec<LinkTarget>) + 'static) {
         let size = self.view.bounds().size;
         self.evaluate(COLLECT_SCRIPT, move |answer| {
-            done(hints::targets(&answer, size));
+            done(hints::targets(&answer, size.width, Some(size.height)));
         });
     }
 
@@ -521,17 +583,22 @@ impl WebPage {
     /// plays; the view is resized to the player after.
     pub(crate) fn float_video(&self) {
         self.floats.set(self.floats.get() + 1);
-        let videos = self.reports.videos.borrow();
-        let frames = videos.get(&scripts::view_key(&self.view));
-        scripts::video::float(&self.view, &self.world, frames, &self.floats);
+        let mut videos = self.reports.videos.borrow_mut();
+        let mut frames = videos.get_mut(&scripts::view_key(&self.view));
+        if let Some(frames) = frames.as_mut() {
+            frames.pin();
+        }
+        scripts::video::float(&self.view, &self.world, frames.as_deref(), &self.floats);
     }
 
     /// Puts the page back as it was before [`Self::float_video`], scrolled where it was.
-    pub(crate) fn dock_video(&self) {
+    pub(crate) fn dock_video(&self) -> Option<Report> {
         self.floats.set(self.floats.get() + 1);
-        let videos = self.reports.videos.borrow();
-        let frames = videos.get(&scripts::view_key(&self.view));
-        scripts::video::dock(&self.view, &self.world, frames);
+        let mut videos = self.reports.videos.borrow_mut();
+        let mut frames = videos.get_mut(&scripts::view_key(&self.view));
+        let report = frames.as_mut().and_then(|frames| frames.unpin());
+        scripts::video::dock(&self.view, &self.world, frames.as_deref());
+        report
     }
 
     /// Plays the page's video, or pauses it; the video script reports the change.
@@ -539,6 +606,58 @@ impl WebPage {
         let videos = self.reports.videos.borrow();
         let frames = videos.get(&scripts::view_key(&self.view));
         scripts::video::play(&self.view, &self.world, frames, play);
+    }
+
+    pub(crate) fn picture_in_picture(&self) -> NativePictureInPicture {
+        if self.ui.native_pip_active() {
+            NativePictureInPicture::Active
+        } else if self.can_toggle_picture_in_picture() {
+            NativePictureInPicture::Inactive
+        } else {
+            NativePictureInPicture::Unavailable
+        }
+    }
+
+    fn can_toggle_picture_in_picture(&self) -> bool {
+        let view = &*self.view;
+        if !view.respondsToSelector(sel!(_togglePictureInPicture))
+            || !view.respondsToSelector(sel!(_canTogglePictureInPicture))
+        {
+            return false;
+        }
+        // WebKit's manager can retain an earlier candidate's capability after it has gone.
+        if view.respondsToSelector(sel!(_hasActiveVideoForControlsManager)) {
+            // SAFETY: the selector is a BOOL getter declared in WKWebViewPrivate.h.
+            let has_candidate: bool = unsafe { msg_send![view, _hasActiveVideoForControlsManager] };
+            if !has_candidate {
+                return false;
+            }
+        }
+        // The controls manager may not have been created yet on Macs without a Touch Bar.
+        if view.respondsToSelector(sel!(_updateMediaPlaybackControlsManager)) {
+            // SAFETY: the view implements the void selector and Quickie never suspends it.
+            let () = unsafe { msg_send![view, _updateMediaPlaybackControlsManager] };
+        }
+        // SAFETY: the selector is a BOOL getter declared in WKWebViewPrivate.h.
+        unsafe { msg_send![view, _canTogglePictureInPicture] }
+    }
+
+    pub(crate) fn toggle_picture_in_picture(&self) -> bool {
+        if self.view.window().is_none() || !self.can_toggle_picture_in_picture() {
+            return false;
+        }
+        // SAFETY: the state check verified the void selector. Quickie never suspends the view.
+        let () = unsafe { msg_send![&*self.view, _togglePictureInPicture] };
+        true
+    }
+
+    pub(crate) fn is_playing_audio(&self) -> bool {
+        let view = &*self.view;
+        if !view.respondsToSelector(sel!(_isPlayingAudio)) {
+            return false;
+        }
+        // SAFETY: the selector is a BOOL getter declared in WKWebViewPrivate.h.
+        unsafe { msg_send![view, _isPlayingAudio] }
     }
 
     /// Takes the page out of full screen: out of the page view through our Fullscreen API, and
@@ -568,6 +687,7 @@ impl WebPage {
 impl Drop for WebPage {
     fn drop(&mut self) {
         self.cancel_authentication();
+        self.discard_background_frame();
         self.observer.detach(&self.view);
         // SAFETY: clearing a weak delegate has no preconditions.
         unsafe { self.view.setUIDelegate(None) };

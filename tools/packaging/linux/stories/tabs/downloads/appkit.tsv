@@ -1,0 +1,4 @@
+group	widget	state	gtk_capture	notes
+popovers	downloads-popover	empty	downloads-empty	Ctrl+J opens the empty Downloads panel and Escape returns to the page.
+popovers	downloads-popover	keys	downloads-keys	The down arrow moves the selection and Enter retries an ended transfer in the normal WebKit session.
+popovers	downloads-popover	mixed	downloads-mixed	Native rows show downloaded, failed, cancelled, running with a known size, and running with an unknown size.

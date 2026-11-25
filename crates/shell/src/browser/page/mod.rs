@@ -25,6 +25,7 @@ use super::Browser;
 pub struct PageWidgets {
     asks: asks::PageAsks,
     fullscreen: Rc<FullscreenNotice>,
+    fullscreen_notice_tab: Cell<Option<TabId>>,
     find_bar: FindBar,
     /// The tab the find bar searches.
     find_tab: Cell<Option<TabId>>,
@@ -32,7 +33,7 @@ pub struct PageWidgets {
     /// Per window, the active tab and its committed URL when last looked at.
     seen: RefCell<BTreeMap<WindowId, (TabId, Url)>>,
     /// Per window, the page that fills it, full screen.
-    in_window: RefCell<BTreeMap<WindowId, fullscreen::PageFullscreen>>,
+    in_window: RefCell<BTreeMap<WindowId, TabId>>,
 }
 
 impl PageWidgets {
@@ -40,6 +41,7 @@ impl PageWidgets {
         Self {
             asks: asks::PageAsks::new(mtm),
             fullscreen: FullscreenNotice::new(mtm),
+            fullscreen_notice_tab: Cell::new(None),
             find_bar: FindBar::new(mtm),
             find_tab: Cell::new(None),
             chip: OriginChip::new(mtm),
@@ -105,16 +107,16 @@ impl Browser {
                 .collect()
         };
         // A page in full screen whose tab is no longer in front (another tab, or it closed)
-        // leaves, and its window with it.
+        // leaves fullscreen before floating video or showing the new tab's overlays.
         let behind: Vec<WindowId> = self
             .page
             .in_window
             .borrow()
             .iter()
-            .filter(|(window, page)| {
+            .filter(|(window, fullscreen_tab)| {
                 !active
                     .iter()
-                    .any(|(shown, tab, _)| shown == *window && *tab == page.tab)
+                    .any(|(shown, tab, _)| shown == *window && tab == *fullscreen_tab)
             })
             .map(|(&window, _)| window)
             .collect();

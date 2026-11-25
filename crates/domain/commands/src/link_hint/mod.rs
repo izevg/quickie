@@ -1,5 +1,5 @@
-//! Link-hint labels: one per target, typed on the home row, as short as the count allows, and
-//! prefix-free, so a label is followed the moment its last letter is typed. Pure.
+//! Link-hint labels: one per target, typed on the home row and as short as the count allows.
+//! They are prefix-free, so a label is followed the moment its last letter is typed.
 
 /// The home row, left hand first: the letters hints are typed with.
 pub const HOME_ROW: [char; 9] = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'];

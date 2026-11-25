@@ -58,6 +58,37 @@ const HINTS: &str = "quickie.hints.toggle";
 
 // ---- defaults ----------------------------------------------------------------------------------
 
+#[test]
+fn linux_defaults_keep_the_native_browser_aliases() {
+    // Arrange
+    let alternatives = ["alt+left", "alt+right", "ctrl+shift+i"];
+    let context = WhenContext::new();
+
+    // Act
+    let [linux, mac] = [LINUX, MAC].map(|platform| {
+        let map = Keymap::defaults(platform);
+        alternatives.map(|key| resolve(&map, key, &context))
+    });
+
+    // Assert
+    assert_eq!(
+        linux,
+        [
+            command("quickie.navigation.back"),
+            command("quickie.navigation.forward"),
+            command("quickie.devtools.toggle"),
+        ]
+    );
+    assert_eq!(
+        mac,
+        [
+            Resolution::Unbound,
+            Resolution::Unbound,
+            Resolution::Unbound
+        ]
+    );
+}
+
 /// The macOS defaults as they were written before `mod` existed, row for row, plus the rows
 /// added since in their `cmd` form: the keymap of `mod` must stay exactly this on macOS.
 const MACOS_DEFAULTS: [(&str, &str, Option<&str>); 55] = [
@@ -140,10 +171,10 @@ fn the_macos_defaults_match_the_desktop_keymap() {
 
 #[test]
 fn every_default_row_parses_on_every_platform() {
-    for platform in [MAC, LINUX] {
+    for (platform, expected) in [(MAC, BINDINGS.len()), (LINUX, BINDINGS.len() + 3)] {
         let bindings = defaults::bindings(platform);
 
-        assert_eq!(bindings.len(), BINDINGS.len(), "{platform:?}");
+        assert_eq!(bindings.len(), expected, "{platform:?}");
     }
 }
 

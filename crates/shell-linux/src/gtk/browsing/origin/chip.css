@@ -1,0 +1,51 @@
+@define-color quickie_origin_warning mix(@error_color, @quickie_panel_ink, 0.38);
+
+.quickie-origin-chip.quickie-panel {
+    border-radius: 999px;
+    box-shadow: 0 2px 8px alpha(black, 0.16);
+}
+
+.quickie-origin-chip .quickie-panel-content {
+    min-height: 18px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background-color: alpha(@quickie_panel_tint, 0.93);
+}
+
+.quickie-origin-chip .quickie-panel-backdrop {
+    border-radius: 999px;
+}
+
+.quickie-origin-address {
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.quickie-origin-host {
+    font-weight: 700;
+}
+
+.quickie-origin-muted,
+.quickie-origin-path,
+.quickie-origin-transport {
+    color: @quickie_panel_muted;
+}
+
+.quickie-origin-path {
+    font-size: 12px;
+}
+
+.quickie-origin-status {
+    min-width: 6px;
+    min-height: 6px;
+    border-radius: 999px;
+    background-color: @success_color;
+}
+
+.quickie-origin-chip.insecure .quickie-origin-status {
+    background-color: @quickie_origin_warning;
+}
+
+.quickie-origin-chip.insecure .quickie-origin-transport {
+    color: @quickie_origin_warning;
+}

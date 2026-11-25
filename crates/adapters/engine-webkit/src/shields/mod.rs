@@ -15,7 +15,6 @@
 //! with them on its next load, and keeps what it loaded before until it is reloaded.
 
 pub(crate) mod cosmetic;
-mod rules;
 
 use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -34,8 +33,8 @@ use quickie_application::{
 };
 use quickie_domain_browsing::Timestamp;
 
+use crate::rules::{MAX_RULES, PREFIX, Part, cached, encode, fingerprint, identifier};
 use cosmetic::Cosmetics;
-use rules::{MAX_RULES, PREFIX, Part, cached, encode, fingerprint, identifier};
 
 /// Blocks requests, hides elements, and runs scriptlets on every page of a
 /// [`crate::WebKitEngine`], by the rules it was last given. Lives on the main thread.

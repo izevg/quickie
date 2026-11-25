@@ -6,6 +6,59 @@ cd -- "$root"
 build_dir=${QUICKIE_BUILD_DIR:-"$root/.build"}
 stage="$build_dir/gtk-stage"
 
+run_glib_test() {
+  local program=$1 test_path=$2 output status
+  printf 'Running %s %s with the WebKit sandbox enabled\n' "${program##*/}" "$test_path"
+  if output=$(timeout --kill-after=5s 90s xvfb-run -a dbus-run-session -- "$program" -p "$test_path"); then
+    printf '%s\n' "$output"
+  else
+    status=$?
+    printf '%s\n' "$output"
+    return "$status"
+  fi
+  if ! rg -Fxq "ok 1 $test_path" <<< "$output"; then
+    printf 'Expected one passing GLib test at %s\n' "$test_path" >&2
+    return 1
+  fi
+}
+
+run_gtk_native_tests() (
+  local binaries="$build_dir/gtk/bin/TestWebKitAPI/WebKitGTK"
+  local runtime_dir
+  runtime_dir=$(mktemp -d)
+  trap 'rm -rf -- "$runtime_dir"' EXIT
+  export XDG_RUNTIME_DIR="$runtime_dir"
+  export WEBKIT_TESTS_ENABLE_SANDBOX=1 GDK_BACKEND=x11 GTK_A11Y=none
+  unset WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS WEBKIT_INSPECTOR_SERVER WEBKIT_INSPECTOR_HTTP_SERVER
+  unset WEBKIT_EXEC_PATH WEBKIT_INJECTED_BUNDLE_PATH WEBKIT_INSPECTOR_RESOURCES_PATH
+
+  local test_name
+  for test_name in local-browsing-contexts local-close-drops-queued-replies local-rejects-inspector-environment; do
+    run_glib_test "$binaries/TestLocalAutomationSession" "/webkit/WebKitAutomationSession/$test_name"
+  done
+  for test_name in related-popup-explicit-manager related-link-popup-explicit-manager related-popup-inherits-manager; do
+    run_glib_test "$binaries/TestUIClient" "/webkit/WebKitWebView/$test_name"
+  done
+  QUICKIE_TEST_SCREENCAST_PORTAL=1 run_glib_test "$binaries/TestUIClient" \
+    "/webkit/WebKitWebView/display-portal-consent"
+  if [[ $extensions == ON ]]; then
+    run_glib_test "$binaries/TestWebKitWebExtensionContext" \
+      "/webkit/WebKitWebExtensionContext/granted-content-world"
+  fi
+  if [[ $floating_inspector == ON ]]; then
+    run_glib_test "$binaries/TestInspector" "/webkit/WebKitWebInspector/floating-dock"
+  fi
+)
+
+case "${QUICKIE_RUN_GTK_NATIVE_TESTS:-0}" in
+  0) api_tests=OFF ;;
+  1) api_tests=ON ;;
+  *)
+    printf '%s\n' 'QUICKIE_RUN_GTK_NATIVE_TESTS must be 0 or 1.' >&2
+    exit 1
+    ;;
+esac
+
 engine/webkit/scripts/sync
 revision=$(git -C "$build_dir/webkit" rev-parse HEAD)
 printf '%s\n' "$revision" > "$build_dir/gtk-revision"
@@ -15,7 +68,40 @@ if ! rg -q 'WEBKIT_OPTION_DEFINE\(ENABLE_QUICKIE_RELOCATABLE_GTK' \
   exit 1
 fi
 
-# Keep the GTK packages on WebKit's C++ path when the runner has swiftc.
+extensions=OFF
+extension_api=webkit_web_extension_get_requested_host_match_patterns
+extension_header="$build_dir/webkit/Source/WebKit/UIProcess/API/glib/WebKitWebExtension.h.in"
+if rg -q "^${extension_api}[[:space:]]+\(" "$extension_header"; then
+  extensions=ON
+fi
+
+floating_inspector=OFF
+inspector_test="$build_dir/webkit/Tools/TestWebKitAPI/Tests/WebKit/WKWebView/gtk/TestInspector.cpp"
+if rg -Fq 'NativeInspectorTest::add("WebKitWebInspector", "floating-dock",' "$inspector_test"; then
+  floating_inspector=ON
+fi
+
+if [[ $api_tests == ON ]]; then
+  harness="$build_dir/webkit/Tools/TestWebKitAPI/glib/WebKitGLib/TestMain.cpp"
+  if ! rg -Fq 'WEBKIT_TESTS_ENABLE_SANDBOX' "$harness"; then
+    printf '%s\n' 'The selected WebKit revision lacks the sandboxed GLib test harness.' >&2
+    exit 1
+  fi
+  if ! rg -Fq 'ENABLE_QUICKIE_RELOCATABLE_GTK AND ENABLE_API_TESTS' \
+    "$build_dir/webkit/Source/WebKit/PlatformGTK.cmake"; then
+    printf '%s\n' 'The selected WebKit revision lacks release-mode API test linkage.' >&2
+    exit 1
+  fi
+  for tool in bwrap xdg-dbus-proxy xvfb-run Xvfb xauth dbus-run-session timeout; do
+    if ! command -v "$tool" >/dev/null; then
+      printf 'Sandboxed GLib tests require %s.\n' "$tool" >&2
+      exit 1
+    fi
+  done
+  bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
+fi
+
+# Keep the engine on WebKit's C++ path when the runner has swiftc.
 cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_BUILD_TYPE=Release \
   "-DCMAKE_C_COMPILER=${CC:-clang}" "-DCMAKE_CXX_COMPILER=${CXX:-clang++}" \
@@ -24,12 +110,38 @@ cmake -G Ninja -S "$build_dir/webkit" -B "$build_dir/gtk" \
   "-DCMAKE_INSTALL_RPATH=\$ORIGIN;\$ORIGIN/..;\$ORIGIN/../../lib" \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DENABLE_QUICKIE_RELOCATABLE_GTK=ON -DENABLE_BUBBLEWRAP_SANDBOX=ON \
+  -DENABLE_WEB_RTC=ON -DENABLE_EXPERIMENTAL_FEATURES=OFF \
+  "-DENABLE_WK_WEB_EXTENSIONS=$extensions" \
   -DENABLE_BACK_FORWARD_LIST_SWIFT=OFF -DENABLE_IPC_TESTING_SWIFT=OFF \
-  -DDEVELOPER_MODE=OFF -DENABLE_API_TESTS=OFF -DENABLE_LAYOUT_TESTS=OFF \
+  -DDEVELOPER_MODE=OFF "-DENABLE_API_TESTS=$api_tests" -DENABLE_LAYOUT_TESTS=OFF \
   -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
   -DENABLE_MINIBROWSER=OFF -DENABLE_WEBDRIVER=OFF \
   -DUSE_LIBBACKTRACE=OFF -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF
-cmake --build "$build_dir/gtk"
+configuration="$build_dir/gtk/cmakeconfig.h"
+if ! rg -Fxq '#define ENABLE_WEB_RTC 1' "$configuration" ||
+   ! rg -Fxq '#define USE_LIBWEBRTC 1' "$configuration"; then
+  printf '%s\n' 'The packaged WebKitGTK build requires WebRTC with bundled libwebrtc.' >&2
+  exit 1
+fi
+if [[ $extensions == ON ]] && ! rg -Fxq '#define ENABLE_WK_WEB_EXTENSIONS 1' "$configuration"; then
+  printf '%s\n' 'The configured WebKitGTK build did not enable the available extension API.' >&2
+  exit 1
+fi
+
+if [[ $api_tests == ON ]]; then
+  # Ninja's Source/all includes the engine and its install dependencies.
+  targets=(Source/all TestLocalAutomationSession TestUIClient)
+  if [[ $extensions == ON ]]; then
+    targets+=(TestWebKitWebExtensionContext)
+  fi
+  if [[ $floating_inspector == ON ]]; then
+    targets+=(TestInspector)
+  fi
+  cmake --build "$build_dir/gtk" --target "${targets[@]}"
+  run_gtk_native_tests
+else
+  cmake --build "$build_dir/gtk"
+fi
 if [[ -e $stage ]]; then
   printf 'Move the previous engine stage before rebuilding: %s\n' "$stage" >&2
   exit 1
@@ -38,6 +150,10 @@ DESTDIR="$stage" cmake --install "$build_dir/gtk"
 
 runtime="$stage/opt/quickie"
 test -e "$runtime/lib/libwebkitgtk-6.0.so"
+if [[ $extensions == ON ]]; then
+  nm -D --defined-only "$runtime/lib/libwebkitgtk-6.0.so" |
+    awk -v api="$extension_api" '{ sub(/@.*/, "", $NF); if ($NF == api) found = 1 } END { exit !found }'
+fi
 test -f "$runtime/lib/webkitgtk-6.0/injected-bundle/libwebkitgtkinjectedbundle.so"
 for helper in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess; do
   test -x "$runtime/libexec/webkitgtk-6.0/$helper"

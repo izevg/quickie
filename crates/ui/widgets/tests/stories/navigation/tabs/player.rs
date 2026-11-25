@@ -78,7 +78,7 @@ fn shown(scene: &mut Scene, playing: bool) -> Rc<MiniPlayer> {
 /// What the video is named, after its tab.
 const VIDEO: &str = "Video of Rust in 100 Seconds — YouTube";
 
-/// Plays, then each control: play or pause, back to the tab, close; then a click on the
+/// Plays, then each control: play or pause, back to the tab, minimize, close; then a click on the
 /// video, which goes back to the tab too.
 fn playing(scene: &mut Scene) {
     let player = shown(scene, true);
@@ -89,7 +89,7 @@ fn playing(scene: &mut Scene) {
         scene.accessibility().contains(VIDEO),
         "the video is named after its tab",
     );
-    for label in ["Pause", "Back to Tab", "Close", VIDEO] {
+    for label in ["Pause", "Back to Tab", "Minimize player", "Close", VIDEO] {
         match scene.view_labelled(label) {
             Some(view) => scene.click(&view),
             None => scene.check(false, format!("nothing labelled {label}")),
@@ -100,6 +100,7 @@ fn playing(scene: &mut Scene) {
         vec![
             PlayerRequest::PlayPause,
             PlayerRequest::BackToTab,
+            PlayerRequest::Minimize,
             PlayerRequest::Close,
             PlayerRequest::BackToTab,
         ],

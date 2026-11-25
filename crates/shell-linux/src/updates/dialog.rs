@@ -277,6 +277,7 @@ fn window(parent: Object) -> (Object, Object) {
     unsafe { ffi::gtk_widget_set_margin_end(content, 20) };
     // SAFETY: The live dialog adopts the new box.
     unsafe { ffi::gtk_window_set_child(window, content) };
+    crate::gtk::keys::dismiss_on_escape(window);
     (window, content)
 }
 

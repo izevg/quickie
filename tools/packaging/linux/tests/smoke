@@ -10,13 +10,24 @@ binary=$1
 work=$(mktemp -d)
 server=
 cleanup() {
+  local status=$1 attempt
   if [[ -n $server ]]; then
     kill "$server" 2>/dev/null || :
     wait "$server" 2>/dev/null || :
   fi
-  rm -rf -- "$work"
+  # A document portal mount can survive briefly after the private D-Bus session stops.
+  for ((attempt = 0; attempt < 30; ++attempt)); do
+    if rm -rf --one-file-system -- "$work" 2>/dev/null; then
+      exit "$status"
+    fi
+    sleep 0.1
+  done
+  if ! rm -rf --one-file-system -- "$work" && ((status == 0)); then
+    status=1
+  fi
+  exit "$status"
 }
-trap cleanup EXIT
+trap 'cleanup "$?"' EXIT
 mkdir -p "$work/cache" "$work/config" "$work/data" "$work/runtime"
 chmod 700 "$work/runtime"
 export XDG_CACHE_HOME="$work/cache" XDG_CONFIG_HOME="$work/config"
@@ -35,7 +46,7 @@ if [[ -z $port ]]; then
   exit 1
 fi
 
-if timeout 60s dbus-run-session -- xvfb-run -a "$binary" --smoke-test "http://127.0.0.1:$port/"; then
+if timeout 60s xvfb-run -a dbus-run-session -- "$binary" --smoke-test "http://127.0.0.1:$port/"; then
   printf 'Smoke test passed for %s\n' "$binary"
 else
   status=$?

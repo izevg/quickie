@@ -113,6 +113,7 @@ pub fn info_plist(bundle: &Bundle) -> String {
             Value::Text("A website you visit asks to use the microphone."),
         ),
         ("NSPrincipalClass", Value::Text("NSApplication")),
+        ("QuickieFullscreenInView", Value::Flag(true)),
     ]);
     document(&root)
 }

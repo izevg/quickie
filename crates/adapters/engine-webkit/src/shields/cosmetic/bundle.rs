@@ -19,7 +19,7 @@ const DATA: &str = "/*QUICKIE_SHIELDS_DATA*/ null";
 
 /// What the filters do on one host, beyond the generic rules every host gets.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct HostBundle {
+pub struct HostBundle {
     /// The host's site has shields off: nothing is hidden and no scriptlet runs.
     pub(crate) off: bool,
     /// A `$generichide` exception: no generic rule applies.
@@ -115,14 +115,16 @@ pub(crate) fn unshielded(host: &str, sites: &[Site]) -> bool {
 
 /// The hosts whose bundles are known, the most recently used last; at most `capacity`.
 #[derive(Debug)]
-pub(crate) struct HostTable {
+pub struct HostTable {
     capacity: usize,
     order: VecDeque<String>,
     bundles: HashMap<String, Arc<HostBundle>>,
 }
 
 impl HostTable {
-    pub(crate) fn new(capacity: usize) -> Self {
+    /// Keeps up to `capacity` hosts, most recently seen last.
+    #[must_use]
+    pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
             order: VecDeque::new(),
@@ -131,7 +133,7 @@ impl HostTable {
     }
 
     /// A host's bundle, if it is known; it becomes the most recently used.
-    pub(crate) fn get(&mut self, host: &str) -> Option<Arc<HostBundle>> {
+    pub fn get(&mut self, host: &str) -> Option<Arc<HostBundle>> {
         let bundle = Arc::clone(self.bundles.get(host)?);
         self.order.retain(|known| known != host);
         self.order.push_back(host.to_owned());
@@ -141,7 +143,7 @@ impl HostTable {
     /// Keeps a host's bundle, forgetting the least recently used one beyond the capacity;
     /// returns whether the scripts change: the host has an entry of its own in them, or one
     /// that had an entry was forgotten.
-    pub(crate) fn insert(&mut self, host: &str, bundle: Arc<HostBundle>) -> bool {
+    pub fn insert(&mut self, host: &str, bundle: Arc<HostBundle>) -> bool {
         let mut changed = bundle.differs();
         if let Some(old) = self.bundles.insert(host.to_owned(), bundle) {
             changed |= old.differs();
@@ -159,7 +161,7 @@ impl HostTable {
     }
 
     /// Forgets every host: the filters or the unshielded sites changed.
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.order.clear();
         self.bundles.clear();
     }
@@ -179,7 +181,8 @@ impl HostTable {
 
 /// The page-world script: the scriptlets of each host that has any, and the library they call,
 /// evaluated only on such a host. `None` when no known host has a scriptlet.
-pub(crate) fn page_script(table: &HostTable) -> Option<String> {
+#[must_use]
+pub fn page_script(table: &HostTable) -> Option<String> {
     let hosts: Vec<String> = table
         .entries()
         .into_iter()

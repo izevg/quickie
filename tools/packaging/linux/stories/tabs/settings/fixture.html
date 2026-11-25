@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Page inset</title>
+<style>
+  html, body, button:fullscreen { background: rgb(42, 98, 128); }
+  body { display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  button { padding: .7em 1.2em; font: 17px system-ui; }
+</style>
+<button>Enter page fullscreen</button>
+<script>
+  const report = () => {
+    const state = document.fullscreenElement ? 'fullscreen' : 'windowed';
+    void fetch(`${location.pathname}?${state}=${innerWidth}x${innerHeight}`);
+  };
+  document.querySelector('button').addEventListener('click', () => {
+    void document.querySelector('button').requestFullscreen();
+  });
+  addEventListener('resize', report);
+  document.addEventListener('fullscreenchange', report);
+  report();
+</script>

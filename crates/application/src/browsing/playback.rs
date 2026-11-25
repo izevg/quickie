@@ -76,6 +76,13 @@ impl Playback {
         self.player.closed(tab)
     }
 
+    /// Docks the floating page while preserving its playback and the active tab.
+    pub fn minimize<E: PageVideo + ?Sized>(&mut self, engine: &mut E) -> PlayerChange {
+        let change = self.player.dismissed();
+        dock(engine, change);
+        change
+    }
+
     /// The user closed the player: its video pauses, and its page shows whole again.
     ///
     /// # Errors
@@ -86,8 +93,7 @@ impl Playback {
         engine: &mut E,
     ) -> Result<PlayerChange, AppError> {
         let paused = self.shown().map(|tab| engine.play_video(tab, false));
-        let change = self.player.dismissed();
-        dock(engine, change);
+        let change = self.minimize(engine);
         paused.transpose()?;
         Ok(change)
     }
@@ -254,6 +260,26 @@ mod tests {
         assert_eq!(reports(&mut engine, tab(1)), [Some(Video::Paused)]);
         assert_eq!(engine.floated(), None);
         assert_eq!(playback.shown(), None);
+    }
+
+    #[test]
+    fn minimizing_the_player_docks_it_and_preserves_playback() {
+        let (mut playback, mut engine) = floating();
+        reports(&mut engine, tab(1));
+
+        let change = playback.minimize(&mut engine);
+
+        assert_eq!(change.ended, Some(tab(1)));
+        assert_eq!(engine.floated(), None);
+        assert_eq!(playback.shown(), None);
+        assert_eq!(reports(&mut engine, tab(1)), []);
+        assert_eq!(
+            playback
+                .switched(&mut engine, &MemoryView, tab(1), tab(2))
+                .unwrap()
+                .shown,
+            Some(tab(1))
+        );
     }
 
     #[test]

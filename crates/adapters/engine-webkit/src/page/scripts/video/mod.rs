@@ -261,9 +261,11 @@ pub(crate) fn play(
     frames: Option<&Frames<Handle>>,
     play: bool,
 ) {
-    let handle = frames
-        .and_then(Frames::showing)
-        .and_then(|frame| frame.handle.as_deref());
+    let handle = match frames.map(Frames::showing) {
+        Some(Some(frame)) => frame.handle.as_deref(),
+        Some(None) => return,
+        None => None,
+    };
     evaluate(view, world, handle, &play_script(play), drop);
 }
 

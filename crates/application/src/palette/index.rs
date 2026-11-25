@@ -69,6 +69,11 @@ impl PaletteIndex {
         answer(&mut self.ranker, &query, offered, limit)
     }
 
+    /// Answers the dedicated Go To field, where punctuation is part of the page search.
+    pub fn pages(&mut self, text: &str, limit: usize) -> Vec<PaletteItem> {
+        answer(&mut self.ranker, &Query::go_to(text), &self.go_to, limit)
+    }
+
     /// No prefix: tabs, bookmarks, and history; a Chrome Web Store page pasted whole first
     /// offers to install its extension, which nothing ranks above.
     fn go_to(&mut self, text: &str, query: &Query, limit: usize) -> Vec<PaletteItem> {

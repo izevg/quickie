@@ -160,7 +160,12 @@ Set up once: `mise install && mise trust && mise run setup` (points git at `.git
 - Domain and application are unit-tested without I/O, using in-memory fakes of the ports.
   **Every mutant in domain and application must be killed.** An exclusion goes into
   `.cargo/mutants.toml` with its reason, only for a mutant that cannot be tested.
-- Adapters get integration tests; UI gets snapshot tests; Chromium patches get `browser_tests`.
+- Adapters get integration tests; Chromium patches get `browser_tests`.
+- UI changes add or update stories for **both AppKit and GTK in the same PR**. Cover the same
+  user-visible states and interactions on both platforms, use the same story IDs for corresponding
+  states, and capture each toolkit's real UI. Run the affected stories in both suites before merge.
+- **Wayland is the primary Linux target.** Validate GTK UI changes in a native Wayland session with
+  XWayland disabled. Keep X11 checks for compatibility.
 - No `unwrap()`/`expect()`/`panic!` outside tests and the composition root. Lint exceptions are
   `#[expect(lint, reason = "...")]`, never `#[allow]`.
 - Agent harness: `hookah` checks every edit (format, lint) and runs tests at stop

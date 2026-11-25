@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Quickie link hints fixture</title>
+<style>
+  body { margin: 0; font: 18px system-ui; background: #22384b; color: #f6f7fc; }
+  h1 { margin: 24px 60px; font-size: 28px; }
+  main { position: absolute; top: 92px; left: 60px; display: grid;
+    grid-template-columns: repeat(2, 245px); gap: 12px 55px; }
+  a, button, input { box-sizing: border-box; height: 32px; padding: 3px 8px;
+    font: inherit; color: inherit; background: #334c62; border: 0; text-align: left; }
+  #marker { position: absolute; top: 430px; left: 60px; width: 24px; height: 24px;
+    background: #345577; }
+  [hidden] { display: none; }
+</style>
+<h1>Quickie link hints fixture</h1>
+<main>
+  <button>Mark this page</button><input aria-label="Fixture input">
+  <a href="?destination=green">Green notes</a><a target="_blank" href="?destination=purple">Purple notes</a>
+  <a href="?destination=blue">Engine scheduling</a><a href="?destination=blue">Web Inspector</a>
+  <a href="?destination=blue">Browser settings</a><a href="?destination=blue">Keyboard cheatsheet</a>
+  <a href="?destination=green">Release notes</a><a href="?destination=blue">Reference</a>
+  <a href="?destination=blue">Quickie documents</a><a href="?destination=blue">Future work</a>
+  <button hidden>Hidden button</button><button disabled style="position:absolute;top:280px">Disabled button</button>
+</main>
+<div id="marker"></div>
+<script>
+  // The page's global is separate from the world which stores the selected DOM nodes.
+  Object.defineProperty(window, '__quickieHints', {value: []});
+  const marker = document.querySelector('#marker');
+  const destination = new URLSearchParams(location.search).get('destination');
+  if (destination) {
+    document.body.style.background = {green:'#245e49', purple:'#533b71', blue:'#16558b'}[destination];
+    document.querySelector('h1').textContent = `${destination} notes`;
+    document.querySelector('main').hidden = true;
+  }
+  document.querySelector('button').addEventListener('click', () => {
+    marker.style.background = '#60e1ad';
+    void fetch('?activated=control');
+  });
+  const input = document.querySelector('input');
+  input.addEventListener('focus', () => { marker.style.background = '#c487e8'; });
+  input.addEventListener('input', event => {
+    if (event.target.value === 'x') void fetch('?typed=field');
+  });
+  let keysDuringCollection = [];
+  input.addEventListener('keydown', event => {
+    if (event.key === 'F8') {
+      // The story holds this same-origin response while the native hint shortcut is typed.
+      // WebKit cannot answer the asynchronous collect request until the response arrives.
+      keysDuringCollection = [];
+      const pause = new XMLHttpRequest();
+      pause.open('GET', '?waiting_for_hints', false);
+      pause.send();
+    } else if (event.key === 'F9') {
+      void fetch(keysDuringCollection.length ? '?keys=leaked' : '?keys=unchanged');
+    } else if (event.key === 'a' || event.key === 'Backspace') {
+      keysDuringCollection.push(event.key);
+    }
+  });
+</script>

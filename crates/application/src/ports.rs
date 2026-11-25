@@ -18,7 +18,10 @@ use quickie_domain_shields::{
 };
 use url::Url;
 
-use crate::{BlockerError, EngineError, HttpError, LlmError, SecretError, StoreError};
+use crate::{
+    BlockerError, EngineError, HttpError, LlmError, SecretError, StoreError, ToolChatReply,
+    ToolChatRequest,
+};
 
 /// The wall clock.
 pub trait Clock {
@@ -533,6 +536,20 @@ pub enum ChatEvent {
 /// An LLM through the OpenAI-compatible API, on top of [`HttpPort`]. Every call blocks: call it
 /// on a worker thread, never on the main thread.
 pub trait LlmPort {
+    /// Completes one turn with the built-in agent's bounded browser tools.
+    ///
+    /// # Errors
+    ///
+    /// The adapter does not support tools, the request failed or was stopped, or the
+    /// completion does not contain a finished answer or one valid tool call.
+    fn complete_with_tools(
+        &self,
+        _request: &ToolChatRequest<'_>,
+        _stop: &StopSignal,
+    ) -> Result<ToolChatReply, LlmError> {
+        Err(LlmError::Api("tool completions are unsupported".to_owned()))
+    }
+
     /// Streams the answer to `request` into `on_event`, on the calling thread, until the answer
     /// ends or `stop` is signalled.
     ///

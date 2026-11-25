@@ -12,16 +12,18 @@ use quickie_application::BlockerRules;
 use quickie_domain_shields::ContentHash;
 
 /// The most rules `WebKit` compiles into one content rule list.
-pub(crate) const MAX_RULES: usize = 150_000;
+pub const MAX_RULES: usize = 150_000;
 
 /// The start of every rule list identifier this adapter writes, so it can tell its own lists
 /// in the store from anyone else's.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) const PREFIX: &str = "quickie-shields-";
 
 /// Names the rules a [`BlockerRules`] compiles to: equal rules, equal name, so compiled lists in
 /// the store can be found again on the next launch instead of compiled again. Changes when the
 /// lists' content, the unshielded sites, or this conversion change.
-pub(crate) fn fingerprint(rules: &BlockerRules) -> String {
+#[must_use]
+pub fn fingerprint(rules: &BlockerRules) -> String {
     let lists = rules
         .lists
         .iter()
@@ -40,6 +42,7 @@ pub(crate) fn fingerprint(rules: &BlockerRules) -> String {
 /// was compiled (seconds since 1970). The store keeps all of it in the list's identifier, so a
 /// later launch that finds the list knows what it holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(any(target_os = "macos", test))]
 pub(crate) struct Part {
     pub(crate) index: usize,
     pub(crate) count: usize,
@@ -48,6 +51,7 @@ pub(crate) struct Part {
 }
 
 /// The identifier of `part` of the rule lists with this fingerprint.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn identifier(fingerprint: &str, part: Part) -> String {
     let Part {
         index,
@@ -59,6 +63,7 @@ pub(crate) fn identifier(fingerprint: &str, part: Part) -> String {
 }
 
 /// The part an identifier names, when it is one of this fingerprint's.
+#[cfg(any(target_os = "macos", test))]
 fn part_of(identifier: &str, fingerprint: &str) -> Option<Part> {
     let rest = identifier
         .strip_prefix(PREFIX)?
@@ -79,6 +84,7 @@ fn part_of(identifier: &str, fingerprint: &str) -> Option<Part> {
 
 /// The rule lists the store already holds, compiled, for this fingerprint, in order: `Some`
 /// only when every one of a set is there.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn cached(identifiers: &[String], fingerprint: &str) -> Option<Vec<Part>> {
     let parts: Vec<Part> = identifiers
         .iter()
@@ -102,10 +108,11 @@ pub(crate) fn cached(identifiers: &[String], fingerprint: &str) -> Option<Vec<Pa
 /// `ignore-previous-rules` only reaches back within its own rule list, so every document ends
 /// with all of the lists' exceptions, and then one exception per unshielded site: a site with
 /// shields off loads everything on its pages and their subframes.
-pub(crate) fn encode(
-    rules: &BlockerRules,
-    max_rules: usize,
-) -> Result<Vec<(String, usize)>, String> {
+///
+/// # Errors
+///
+/// The converter rejected the input or the exceptions exceeded the rule limit.
+pub fn encode(rules: &BlockerRules, max_rules: usize) -> Result<Vec<(String, usize)>, String> {
     let mut filters = FilterSet::new(true);
     for list in &rules.lists {
         let text = String::from_utf8_lossy(&list.body).into_owned();

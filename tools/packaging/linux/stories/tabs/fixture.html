@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Tab fixture</title>
+<style>
+  html, body { height:100%; margin:0; }
+  body { display:grid; place-items:center; font:24px system-ui, sans-serif; }
+  button { font:inherit; }
+  #tab-text { position:absolute; left:88px; top:200px; }
+</style>
+<body>
+  <button id="state" type="button">Remember this page</button>
+  <p id="tab-text"></p>
+  <script>
+    const pages = [
+      ["#345577", "Quickie documentation"],
+      ["#604275", "Browser scheduling and rendering across every tab, with a title that extends far beyond a card"],
+      ["#827448", "Обзор браузера и вкладок"],
+      ["#3d6f70", "Release notes"],
+      ["#475d48", ""],
+      ["#643847", "WebKit documentation"],
+    ];
+    const page = Number(new URLSearchParams(location.search).get("page"));
+    const [color, title] = pages[page % pages.length];
+    document.body.style.background = page < pages.length ?
+      color : `rgb(${40 + 5 * page}, ${65 + 3 * page}, ${140 - 3 * page})`;
+    document.title = title;
+    document.querySelector("#tab-text").textContent = page === 0 ? "Sage web view" : "Cedar web view";
+    if (page >= pages.length) document.title = `Tab number ${page}`;
+    document.querySelector("#state").onclick = () => {
+      document.body.style.background = "#207060";
+      document.querySelector("#state").textContent = "Page state remembered";
+    };
+  </script>
+</body>
+</html>

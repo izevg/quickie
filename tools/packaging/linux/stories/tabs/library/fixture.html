@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Library fixture</title>
+<style>
+  html { min-height: 100%; }
+  body { color: white; font: 22px system-ui, sans-serif; }
+  a { position: absolute; left: 60px; top: 92px; color: white; }
+</style>
+<a href="?page=background" hidden>Open background article</a>
+<script>
+  const page = new URLSearchParams(location.search).get("page");
+  const privateVisit = location.hash === "#private";
+  const article = page === "article" && !privateVisit;
+  if (article) {
+    document.title = "Library alpha manuscript";
+    document.documentElement.style.background = "#345577";
+    document.querySelector("a").hidden = false;
+  } else if (page === "background") {
+    document.title = "Library bronze archive";
+    document.documentElement.style.background = "#3d6f70";
+  } else {
+    document.title = "Library private notebook";
+    document.documentElement.style.background = "#904a64";
+  }
+  document.addEventListener("keydown", event => {
+    if (event.key === "u") {
+      document.title = article ? "Library alpha second edition" : "Library private retitle";
+      fetch("?page=title-event");
+    }
+  });
+</script>
+</html>

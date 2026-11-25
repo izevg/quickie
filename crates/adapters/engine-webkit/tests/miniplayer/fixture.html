@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fixture loading</title>
+<button id="start">Play videos</button>
+<script>
+const source = "data:video/mp4;base64,__QUICKIE_VIDEO__";
+function video(muted) {
+    const element = document.createElement("video");
+    element.muted = muted;
+    element.playsInline = true;
+    element.loop = true;
+    element.src = source;
+    document.body.append(element);
+    return element;
+}
+const audible = video(false);
+const muted = video(true);
+document.getElementById("start").onclick = async () => {
+    document.title = "Play button clicked";
+    try {
+        await Promise.all([audible.play(), muted.play()]);
+        document.title = "playing";
+    } catch (error) {
+        document.title = `play failed: ${error.name}`;
+    }
+};
+document.title = "Play button ready";
+let floated = false;
+let rounds = 0;
+new MutationObserver(() => {
+    if (!audible.hasAttribute("data-quickie-video")) {
+        if (muted.hasAttribute("data-quickie-video")) document.title = "muted video floated";
+        else if (floated) {
+            floated = false;
+            document.title = "docked";
+        }
+        return;
+    }
+    const rect = audible.getBoundingClientRect();
+    if (!floated) {
+        floated = true;
+        if (++rounds === 2) setTimeout(() => audible.remove(), 50);
+    }
+    document.title = getComputedStyle(audible).position === "fixed"
+        && Math.abs(rect.width - innerWidth) <= 1 && Math.abs(rect.height - innerHeight) <= 1
+        ? "audible video fills the slot" : "video did not fill the slot";
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["data-quickie-video"] });
+</script>
