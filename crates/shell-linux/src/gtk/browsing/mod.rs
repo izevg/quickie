@@ -38,7 +38,7 @@ use engine::{Engine, Pages};
 type SessionState = Session<Engine, WriteBehindStore, SystemClock>;
 
 #[derive(Default)]
-pub(super) struct Browsing {
+pub(crate) struct Browsing {
     state: RefCell<Option<SessionState>>,
     profile_lock: RefCell<Option<File>>,
     writes: RefCell<Option<PendingWrites>>,
@@ -244,13 +244,28 @@ impl Browsing {
         }
     }
 
-    pub(in crate::gtk) fn active_tab(&self) -> Option<TabId> {
+    pub(crate) fn active_tab(&self) -> Option<TabId> {
         self.state
             .try_borrow()
             .ok()?
             .as_ref()?
             .session()
             .active(self.window.get()?)
+    }
+
+    pub(crate) fn active_document_binding(
+        &self,
+    ) -> Option<quickie_application::mcp::DocumentBinding> {
+        let tab = self.active_tab()?;
+        self.pages.document_binding(tab)
+    }
+
+    pub(crate) fn view_for_tab(&self, tab: TabId) -> Option<Object> {
+        self.pages.view(tab)
+    }
+
+    pub(crate) fn tab_for_inspector(&self, inspector: Object) -> Option<TabId> {
+        self.pages.tab_for_inspector(inspector)
     }
 
     pub(super) fn palette_index(&self, keymap: &Keymap) -> Option<PaletteIndex> {

@@ -1,5 +1,6 @@
 //! An explicit, persistent GTK workspace bound to one source `WebKit` view.
 
+pub(crate) mod automation;
 mod read;
 mod service;
 mod turn;

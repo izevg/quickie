@@ -1,5 +1,10 @@
 //! The same inspector shortcut in the browser and the detached `WebKit` window.
 
+mod native;
+pub(crate) mod observation;
+#[cfg(test)]
+mod tests;
+
 use std::ffi::{CStr, c_uint};
 
 use quickie_domain_commands::{FocusedView, Resolution, WhenContext};
@@ -11,6 +16,20 @@ use super::{connect, keys};
 const OBSERVING_ROOT: &CStr = c"quickie-inspector-observing-root";
 const APP: &CStr = c"quickie-inspector-application";
 const TOGGLE_COMMAND: &str = "quickie.devtools.toggle";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToggleAction {
+    Show,
+    Close,
+}
+
+fn toggle_action(frontend: Object) -> ToggleAction {
+    if frontend.is_null() {
+        ToggleAction::Show
+    } else {
+        ToggleAction::Close
+    }
+}
 
 pub(super) fn toggle(view: Object) {
     // SAFETY: The live WebKitWebView owns its inspector.
@@ -66,16 +85,24 @@ pub(super) fn docked_key_pressed(
 fn toggle_inspector(inspector: Object) {
     // SAFETY: The inspector belongs to a live WebKitWebView on this thread.
     let frontend = unsafe { ffi::webkit_web_inspector_get_web_view(inspector) };
-    if frontend.is_null() {
-        // SAFETY: The live inspector can create its own frontend on the GTK thread.
-        unsafe { ffi::webkit_web_inspector_show(inspector) };
-    } else {
-        // SAFETY: The live inspector owns the frontend and handles its destruction.
-        unsafe { ffi::webkit_web_inspector_close(inspector) };
+    match toggle_action(frontend) {
+        ToggleAction::Show => {
+            // SAFETY: The live inspector can create its own frontend on the GTK thread.
+            unsafe { ffi::webkit_web_inspector_show(inspector) };
+        }
+        ToggleAction::Close => {
+            // SAFETY: The live inspector owns the frontend and handles its destruction.
+            unsafe { ffi::webkit_web_inspector_close(inspector) };
+        }
     }
 }
 
 extern "C" fn observe_frontend_root(inspector: Object, data: Object) -> Bool {
+    // SAFETY: The inspector belongs to a page whose App survives its signal handlers.
+    let app = unsafe { &*data.cast::<App>() };
+    if let Some(tab) = app.browsing.tab_for_inspector(inspector) {
+        crate::mcp::gtk::on_inspector_opened(tab);
+    }
     // SAFETY: WebKit emits open-window on the live inspector just before parenting its frontend.
     let frontend = unsafe { ffi::webkit_web_inspector_get_web_view(inspector) };
     if frontend.is_null() {

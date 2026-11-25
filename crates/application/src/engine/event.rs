@@ -44,6 +44,8 @@ pub enum EngineEvent<P> {
     Video { tab: TabId, video: Option<Video> },
     /// The page's video entered or left native picture-in-picture.
     PictureInPicture { tab: TabId, active: bool },
+    /// The native player requests that its original tab return to the foreground.
+    PictureInPictureReturnRequested { tab: TabId },
     /// The page asks the user a question and waits: answer it through the engine with the
     /// ask's token. Closing the tab declines it.
     Asked(Ask),

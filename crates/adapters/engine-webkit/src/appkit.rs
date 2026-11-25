@@ -20,16 +20,31 @@ use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSImage, NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSSize, NSString, NSURL};
 use objc2_web_kit::{WKContentRuleListStore, WKUserContentController, WKWebsiteDataStore};
+use quickie_application::mcp::{DiagnosticCapabilities, SnapshotRequest};
 use quickie_application::{
-    AgentLinks, Answer, Capabilities, DevTools, DownloadToken, Downloads, Engine, EngineError,
-    EngineEvent, EnginePort, FindStep, Found, Inspector, NativePictureInPicture, Navigation,
-    PageAsks, PageContent, PageSurface, PageVideo, PageZoom, ReplyToken, Ticket,
+    AgentLinks, Answer, Capabilities, DevTools, DiagnosticLease, DiagnosticSignal,
+    DiagnosticSnapshot, DownloadToken, Downloads, Engine, EngineError, EngineEvent, EnginePort,
+    FindStep, Found, Inspector, NativePictureInPicture, Navigation, PageAsks, PageContent,
+    PageSurface, PageVideo, PageZoom, ReplyToken, Ticket,
 };
 use quickie_domain_browsing::{Jar, JarId, TabId, WindowId};
 use quickie_domain_settings::ZoomLevel;
 use url::Url;
 
-pub use automation::{AutomationError, BrowsingContext, InteractiveAutomation, LocalAutomation};
+pub use automation::{
+    AgentAutomation, AgentAutomationCapabilities, ApprovedOrigin, AutomationError, AutomationEvent,
+    AutomationRequestId, BrowsingContext, CancelInteractionSequenceCommand, DomBounds,
+    ElementSignals, InputSource, InputSourceState, InputSourceType, InteractionDelta,
+    InteractionSequenceCommand, InteractionStep, InteractiveAutomation, KeyModifier,
+    KeyboardCommand, KeyboardStep, LocalAutomation, LocatedDomElement, LocatorQuery,
+    LocatorSnapshot, MAX_BROWSING_CONTEXTS, MAX_HANDLE_BYTES, MAX_IN_FLIGHT_REQUESTS,
+    MAX_INBOUND_MESSAGE_BYTES, MAX_INPUT_SOURCES, MAX_INTERACTION_STEPS, MAX_KEY_MODIFIERS,
+    MAX_KEYBOARD_INTERACTIONS, MAX_KEYBOARD_TEXT_BYTES, MAX_PAGE_LOAD_TIMEOUT_MS,
+    MAX_SCREENSHOT_BASE64_BYTES, MAX_SEQUENCE_DURATION_MS, MAX_STEP_DURATION_MS,
+    MAX_VIEWPORT_COORD, MouseButton, MouseCommand, MouseInteraction, MouseMoveOrigin,
+    NavigationCommand, ObservedPageState, PageLoadStrategy, ScreenshotCommand, ScreenshotData,
+    ViewportPoint, VirtualKey, WaitOutcome, WaitQuery,
+};
 use downloads::DownloadCenter;
 pub use extensions::WebKitExtensions;
 pub use inbox::OpenedPage;
@@ -78,6 +93,9 @@ pub struct WebKitEngine {
     extensions: Option<Rc<extensions::Shared>>,
     /// The tab whose page floats in the mini player's slot, showing only its video.
     floated: Option<TabId>,
+    /// Active local diagnostic observers keyed by tab, held weakly so dropping a
+    /// [`DiagnosticLease`] releases them and closing a tab invalidates them with a trace gap.
+    diagnostic_observers: RefCell<HashMap<TabId, Weak<observation::cocoa::ObserverState>>>,
 }
 
 impl std::fmt::Debug for WebKitEngine {
@@ -139,6 +157,7 @@ impl WebKitEngine {
             thumbnail_size: THUMBNAIL_SIZE,
             extensions: None,
             floated: None,
+            diagnostic_observers: RefCell::new(HashMap::new()),
         }
     }
 
@@ -357,6 +376,14 @@ impl EnginePort for WebKitEngine {
     }
 
     fn close(&mut self, tab: TabId) -> Result<(), EngineError> {
+        if let Some(observer) = self
+            .diagnostic_observers
+            .borrow_mut()
+            .remove(&tab)
+            .and_then(|observer| observer.upgrade())
+        {
+            observer.invalidate();
+        }
         self.shown.retain(|_, shown| *shown != tab);
         if self.floated == Some(tab) {
             self.floated = None;
@@ -457,6 +484,33 @@ impl PageContent for WebKitEngine {
             );
         });
         Ok(ticket)
+    }
+
+    fn diagnostic_capabilities(&self) -> DiagnosticCapabilities {
+        observation::cocoa::capabilities()
+    }
+
+    fn observe_diagnostics(
+        &self,
+        tab: TabId,
+        on_signal: Box<dyn Fn(DiagnosticSignal) + 'static>,
+    ) -> Result<DiagnosticLease, EngineError> {
+        let page = self.page(tab)?;
+        let (lease, handle) = observation::cocoa::ObserverState::connect(page.web_view(), on_signal)?;
+        let mut observers = self.diagnostic_observers.borrow_mut();
+        observers.retain(|_, entry| entry.strong_count() > 0);
+        observers.insert(tab, handle);
+        Ok(lease)
+    }
+
+    fn diagnostic_snapshot(
+        &self,
+        tab: TabId,
+        request: &SnapshotRequest,
+        done: Box<dyn FnOnce(Result<DiagnosticSnapshot, EngineError>) + 'static>,
+    ) -> Result<(), EngineError> {
+        let page = self.page(tab)?;
+        observation::cocoa::snapshot::capture(page.web_view(), request, self.mtm, done)
     }
 }
 

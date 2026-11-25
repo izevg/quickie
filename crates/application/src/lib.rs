@@ -17,6 +17,7 @@ mod settings;
 mod shields;
 mod site;
 
+pub use agent::mcp;
 pub use agent::{
     Agent, AgentLink, AgentLinks, AnswerEvent, AskError, Asking, LocalFound, PageReader,
     SelectingLink, SelectionError, detect_local, list_models,
@@ -29,12 +30,13 @@ pub use browsing::{Browsing, Playback};
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::conformance;
 pub use engine::{
-    Access, Answer, Ask, AskKind, Capabilities, DevTools, DevToolsPanel, Dialog, DownloadEvent,
-    DownloadToken, Downloads, Engine, EngineEvent, EventQueue, Expected, ExtensionCommand,
-    ExtensionEvent, ExtensionHost, ExtensionInfo, ExtensionPackages, FindStep, Followed, Found,
-    Fullscreen, Inspector, LinkTarget, NativePictureInPicture, NoExtensions, PackageSource,
-    PageAsks, PageContent, PageRect, PageSurface, PageVideo, PageZoom, PortsOf, ReplyToken, Ticket,
-    Unpacked, WindowTabs,
+    Access, Answer, Ask, AskKind, Capabilities, DevTools, DevToolsPanel, DiagnosticGapReason,
+    DiagnosticLease, DiagnosticSignal, DiagnosticSnapshot, Dialog, DownloadEvent, DownloadToken,
+    Downloads, Engine, EngineEvent, EventQueue, Expected, ExtensionCommand, ExtensionEvent,
+    ExtensionHost, ExtensionInfo, ExtensionPackages, FindStep, Followed, Found, Fullscreen,
+    Inspector, LinkTarget, NativePictureInPicture, NoExtensions, PackageSource, PageAsks,
+    PageContent, PageRect, PageSurface, PageVideo, PageZoom, PortsOf, ReplyToken, Ticket, Unpacked,
+    WindowTabs,
 };
 pub use error::{
     AppError, BlockerError, EngineError, HttpError, LlmError, PackageError, SecretError, StoreError,

@@ -43,6 +43,7 @@ impl Browser {
         let Some(tab) = self.active(window) else {
             return;
         };
+        self.mcp_inspector_takeover(tab);
         let inspected = self.browsing.borrow_mut().engine_mut().inspect(tab, asked);
         if let Some(told) = inspector_told(<MainEngine as Engine>::CAPS.inspector, inspected) {
             self.toast(&told);

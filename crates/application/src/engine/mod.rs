@@ -30,6 +30,7 @@ pub use extensions::{
 };
 pub use queue::EventQueue;
 
+use crate::mcp::{DiagnosticCapabilities, DiagnosticEventData, SnapshotRequest};
 use crate::{AgentLinks, ContentBlockerPort, EngineError, EnginePort, HttpPort};
 
 /// What an engine can do that the UI only degrades without, declared once per engine as
@@ -258,6 +259,78 @@ where
 {
 }
 
+/// Why a live diagnostic observation stream lost continuity or closed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticGapReason {
+    /// The native diagnostic callback queue overflowed and dropped messages.
+    NativeQueueOverflow {
+        /// Messages dropped since the previous overflow notice.
+        dropped: u64,
+        /// Total messages dropped on this channel.
+        total_dropped: u64,
+    },
+    /// The decoder's bounded in-flight network request map evicted tracked entries.
+    RequestMapOverflow {
+        /// Number of tracked requests evicted.
+        evicted: u64,
+    },
+    /// The native diagnostic channel closed or was invalidated (for example, preempted by the
+    /// visual Web Inspector, detached, or the observed page closed).
+    ChannelClosed,
+}
+
+/// One item delivered by an active engine diagnostic observer to the shell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DiagnosticSignal {
+    /// A typed diagnostic event ready to record in [`crate::mcp::DiagnosticState`].
+    Event(DiagnosticEventData),
+    /// An explicit trace gap or channel invalidation; missing completions can no longer be
+    /// assumed to be in flight.
+    Gap(DiagnosticGapReason),
+}
+
+/// Bounded read-only snapshot payload returned by the engine before document-epoch validation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticSnapshot {
+    /// Bounded UTF-8 snapshot text.
+    pub data: String,
+    /// Whether node, depth, or byte ceilings truncated the snapshot.
+    pub truncated: bool,
+}
+
+/// Active read-only diagnostic observation lease on a tab's page.
+///
+/// Dropping the lease disconnects the underlying native observer and stops further callbacks.
+pub struct DiagnosticLease {
+    release: Option<Box<dyn FnOnce()>>,
+}
+
+impl DiagnosticLease {
+    /// Creates an observation lease that runs `release` once when dropped.
+    #[must_use]
+    pub fn new(release: impl FnOnce() + 'static) -> Self {
+        Self {
+            release: Some(Box::new(release)),
+        }
+    }
+}
+
+impl Drop for DiagnosticLease {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            release();
+        }
+    }
+}
+
+impl std::fmt::Debug for DiagnosticLease {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DiagnosticLease")
+            .field("active", &self.release.is_some())
+            .finish()
+    }
+}
+
 /// What is on a tab's page, as the user sees it: the matches of a find, the links and controls
 /// on screen for link hints, and the page's text for the agent.
 ///
@@ -333,6 +406,48 @@ pub trait PageContent {
         index: usize,
         background: bool,
     ) -> Result<Ticket, EngineError>;
+
+    /// Diagnostic observation capabilities supported by this engine on the current runtime.
+    fn diagnostic_capabilities(&self) -> DiagnosticCapabilities {
+        DiagnosticCapabilities::default()
+    }
+
+    /// Starts read-only diagnostic observation on `tab`'s page, delivering typed events and
+    /// explicit trace gaps or closure to `on_signal` on the engine's owning thread.
+    ///
+    /// Dropping the returned [`DiagnosticLease`] disconnects the underlying observer.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, the runtime does not expose the local diagnostic SPI, or another
+    /// inspector or diagnostic observer is already attached.
+    fn observe_diagnostics(
+        &self,
+        _tab: TabId,
+        _on_signal: Box<dyn Fn(DiagnosticSignal) + 'static>,
+    ) -> Result<DiagnosticLease, EngineError> {
+        Err(EngineError(
+            "diagnostic observation is unavailable".to_owned(),
+        ))
+    }
+
+    /// Captures a bounded read-only snapshot of `tab`'s main document in an isolated world.
+    ///
+    /// The engine invokes `done` on its owning thread.
+    ///
+    /// # Errors
+    ///
+    /// The tab has no page, or the requested snapshot kind is unavailable on this engine.
+    fn diagnostic_snapshot(
+        &self,
+        _tab: TabId,
+        _request: &SnapshotRequest,
+        _done: Box<dyn FnOnce(Result<DiagnosticSnapshot, EngineError>) + 'static>,
+    ) -> Result<(), EngineError> {
+        Err(EngineError(
+            "diagnostic snapshots are unavailable".to_owned(),
+        ))
+    }
 }
 
 /// How large a tab's page is drawn, in the domain's own zoom levels. Each engine maps a level

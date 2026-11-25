@@ -268,12 +268,14 @@ fn picture_in_picture_events_keep_their_tab_and_order() {
     let tab = TabId::new(Profile::Main, 3);
 
     Inbox::record(&weak, &page, PageEvent::PictureInPicture(true));
+    Inbox::record(&weak, &page, PageEvent::PictureInPictureReturnRequested);
     Inbox::record(&weak, &page, PageEvent::PictureInPicture(false));
 
     assert_eq!(
         drained(&inbox),
         [
             EngineEvent::PictureInPicture { tab, active: true },
+            EngineEvent::PictureInPictureReturnRequested { tab },
             EngineEvent::PictureInPicture { tab, active: false },
         ]
     );

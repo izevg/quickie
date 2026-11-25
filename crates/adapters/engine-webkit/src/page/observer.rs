@@ -58,6 +58,8 @@ pub(crate) enum PageEvent {
     FullscreenInWindow(bool),
     /// `WebKit` opened (`true`) or closed (`false`) native picture-in-picture.
     PictureInPicture(bool),
+    /// The native player's return button needs the original page to become visible.
+    PictureInPictureReturnRequested,
     /// The web content process that rendered the page terminated: the view is blank until it
     /// loads again.
     Crashed,

@@ -108,6 +108,16 @@ impl Browser {
         }
     }
 
+    pub(in crate::browser) fn native_player_return_requested(&self, tab: TabId) {
+        let player = &self.navigation.native_player;
+        if let Some(mut owned) = player.owned.get().filter(|owned| owned.tab == tab) {
+            // The native player has already initiated its dismissal.
+            owned.closing = true;
+            player.owned.set(Some(owned));
+        }
+        self.activate_player_tab(tab);
+    }
+
     pub(super) fn forget_closed_native_player(&self) {
         let player = &self.navigation.native_player;
         let Ok(browsing) = self.browsing.try_borrow() else {

@@ -1,11 +1,12 @@
 //! The application's page port over independent native `WebKit` views.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_int, c_uint};
 use std::ptr;
 use std::rc::Rc;
 
+use quickie_application::mcp::{DocumentBinding, NavigationKind};
 use quickie_application::{EngineError, EnginePort, Navigation};
 use quickie_domain_browsing::{Focus, Jar, JarId, TabId, WindowId};
 use url::{Position, Url};
@@ -59,6 +60,8 @@ pub(super) struct Page {
     widget: Native,
     jar: Jar,
     committed: RefCell<Option<Url>>,
+    epoch: Cell<u64>,
+    reload_pending: Cell<bool>,
 }
 
 impl Page {
@@ -79,12 +82,20 @@ impl Page {
         connect(view, c"load-changed", load_changed as *const _, data);
         connect(view, c"notify::title", title_changed as *const _, data);
         connect(view, c"notify::uri", uri_changed as *const _, data);
+        connect(
+            view,
+            c"web-process-terminated",
+            process_terminated as *const _,
+            data,
+        );
         connect(view, c"create", create_requested as *const _, data);
         connect(view, c"close", close_requested as *const _, data);
         Ok(Self {
             widget,
             jar,
             committed: RefCell::default(),
+            epoch: Cell::new(0),
+            reload_pending: Cell::new(false),
         })
     }
 }
@@ -114,6 +125,31 @@ impl Pages {
 
     pub(super) fn jar(&self, tab: TabId) -> Option<Jar> {
         self.entries.borrow().get(&tab).map(|page| page.jar)
+    }
+
+    pub(super) fn document_binding(&self, tab: TabId) -> Option<DocumentBinding> {
+        let entries = self.entries.borrow();
+        let page = entries.get(&tab)?;
+        let url = page.committed.borrow().clone()?;
+        Some(DocumentBinding {
+            tab,
+            origin: url.origin(),
+            epoch: page.epoch.get(),
+        })
+    }
+
+    pub(super) fn tab_for_inspector(&self, inspector: Object) -> Option<TabId> {
+        self.entries.borrow().iter().find_map(|(&tab, page)| {
+            // SAFETY: The live WebKitWebView owns its inspector on the GTK main thread.
+            let candidate = unsafe { ffi::webkit_web_view_get_inspector(page.widget.0) };
+            (candidate == inspector).then_some(tab)
+        })
+    }
+
+    fn set_reload_pending(&self, tab: TabId, pending: bool) {
+        if let Some(page) = self.entries.borrow().get(&tab) {
+            page.reload_pending.set(pending);
+        }
     }
 
     fn forget_picture(&self, tab: TabId) {
@@ -264,20 +300,33 @@ impl EnginePort for Engine {
             .ok_or_else(|| EngineError("the tab has no WebKit view".into()))?;
         match navigation {
             Navigation::Load(url) => {
+                self.pages.set_reload_pending(tab, false);
                 let uri =
                     CString::new(url.as_str()).map_err(|error| EngineError(error.to_string()))?;
                 // SAFETY: This is the App from the active GTK event loop.
                 let app = unsafe { &*self.data.cast::<App>() };
                 privacy::navigate(app, view, &uri);
             }
-            // SAFETY: The engine owns the live view on the GTK thread.
-            Navigation::Back => unsafe { ffi::webkit_web_view_go_back(view) },
-            // SAFETY: The engine owns the live view on the GTK thread.
-            Navigation::Forward => unsafe { ffi::webkit_web_view_go_forward(view) },
-            // SAFETY: The engine owns the live view on the GTK thread.
-            Navigation::Reload => unsafe { ffi::webkit_web_view_reload(view) },
-            // SAFETY: The engine owns the live view on the GTK thread.
-            Navigation::HardReload => unsafe { webkit_web_view_reload_bypass_cache(view) },
+            Navigation::Back => {
+                self.pages.set_reload_pending(tab, false);
+                // SAFETY: The engine owns the live view on the GTK thread.
+                unsafe { ffi::webkit_web_view_go_back(view) };
+            }
+            Navigation::Forward => {
+                self.pages.set_reload_pending(tab, false);
+                // SAFETY: The engine owns the live view on the GTK thread.
+                unsafe { ffi::webkit_web_view_go_forward(view) };
+            }
+            Navigation::Reload => {
+                self.pages.set_reload_pending(tab, true);
+                // SAFETY: The engine owns the live view on the GTK thread.
+                unsafe { ffi::webkit_web_view_reload(view) };
+            }
+            Navigation::HardReload => {
+                self.pages.set_reload_pending(tab, true);
+                // SAFETY: The engine owns the live view on the GTK thread.
+                unsafe { webkit_web_view_reload_bypass_cache(view) };
+            }
             // SAFETY: The engine owns the live view on the GTK thread.
             Navigation::Stop => unsafe { webkit_web_view_stop_loading(view) },
         }
@@ -294,6 +343,7 @@ impl EnginePort for Engine {
         if let Some(page) = page {
             // SAFETY: This is the App from the active GTK event loop.
             let app = unsafe { &*self.data.cast::<App>() };
+            crate::mcp::gtk::on_tab_closed(tab);
             app.browsing.media.tab_closed(tab);
             agent::source_removed(app, page.widget.0);
             privacy::forget(app, page.widget.0);
@@ -326,8 +376,25 @@ extern "C" fn load_changed(view: Object, event: c_int, data: Object) {
             }
         }
         LOAD_COMMITTED => {
+            let reload = app.browsing.pages.tab(view).is_some_and(|tab| {
+                let entries = app.browsing.pages.entries.borrow();
+                entries.get(&tab).is_some_and(|page| {
+                    page.epoch.set(page.epoch.get().saturating_add(1));
+                    page.reload_pending.replace(false)
+                })
+            });
             record_metadata(view, app, Metadata::Commit);
             observe_origin(view, app);
+            if let Some(tab) = app.browsing.pages.tab(view)
+                && let Some(binding) = app.browsing.pages.document_binding(tab)
+            {
+                let kind = if reload {
+                    NavigationKind::Reload
+                } else {
+                    NavigationKind::NewDocument
+                };
+                crate::mcp::gtk::on_navigation(tab, &binding, kind);
+            }
         }
         LOAD_FINISHED => record_metadata(view, app, Metadata::Title),
         _ => {}
@@ -405,6 +472,11 @@ fn record_metadata(view: Object, app: &App, event: Metadata) {
     };
     if event == Metadata::Commit {
         browsing.zoom.apply_view(view, &url, jar);
+    } else if event == Metadata::Location
+        && same_document
+        && let Some(binding) = app.browsing.pages.document_binding(tab)
+    {
+        crate::mcp::gtk::on_navigation(tab, &binding, NavigationKind::SameDocument);
     }
     let library_changed = match event {
         Metadata::Commit => browsing.library.visit(tab, jar, &url, &title),
@@ -526,6 +598,14 @@ extern "C" fn close_requested(view: Object, data: Object) {
     let app = unsafe { &*data.cast::<App>() };
     if let Some(tab) = app.browsing.pages.tab(view) {
         app.browsing.close(app, tab);
+    }
+}
+
+extern "C" fn process_terminated(view: Object, _reason: c_int, data: Object) {
+    // SAFETY: GTK calls the registered handler with the live App reference.
+    let app = unsafe { &*data.cast::<App>() };
+    if let Some(tab) = app.browsing.pages.tab(view) {
+        crate::mcp::gtk::on_process_terminated(tab);
     }
 }
 

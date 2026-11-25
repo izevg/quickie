@@ -199,6 +199,9 @@ impl Browser {
         if self.extension_sheet_key(stroke).is_some() {
             return Outcome::Overlay;
         }
+        if self.mcp_sheet_key(stroke) {
+            return Outcome::Overlay;
+        }
         if let Some(route) = self.sheet_route(stroke) {
             return self.past_sheet(stroke, route);
         }

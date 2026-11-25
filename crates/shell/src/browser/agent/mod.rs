@@ -169,8 +169,11 @@ impl Browser {
         self.open_panel(Trigger::Keyboard);
     }
 
-    /// `⌘.`: stops the answer; what came so far stays.
+    /// `⌘.`: stops the answer or active MCP diagnostics; what came so far stays.
     pub(super) fn stop_agent(&self) {
+        if self.stop_mcp_diagnostics() {
+            return;
+        }
         #[cfg(feature = "main-webkit")]
         if self.cancel_act("Agent action stopped") {
             return;

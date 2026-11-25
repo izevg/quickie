@@ -6,6 +6,7 @@ use quickie_domain_browsing::Destination;
 pub enum Options {
     Empty,
     Updates,
+    Mcp { attach_only: bool },
     Navigate(CString),
     Smoke(CString),
 }
@@ -21,6 +22,12 @@ impl Options {
             } else {
                 Err("the update action does not take an address".into())
             };
+        }
+        if first == "mcp" || first == "--mcp" {
+            return parse_mcp_options(arguments);
+        }
+        if first == "--attach-only" {
+            return Err("--attach-only requires `mcp` or `--mcp`".into());
         }
         let (input, smoke) = if first == "--smoke-test" {
             let url = arguments
@@ -46,6 +53,19 @@ impl Options {
             Self::Navigate(url)
         })
     }
+}
+
+fn parse_mcp_options(mut arguments: impl Iterator<Item = OsString>) -> Result<Options, String> {
+    let Some(flag) = arguments.next() else {
+        return Ok(Options::Mcp { attach_only: false });
+    };
+    if flag != "--attach-only" {
+        return Err("MCP mode accepts only optional --attach-only".into());
+    }
+    if arguments.next().is_some() {
+        return Err("MCP mode accepts at most one --attach-only flag".into());
+    }
+    Ok(Options::Mcp { attach_only: true })
 }
 
 #[cfg(test)]
@@ -98,6 +118,52 @@ mod tests {
             "http://example.com/",
         ] {
             assert!(Options::parse(["--smoke-test".into(), address.into()].into_iter()).is_err());
+        }
+    }
+
+    #[test]
+    fn mcp_accepts_subcommand_and_flag_spellings_with_optional_attach_only() {
+        // Arrange
+        let subcommand = ["mcp".into()];
+        let flag = ["--mcp".into()];
+        let subcommand_attach = ["mcp".into(), "--attach-only".into()];
+        let flag_attach = ["--mcp".into(), "--attach-only".into()];
+
+        // Act
+        let parsed = (
+            Options::parse(subcommand.into_iter()),
+            Options::parse(flag.into_iter()),
+            Options::parse(subcommand_attach.into_iter()),
+            Options::parse(flag_attach.into_iter()),
+        );
+
+        // Assert
+        assert_eq!(
+            parsed,
+            (
+                Ok(Options::Mcp { attach_only: false }),
+                Ok(Options::Mcp { attach_only: false }),
+                Ok(Options::Mcp { attach_only: true }),
+                Ok(Options::Mcp { attach_only: true }),
+            )
+        );
+    }
+
+    #[test]
+    fn mcp_rejects_unknown_extra_arguments_and_stray_attach_only() {
+        // Arrange
+        let cases: &[&[&str]] = &[
+            &["--attach-only"],
+            &["mcp", "--unknown"],
+            &["--mcp", "https://example.com"],
+            &["mcp", "--attach-only", "--attach-only"],
+            &["--mcp", "--attach-only", "extra"],
+        ];
+
+        // Act & Assert
+        for args in cases {
+            let parsed = Options::parse(args.iter().map(Into::into));
+            assert!(parsed.is_err(), "expected error for {args:?}");
         }
     }
 }

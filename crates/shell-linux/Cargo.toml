@@ -13,24 +13,29 @@ path = "src/main.rs"
 gtk-story-media = []
 
 [dependencies]
+quickie-application.workspace = true
 quickie-domain-browsing.workspace = true
+quickie-engine-webkit.workspace = true
+quickie-mcp = { path = "../adapters/mcp", version = "0.0.0" }
+serde_json.workspace = true
+url.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-quickie-application.workspace = true
 quickie-domain-agents.workspace = true
 quickie-domain-commands.workspace = true
 quickie-domain-library.workspace = true
 quickie-domain-palette.workspace = true
 quickie-domain-settings.workspace = true
 quickie-domain-shields.workspace = true
-quickie-engine-webkit.workspace = true
 quickie-llm.workspace = true
 quickie-store.workspace = true
 quickie-updater.workspace = true
 rustix = { version = "1", features = ["fs", "process"] }
-serde_json.workspace = true
 tempfile.workspace = true
-url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

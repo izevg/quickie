@@ -16,6 +16,7 @@
 
 mod ask;
 mod local;
+pub mod mcp;
 mod navigation;
 #[cfg(test)]
 mod tests;
