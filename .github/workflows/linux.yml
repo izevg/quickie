@@ -57,7 +57,7 @@ env:
   MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
   QUICKIE_MIN_FREE_GB: "25"
   QUICKIE_WEBKIT_COMMIT: ${{ inputs.webkit_commit }}
-  QUICKIE_GTK_EXTENSION_STORY: ${{ inputs.webkit_api_tests && '1' || '0' }}
+  QUICKIE_GTK_EXTENSION_STORY: ${{ (inputs.webkit_api_tests || inputs.release_notes) && '1' || '0' }}
   QUICKIE_VERSION: ${{ inputs.version || '0.2.0' }}
 
 jobs:
