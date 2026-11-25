@@ -15,6 +15,6 @@
 # (engine/README.md, "Bumping the pin").
 
 WEBKIT_REPO=https://github.com/izevg/WebKit.git
-WEBKIT_BRANCH=quickie/patch/fullscreen-in-window
-WEBKIT_COMMIT=702da9c837a3e24f7d87f4824a5d12e9ff3db923
-WEBKIT_CHECKED=2026-11-23
+WEBKIT_BRANCH=quickie/patch/release-0.3.0
+WEBKIT_COMMIT=3e9020f34bf0c247d1fc2361a115f3bda82d7d59
+WEBKIT_CHECKED=2026-11-25
