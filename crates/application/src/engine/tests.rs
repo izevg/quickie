@@ -1,13 +1,16 @@
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use quickie_domain_browsing::{Jar, Profile, TabId};
 use url::Url;
 
 use super::conformance::MemoryEngine;
 use super::{
-    DownloadEvent, DownloadToken, FindStep, NativePictureInPicture, PageContent, PageVideo,
-    ReplyToken, Ticket,
+    DiagnosticLease, DownloadEvent, DownloadToken, FindStep, NativePictureInPicture, PageContent,
+    PageVideo, ReplyToken, Ticket,
 };
+use crate::mcp::{DiagnosticCapabilities, SnapshotKind, SnapshotRequest};
 use crate::{EngineError, EnginePort};
 
 /// Page content that remembers the finds it was asked for and can do nothing else.
@@ -51,6 +54,62 @@ fn an_engine_without_agent_links_rejects_the_request_immediately() {
     let request = finds.agent_links(tab, |_| panic!("unsupported requests have no completion"));
 
     assert!(request.is_err());
+}
+
+#[test]
+fn diagnostic_lease_runs_release_on_drop() {
+    let released = Rc::new(Cell::new(0usize));
+    let counter = Rc::clone(&released);
+    let lease = DiagnosticLease::new(move || counter.set(counter.get() + 1));
+    assert_eq!(released.get(), 0);
+
+    drop(lease);
+
+    assert_eq!(released.get(), 1);
+}
+
+#[test]
+fn active_diagnostic_lease_debug_reports_leased_state() {
+    let lease = DiagnosticLease::new(|| {});
+
+    let formatted = format!("{lease:?}");
+
+    assert_eq!(formatted, "DiagnosticLease { active: true }");
+}
+
+#[test]
+fn an_engine_without_diagnostics_advertises_empty_capabilities() {
+    let finds = Finds::default();
+
+    let capabilities = finds.diagnostic_capabilities();
+
+    assert_eq!(
+        capabilities,
+        DiagnosticCapabilities {
+            dom: false,
+            accessibility: false,
+            console: false,
+            runtime_errors: false,
+            pending_network: false,
+            completed_network: false,
+            lifecycle: false,
+        }
+    );
+}
+
+#[test]
+fn an_engine_without_diagnostic_snapshots_rejects_the_request_immediately() {
+    let tab = TabId::new(Profile::Main, 3);
+    let finds = Finds::default();
+    let request = SnapshotRequest::with_max_bounds(SnapshotKind::Dom, None);
+
+    let result = finds.diagnostic_snapshot(
+        tab,
+        &request,
+        Box::new(|_| panic!("unsupported requests have no completion")),
+    );
+
+    assert!(result.is_err());
 }
 
 #[test]
