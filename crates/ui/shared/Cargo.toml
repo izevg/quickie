@@ -28,6 +28,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSFont",
   "NSFontDescriptor",
   "NSGlassEffectView",
+  "NSGraphics",
   "NSImage",
   "NSImageView",
   "NSLayoutConstraint",
@@ -36,13 +37,18 @@ objc2-app-kit = { workspace = true, features = [
   "NSScroller",
   "NSScrollView",
   "NSSecureTextField",
+  "NSStringDrawing",
   "NSSwitch",
   "NSTableColumn",
   "NSTableHeaderView",
   "NSTableRowView",
   "NSTableView",
   "NSText",
+  "NSTextContainer",
   "NSTextField",
+  "NSTextInputClient",
+  "NSTextStorage",
+  "NSTextView",
   "NSUserInterfaceItemIdentification",
   "NSView",
   "NSVisualEffectView",
@@ -61,6 +67,7 @@ objc2-foundation = { workspace = true, features = [
   "NSObject",
   "NSRange",
   "NSString",
+  "NSURL",
   "NSValue",
 ] }
 objc2-quartz-core = { workspace = true, features = [
@@ -75,6 +82,9 @@ objc2-quartz-core = { workspace = true, features = [
   "CATransform3D",
   "CATransaction",
 ] }
+# CommonMark events, without the optional HTML renderer or command-line tools (MIT).
+pulldown-cmark = { version = "0.13.6", default-features = false }
+url.workspace = true
 
 [features]
 # The story harness (`stories`): headless renders, visual tests, and play tests of the UI

@@ -24,10 +24,8 @@ pub enum Target {
     Search(Url),
     /// Run this skill of the agent on the current page.
     Skill(SkillId),
-    /// Ask the agent this question about the current page.
+    /// Send this prompt to the agent workspace.
     Ask(Question),
-    /// Ask the agent to choose a link to open in its isolated session.
-    Act(Question),
     /// Install the extension this Chrome Web Store page shows.
     InstallExtension(Url),
     /// Run an extension's action or command.

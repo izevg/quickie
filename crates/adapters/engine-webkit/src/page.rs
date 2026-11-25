@@ -5,7 +5,7 @@
 //! the tab's own window).
 
 pub(crate) mod asks;
-mod find;
+pub(crate) mod find;
 pub(crate) mod inspector;
 mod observer;
 pub(crate) mod scripts;
@@ -257,6 +257,10 @@ impl WebPage {
     /// The view the page draws in, edge to edge; it takes the keyboard.
     pub(crate) fn view(&self) -> &NSView {
         &self.view
+    }
+
+    pub(crate) fn document_revision(&self) -> Option<u64> {
+        self.observer.document_revision()
     }
 
     /// The view to embed in a window: the page, and its Web Inspector when it docks.
@@ -558,6 +562,14 @@ impl WebPage {
         self.evaluate(agent_links::COLLECT_SCRIPT, move |answer| {
             done(agent_links::parse(&answer));
         });
+    }
+
+    pub(crate) fn read_agent_text(
+        &self,
+        max_chars: usize,
+        done: impl FnOnce(Result<String, EngineError>) + 'static,
+    ) {
+        scripts::evaluate_checked(&self.view, &self.world, None, &text_script(max_chars), done);
     }
 
     /// Follows target `index` of the last [`Self::link_targets`]; `background` asks a link to

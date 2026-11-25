@@ -15,10 +15,9 @@
 //! The panel only shows; the browser runs every request.
 
 mod chrome;
-pub mod markdown;
-pub mod text;
-pub mod transcript;
 pub mod wording;
+
+pub use quickie_ui_shared::format::answer::{markdown, text, transcript};
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

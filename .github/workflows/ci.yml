@@ -1,11 +1,11 @@
 name: ci
 
-# The gates of docs/quality.md on every push to main and every pull request. The tasks come from
+# The gates of docs/quality.md on main, release branches, and every pull request. The tasks come from
 # .mise.toml, which stays the single source of truth; the hooks run the same tasks locally.
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
   workflow_dispatch:
 
@@ -75,7 +75,8 @@ jobs:
         run: mise run conformance
 
   # The same suite on our WebKit fork at the pin, the engine the app ships with: a patch or a pin
-  # bump that breaks what the application expects fails here. The fork needs macOS 26.5.
+  # bump that breaks what the application expects fails here. Release branches also check
+  # performance with the same optimized conformance binary. The fork needs macOS 26.5.
   conformance-fork:
     name: engine conformance (WebKit fork)
     runs-on: macos-26
@@ -93,7 +94,7 @@ jobs:
       # jdx/mise-action v5.2.9
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d
         with:
-          install_args: rust
+          install_args: rust aqua:jqlang/jq
       # Swatinem/rust-cache v2.9.3
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - name: WebKit fork
@@ -103,7 +104,17 @@ jobs:
       - name: Conformance suite on the fork
         env:
           QUICKIE_INSPECTOR_WINDOW_STORIES: "1"
-        run: mise run conformance-fork
+          RELEASE_PERFORMANCE: >-
+            ${{ startsWith(github.ref, 'refs/heads/release/') ||
+                (github.event_name == 'pull_request' &&
+                 (startsWith(github.base_ref, 'release/') ||
+                  (github.base_ref == 'main' && startsWith(github.head_ref, 'release/')))) }}
+        run: |
+          if [[ "$RELEASE_PERFORMANCE" == true ]]; then
+            mise run conformance-fork-release
+          else
+            mise run conformance-fork
+          fi
       - name: Report fork conformance termination
         if: failure()
         run: |

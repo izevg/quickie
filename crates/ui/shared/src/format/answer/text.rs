@@ -9,6 +9,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::tokens::{TextRole, color, space};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{
@@ -17,15 +18,14 @@ use objc2::{
 use objc2_app_kit::{
     NSAttributedStringNSExtendedStringDrawing, NSBackgroundColorAttributeName, NSColor, NSFont,
     NSFontAttributeName, NSFontDescriptorSymbolicTraits, NSForegroundColorAttributeName,
-    NSLinkAttributeName, NSScrollView, NSStringDrawingOptions, NSTextDelegate, NSTextView,
-    NSTextViewDelegate, NSView,
+    NSLinkAttributeName, NSMutableParagraphStyle, NSParagraphStyleAttributeName, NSScrollView,
+    NSStringDrawingOptions, NSTextDelegate, NSTextView, NSTextViewDelegate, NSView,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSMutableAttributedString, NSRange, NSSize, NSString, NSURL};
-use quickie_ui_shared::tokens::{TextRole, color};
+use objc2_foundation::{NSMutableAttributedString, NSRange, NSRect, NSSize, NSString, NSURL};
 use url::Url;
 
-use super::markdown::{Span, Style};
+use super::markdown::{Block, Paragraph, Span, Style};
 use super::transcript::Edit;
 
 type LinkHandler = Rc<dyn Fn(Url)>;
@@ -79,9 +79,9 @@ impl LinkDelegate {
     }
 }
 
-/// The scrolling text of an answer.
+/// Selectable answer text, with its own scroll view or embedded in a transcript.
 pub struct AnswerText {
-    scroll: Retained<NSScrollView>,
+    scroll: Option<Retained<NSScrollView>>,
     text: Retained<NSTextView>,
     delegate: Retained<LinkDelegate>,
     look: RefCell<Look>,
@@ -98,6 +98,28 @@ impl AnswerText {
             .documentView()
             .and_then(|view| view.downcast::<NSTextView>().ok())
             .unwrap_or_else(|| NSTextView::new(mtm));
+        Self::configure(text, Some(scroll), mtm)
+    }
+
+    /// Text placed directly in a transcript that already handles scrolling.
+    #[must_use]
+    pub fn embedded(mtm: MainThreadMarker) -> Self {
+        let text = NSTextView::initWithFrame(NSTextView::alloc(mtm), NSRect::ZERO);
+        text.setHorizontallyResizable(false);
+        text.setVerticallyResizable(false);
+        // SAFETY: a getter. The text view owns its default layout container.
+        if let Some(container) = unsafe { text.textContainer() } {
+            container.setWidthTracksTextView(true);
+            container.setHeightTracksTextView(true);
+        }
+        Self::configure(text, None, mtm)
+    }
+
+    fn configure(
+        text: Retained<NSTextView>,
+        scroll: Option<Retained<NSScrollView>>,
+        mtm: MainThreadMarker,
+    ) -> Self {
         text.setEditable(false);
         text.setSelectable(true);
         text.setRichText(true);
@@ -118,7 +140,7 @@ impl AnswerText {
     /// The view to place in the panel.
     #[must_use]
     pub fn view(&self) -> &NSView {
-        &self.scroll
+        self.scroll.as_deref().map_or(&self.text, |scroll| scroll)
     }
 
     /// Runs `handler` with the web link the user clicked.
@@ -129,7 +151,7 @@ impl AnswerText {
     /// The whole text, as shown, for copying.
     #[must_use]
     pub fn string(&self) -> String {
-        self.text.string().to_string()
+        self.text.string().to_string().replace('\u{2028}', "\n")
     }
 
     /// Empties the text, for the next answer.
@@ -147,7 +169,10 @@ impl AnswerText {
         };
         let length = storage.length();
         let from = edit.from.min(length);
-        let following = self.at_end();
+        let following = self.scroll.as_ref().is_some_and(|scroll| {
+            let visible = scroll.contentView().documentVisibleRect();
+            visible.origin.y + visible.size.height >= self.text.frame().size.height - 4.0
+        });
         let replacement = self.look.borrow().attributed(&edit.spans);
         storage.beginEditing();
         storage.replaceCharactersInRange_withAttributedString(
@@ -183,13 +208,6 @@ impl AnswerText {
         );
         bounds.size.height.ceil()
     }
-
-    /// True when the end of the text is in view, or there is nothing to scroll.
-    fn at_end(&self) -> bool {
-        let visible = self.scroll.contentView().documentVisibleRect();
-        let height = self.text.frame().size.height;
-        visible.origin.y + visible.size.height >= height - 4.0
-    }
 }
 
 /// The fonts and colors of an answer, looked up once: a font lookup costs more than the edit
@@ -198,11 +216,15 @@ struct Look {
     body: Retained<NSFont>,
     strong: Retained<NSFont>,
     italic: Retained<NSFont>,
+    strong_italic: Retained<NSFont>,
+    title: Retained<NSFont>,
+    heading: Retained<NSFont>,
     code: Retained<NSFont>,
     note: Retained<NSFont>,
     label: Retained<NSColor>,
     accent: Retained<NSColor>,
     secondary: Retained<NSColor>,
+    separator: Retained<NSColor>,
     problem: Retained<NSColor>,
     quote_fill: Retained<NSColor>,
 }
@@ -210,15 +232,20 @@ struct Look {
 impl Look {
     fn now() -> Self {
         let body = TextRole::RowTitle.font();
+        let strong = bold(&body);
         Self {
-            strong: bold(&body),
+            strong_italic: italic(&strong),
+            strong,
             italic: italic(&body),
+            title: bold(&TextRole::Title.font()),
+            heading: bold(&TextRole::Headline.font()),
             code: TextRole::RowTitle.mono_font(),
             note: TextRole::RowDetail.font(),
             body,
             label: color::label(),
             accent: color::accent(),
             secondary: color::secondary_label(),
+            separator: color::separator(),
             problem: color::destructive(),
             quote_fill: color::agent().colorWithAlphaComponent(0.18),
         }
@@ -232,21 +259,58 @@ impl Look {
             &NSString::from_str(&whole),
         );
         let mut at = 0;
+        let mut paragraph: Option<(usize, Paragraph)> = None;
         for span in spans {
+            if let Some(layout) = span.paragraph {
+                if let Some((start, previous)) = paragraph {
+                    apply_paragraph(&string, NSRange::new(start, at - start), previous);
+                }
+                paragraph = Some((at, layout));
+            }
             let length = span.text.encode_utf16().count();
-            self.style(&string, NSRange::new(at, length), &span.style);
+            self.style(
+                &string,
+                NSRange::new(at, length),
+                &span.style,
+                paragraph.map(|(_, layout)| layout.block),
+            );
             at += length;
+        }
+        if let Some((start, layout)) = paragraph {
+            apply_paragraph(&string, NSRange::new(start, at - start), layout);
         }
         string
     }
 
-    fn style(&self, string: &NSMutableAttributedString, range: NSRange, style: &Style) {
+    fn style(
+        &self,
+        string: &NSMutableAttributedString,
+        range: NSRange,
+        style: &Style,
+        block: Option<Block>,
+    ) {
+        let heading = match block {
+            Some(Block::Title) => Some(&self.title),
+            Some(Block::Heading) => Some(&self.heading),
+            _ => None,
+        };
+        let slanted_heading = heading
+            .filter(|_| matches!(style, Style::Emphasis | Style::StrongEmphasis))
+            .map(|font| italic(font));
         let (font, tint) = match style {
-            Style::Body | Style::Quote => (&self.body, &self.label),
-            Style::Strong | Style::Heading => (&self.strong, &self.label),
-            Style::Emphasis => (&self.italic, &self.label),
+            Style::Body | Style::Quote => (heading.unwrap_or(&self.body), &self.label),
+            Style::Strong | Style::Heading => (heading.unwrap_or(&self.strong), &self.label),
+            Style::Emphasis => (
+                slanted_heading.as_ref().unwrap_or(&self.italic),
+                &self.label,
+            ),
+            Style::StrongEmphasis => (
+                slanted_heading.as_ref().unwrap_or(&self.strong_italic),
+                &self.label,
+            ),
             Style::Code => (&self.code, &self.label),
-            Style::Link(_) => (&self.body, &self.accent),
+            Style::Rule => (&self.code, &self.separator),
+            Style::Link(_) => (heading.unwrap_or(&self.body), &self.accent),
             Style::Note => (&self.note, &self.secondary),
             Style::Problem => (&self.body, &self.problem),
         };
@@ -275,19 +339,57 @@ impl Look {
             Style::Body
             | Style::Strong
             | Style::Emphasis
+            | Style::StrongEmphasis
             | Style::Code
             | Style::Heading
+            | Style::Rule
             | Style::Note
             | Style::Problem => {}
         }
     }
 }
 
+fn apply_paragraph(string: &NSMutableAttributedString, range: NSRange, layout: Paragraph) {
+    let style = NSMutableParagraphStyle::new();
+    let list_indent = CGFloat::from(layout.list_depth) * space::LG;
+    let quote_indent = CGFloat::from(layout.quote_depth) * space::MD;
+    let code_indent = if layout.block == Block::Code {
+        space::SM
+    } else {
+        0.0
+    };
+    let indent = list_indent + quote_indent + code_indent;
+    style.setHeadIndent(indent);
+    style.setFirstLineHeadIndent(if layout.marker {
+        indent - space::LG
+    } else {
+        indent
+    });
+    style.setLineSpacing(space::XS / 2.0);
+    let spacing = match layout.block {
+        Block::Title | Block::Heading => {
+            style.setParagraphSpacingBefore(space::SM);
+            space::XS
+        }
+        Block::Rule => {
+            style.setParagraphSpacingBefore(space::XS);
+            space::MD
+        }
+        Block::TableRow => space::XS,
+        Block::Body if layout.list_depth != 0 => space::XS,
+        Block::Body | Block::Code => space::SM,
+    };
+    style.setParagraphSpacing(spacing);
+    // SAFETY: the attribute takes an `NSParagraphStyle`, and the range is a complete paragraph
+    // within the attributed string.
+    unsafe { string.addAttribute_value_range(NSParagraphStyleAttributeName, &style, range) };
+}
+
 /// `font` in italics; `font` itself when the system has no italic of it.
 fn italic(font: &NSFont) -> Retained<NSFont> {
-    let descriptor = font
-        .fontDescriptor()
-        .fontDescriptorWithSymbolicTraits(NSFontDescriptorSymbolicTraits::TraitItalic);
+    let descriptor = font.fontDescriptor();
+    let traits = descriptor.symbolicTraits() | NSFontDescriptorSymbolicTraits::TraitItalic;
+    let descriptor = descriptor.fontDescriptorWithSymbolicTraits(traits);
     NSFont::fontWithDescriptor_size(&descriptor, font.pointSize()).unwrap_or_else(|| font.retain())
 }
 

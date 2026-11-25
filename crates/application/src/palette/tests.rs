@@ -721,10 +721,6 @@ mod asking {
         Target::Ask(Question::try_from(text).unwrap())
     }
 
-    fn act(text: &str) -> Target {
-        Target::Act(Question::try_from(text).unwrap())
-    }
-
     #[test]
     fn a_bare_question_mark_lists_every_skill_and_asks_nothing() {
         let items = World::new().query("?", 50);
@@ -755,14 +751,11 @@ mod asking {
     }
 
     #[test]
-    fn matching_skills_precede_the_typed_question_and_action() {
+    fn matching_skills_precede_the_single_agent_prompt() {
         let items = World::new().query("?summ", 50);
 
         let question = &items[1];
-        assert_eq!(
-            targets(&items),
-            [skill("summarize"), ask("summ"), act("summ")]
-        );
+        assert_eq!(targets(&items), [skill("summarize"), ask("summ")]);
         assert_eq!(question.kind, Kind::Question);
         assert_eq!(question.title, format!("{ASK_TITLE}summ"));
         assert_eq!(question.detail, ASK_DETAIL);
@@ -771,28 +764,20 @@ mod asking {
     }
 
     #[test]
-    fn unmatched_questions_offer_ask_and_act() {
+    fn unmatched_questions_offer_a_single_agent_prompt() {
         let items = World::new().query("? What does it cost?", 50);
 
-        assert_eq!(
-            targets(&items),
-            [ask("What does it cost?"), act("What does it cost?")]
-        );
-        assert_eq!(items[0].title, "Ask about this page: What does it cost?");
+        assert_eq!(targets(&items), [ask("What does it cost?")]);
+        assert_eq!(items[0].title, "Send to Agent: What does it cost?");
     }
 
     #[test]
-    fn a_navigation_request_offers_an_explicit_act_row_after_ask() {
+    fn a_navigation_request_uses_the_same_agent_prompt() {
         let items = World::new().query("?open first video", 8);
 
-        assert_eq!(items.len(), 2, "the user needs a separate Act choice");
+        assert_eq!(items.len(), 1);
         assert_eq!(items[0].target, ask("open first video"));
-        assert_eq!(items[1].target, act("open first video"));
-        assert_eq!(items[1].title, "Act on this page: open first video");
-        assert_eq!(
-            items[1].detail,
-            "Choose a link and open it in an isolated Agent window"
-        );
+        assert_eq!(items[0].title, "Send to Agent: open first video");
     }
 
     #[test]
@@ -822,9 +807,10 @@ mod asking {
 
         let items = world.query("?summ", 50);
 
-        assert!(items.iter().all(|item| matches!(
-            item.target,
-            Target::Skill(_) | Target::Ask(_) | Target::Act(_)
-        )));
+        assert!(
+            items
+                .iter()
+                .all(|item| matches!(item.target, Target::Skill(_) | Target::Ask(_)))
+        );
     }
 }

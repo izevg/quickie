@@ -232,15 +232,11 @@ pub(super) const COMMANDS: [(&str, &str, Category); 78] = [
         "Show Extensions",
         Category::Extensions,
     ),
-    (
-        "quickie.agent.ask",
-        "Ask Agent About This Page",
-        Category::Agent,
-    ),
+    ("quickie.agent.ask", "Open Agent Workspace", Category::Agent),
     ("quickie.agent.stop", "Stop Agent", Category::Agent),
     (
         "quickie.agent.showAnswer",
-        "Show Agent Answer",
+        "Show Agent Workspace",
         Category::Agent,
     ),
     (

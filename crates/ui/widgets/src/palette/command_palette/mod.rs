@@ -134,7 +134,7 @@ fn placeholder(mode: Mode) -> &'static str {
         Mode::Commands => "Run a command",
         Mode::Headings => "Go to a heading",
         Mode::Tags => "Find bookmarks by tag",
-        Mode::Agent => "Ask about this page",
+        Mode::Agent => "Send a prompt to Agent",
         Mode::SearchShortcut => "Search with a keyword: !gh quickie",
     }
 }

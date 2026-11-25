@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Agent link performance fixture</title>
+<style>body { font: 16px sans-serif; } a { display: block; padding: 4px; }</style>
+<main id="catalog"></main>
+<script>
+    const deep = new URLSearchParams(location.search).has("deep");
+    let list = document.getElementById("catalog");
+    for (let index = 0; index < (deep ? 36 : 3); ++index)
+        list = list.appendChild(document.createElement("section"));
+    for (let index = 0; index < (deep ? 1024 : 160); ++index) {
+        const row = list.appendChild(document.createElement("article"));
+        const link = row.appendChild(document.createElement("a"));
+        link.href = "/watch?v=" + index;
+        link.textContent = "Video " + index + " · " + (index % 5 ? "Short title" : "Длинное название ".repeat(14));
+        if (index % 11 === 3)
+            row.setAttribute("aria-hidden", "true");
+    }
+</script>

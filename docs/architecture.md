@@ -249,11 +249,11 @@ browser's own traffic bypassed the engine's network stack.
   before the DOM action (form submit, a destructive button) and says that it cannot see the
   request. Both follow the shape of Playwright's WebKit protocol (`Input`, `Network` interception,
   `Page`), so the system-WebKit stopgap and the fork expose the same port.
-- The macOS release exposes one Act action through the palette. The engine reads a bounded
-  link snapshot from the main document in an isolated script world. The model selects a number
-  from the ordered labels, and Quickie rechecks its destination in the live document. The
-  async fork transport opens the link in an Agent window with its own process pool and
-  nonpersistent data store. Navigation is limited to ordinary same-origin GET requests.
+- The macOS Agent panel opens on the source browser window. One composer accepts questions
+  and requests that use the available tools. The engine reads a bounded link snapshot from
+  the main document in an isolated script world. Quickie checks the link selected by the model
+  against the live document before the fork opens it in an isolated preview with its own
+  process pool and nonpersistent data store. Navigation uses ordinary same-origin GET requests.
 - **Engine choice is a cargo feature at the composition root**: one alias per profile. The shell's
   `main-webkit` (default) and `main-chromium` features pick `MainEngine` in
   `crates/shell/src/main.rs`, and `compile_error!` refuses both or neither; no `cfg` exists

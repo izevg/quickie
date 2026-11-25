@@ -171,8 +171,7 @@ impl Browser {
             }
             Target::Url(url) | Target::Search(url) => self.go(url, opening),
             Target::Skill(id) => self.ask_skill(&id),
-            Target::Ask(question) => self.ask_question(question),
-            Target::Act(question) => self.act_on_page(question),
+            Target::Ask(question) => self.ask_question(&question),
             Target::InstallExtension(page) => self.install_from_store(&page),
             Target::Extension(trigger) => self.run_extension(&trigger),
         }

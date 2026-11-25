@@ -210,9 +210,9 @@ fn the_agent_commands_are_in_their_category() {
     assert_eq!(
         titles,
         [
-            ("Ask Agent About This Page", Category::Agent),
+            ("Open Agent Workspace", Category::Agent),
             ("Stop Agent", Category::Agent),
-            ("Show Agent Answer", Category::Agent),
+            ("Show Agent Workspace", Category::Agent),
             ("Show Agent Settings", Category::Agent),
         ]
     );

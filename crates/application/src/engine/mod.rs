@@ -368,6 +368,25 @@ pub trait PageContent {
     /// The tab has no page, or the engine cannot read pages.
     fn read_text(&mut self, tab: TabId, max_chars: usize) -> Result<Ticket, EngineError>;
 
+    /// Reads rendered text, distinguishing an empty page from an engine error.
+    ///
+    /// # Errors
+    /// The tab has no page, or the engine does not support fallible text reads.
+    fn read_agent_text(
+        &self,
+        _tab: TabId,
+        _max_chars: usize,
+        _done: impl FnOnce(Result<String, EngineError>) + 'static,
+    ) -> Result<(), EngineError> {
+        Err(EngineError("agent text reads are unavailable".to_owned()))
+    }
+
+    /// Identifies the live document before deferred engine events are drained.
+    /// Engines without a synchronous source revision return `None`.
+    fn agent_source_revision(&self, _tab: TabId) -> Option<u64> {
+        None
+    }
+
     /// Collects a bounded snapshot of the active document's links for Agent navigation.
     /// The engine invokes the completion on its owning thread.
     ///

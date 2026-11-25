@@ -1,6 +1,7 @@
-//! Quantities and addresses as people read them on glass: sizes, rates, ages, time left, visit
-//! counts, URLs. Measured numbers only, rounded the way the Finder rounds them; nothing here
-//! invents a value.
+//! Text as people read it: quantities, addresses, and safe Markdown answers. Measured numbers
+//! are rounded the way the Finder rounds them; nothing here invents a value.
+
+pub mod answer;
 
 /// Units of a size, decimal as the Finder counts them.
 const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];

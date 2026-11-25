@@ -273,13 +273,18 @@ impl Browser {
             Action::FindPrevious => return self.find_step(true),
             Action::ShowDownloads => return self.toggle_downloads(Trigger::Keyboard),
             Action::ShowShields => return self.toggle_shields_popover(Trigger::Keyboard),
-            Action::AskAgent => return self.open_palette("?"),
+            Action::AskAgent | Action::ShowAgentAnswer => return self.open_agent_workspace(),
             Action::StopAgent => return self.stop_agent(),
-            Action::ShowAgentAnswer => return self.show_answer(),
             Action::ShowAgentSettings => return self.open_agent_settings(),
             Action::ShowSettings => return self.open_settings(None),
             Action::DebugKeys => return self.toggle_key_log(),
-            Action::CloseWindow | Action::CloseTab if self.close_focused_agent_window() => return,
+            Action::CloseTab
+                if self
+                    .current()
+                    .is_some_and(|(_, window)| self.agent_has_focus(&window)) =>
+            {
+                return self.close_agent_workspace();
+            }
             Action::Cycle(direction) => {
                 if let Some((window, _)) = self.current() {
                     self.cycle(window, direction, holding(stroke));
