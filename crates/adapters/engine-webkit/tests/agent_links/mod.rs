@@ -1,5 +1,7 @@
 //! Reads an actual page through the production `WebKit` adapter without showing a window.
 
+mod benchmark;
+
 use std::cell::{Cell, RefCell};
 use std::io::Write;
 use std::net::TcpStream;
@@ -17,47 +19,35 @@ use quickie_engine_webkit::WebKitEngine;
 
 use super::WebKit;
 
-pub(super) const ROUTE: &str = "agent-links/fixture";
+pub(super) use benchmark::benchmark;
 
-pub(super) fn answer(stream: &mut TcpStream) {
-    let body = include_str!("fixture.html");
+const ROUTE: &str = "agent-links/fixture";
+const PERF_ROUTE: &str = "agent-links/performance";
+
+pub(super) fn answer(stream: &mut TcpStream, path: &str) -> bool {
+    let body = match path {
+        ROUTE => include_str!("fixture.html"),
+        PERF_ROUTE => include_str!("benchmark.html"),
+        _ => return false,
+    };
     let _ = write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
+    true
 }
 
 pub(super) fn check(harness: &mut WebKit) -> Result<(), String> {
     let _app = NSApplication::sharedApplication(harness.mtm);
-    let document = harness
-        .base
-        .join(ROUTE)
-        .map_err(|error| error.to_string())?;
-    let tab = TabId::new(Profile::Main, 1);
-    let mut engine = harness.engine();
-    engine
-        .create(tab, &document, Jar::Throwaway(JarId::new(1)))
-        .and_then(|()| engine.show(WINDOW, tab))
-        .map_err(|error| error.to_string())?;
-
-    let mut events = Vec::new();
-    let mut committed = false;
-    if !harness.pump(&mut engine, &mut |engine| {
-        engine.drain(&mut events);
-        committed |= events.drain(..).any(|event| {
-            matches!(event, EngineEvent::Committed { tab: owner, url, .. } if owner == tab && url == document)
-        });
-        committed && engine.loading(tab).is_none()
-    }) {
-        return Err("the agent link fixture never committed".to_owned());
-    }
+    let (mut engine, tab, document) = open(harness, ROUTE)?;
 
     let first = read(harness, &mut engine, tab)?;
     let expected = [
         ("/watch", Some("v=first"), "First video"),
         ("/watch", Some("v=second"), "Second video"),
         ("/videos/below", None, "Below the viewport"),
+        ("/depth/64", None, "Depth 64"),
     ];
     if first.document != document
         || first
@@ -85,6 +75,10 @@ pub(super) fn check(harness: &mut WebKit) -> Result<(), String> {
             .links
             .iter()
             .any(|link| link.url.query() == Some("v=first"))
+        || !current
+            .links
+            .iter()
+            .any(|link| link.url.path() == "/aria-hidden")
     {
         return Err(format!("agent link capture kept stale data: {current:?}"));
     }
@@ -95,6 +89,31 @@ pub(super) fn check(harness: &mut WebKit) -> Result<(), String> {
         return Err("the engine accepted a link read for a missing tab".to_owned());
     }
     Ok(())
+}
+
+fn open(harness: &mut WebKit, route: &str) -> Result<(WebKitEngine, TabId, url::Url), String> {
+    let document = harness
+        .base
+        .join(route)
+        .map_err(|error| error.to_string())?;
+    let tab = TabId::new(Profile::Main, 1);
+    let mut engine = harness.engine();
+    engine
+        .create(tab, &document, Jar::Throwaway(JarId::new(1)))
+        .and_then(|()| engine.show(WINDOW, tab))
+        .map_err(|error| error.to_string())?;
+    let mut events = Vec::new();
+    let mut committed = false;
+    if !harness.pump(&mut engine, &mut |engine| {
+        engine.drain(&mut events);
+        committed |= events.drain(..).any(|event| {
+            matches!(event, EngineEvent::Committed { tab: owner, url, .. } if owner == tab && url == document)
+        });
+        committed && engine.loading(tab).is_none()
+    }) {
+        return Err("the agent link fixture never committed".to_owned());
+    }
+    Ok((engine, tab, document))
 }
 
 fn read(harness: &mut WebKit, engine: &mut WebKitEngine, tab: TabId) -> Result<AgentLinks, String> {
@@ -134,6 +153,7 @@ fn replace_in_page(
             link.href = '/watch?v=replacement';
             link.title = 'Replacement video';
             document.getElementById('duplicate').remove();
+            document.getElementById('hidden-ancestor').removeAttribute('aria-hidden');
             history.replaceState(null, '', '/agent-links/updated');
             Element.prototype.checkVisibility = () => { throw new Error('page world'); };
         })()",

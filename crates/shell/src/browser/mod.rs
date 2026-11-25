@@ -365,6 +365,7 @@ impl Browser {
             || self.mcp_sheet_open(window);
         if let (Some(ns_window), Some(view)) = (self.window(window), view)
             && !overlay
+            && !self.agent_has_focus(&ns_window)
         {
             ns_window.makeFirstResponder(Some(&view));
         }
@@ -427,12 +428,6 @@ impl Browser {
     /// The window commands act on: the key window, else the first one.
     pub(crate) fn current(&self) -> Option<(WindowId, Retained<NSWindow>)> {
         let key = NSApplication::sharedApplication(self.mtm).keyWindow();
-        if key
-            .as_deref()
-            .is_some_and(|window| self.is_agent_window(window))
-        {
-            return None;
-        }
         let windows = self.windows.borrow();
         key.and_then(|key| windows.iter().find(|(_, window)| ***window == *key))
             .or_else(|| windows.iter().next())

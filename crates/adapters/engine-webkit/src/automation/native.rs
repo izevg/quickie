@@ -136,6 +136,10 @@ impl Session {
         self.observer.ivars().failed.get()
     }
 
+    pub(super) fn document_revision(&self) -> u64 {
+        self.observer.ivars().revision.get()
+    }
+
     pub(super) fn is_connected(&self) -> bool {
         self.connected.get()
     }
@@ -151,6 +155,11 @@ impl Session {
     }
 
     pub(super) fn stop_loading(&self) {
+        // A queued API load can still be waiting for its policy decision when stopLoading
+        // reaches WebContent. Revoke that decision as well so it cannot start afterwards.
+        if let Some(origin) = &self.observer.ivars().origin {
+            *origin.borrow_mut() = None;
+        }
         // SAFETY: the private view is live and this session owns its navigation.
         unsafe { self.view.stopLoading() }
     }
@@ -275,6 +284,7 @@ fn make_view(
 
 struct NavigationState {
     failed: Cell<bool>,
+    revision: Cell<u64>,
     /// `None` denotes the standalone harness. The interactive view starts at `about:blank`.
     origin: Option<RefCell<Option<Origin>>>,
 }
@@ -291,6 +301,12 @@ define_class!(
 
     // SAFETY: these optional methods match the WebKit navigation delegate protocol.
     unsafe impl WKNavigationDelegate for NavigationObserver {
+        #[unsafe(method(webView:didCommitNavigation:))]
+        fn committed(&self, _view: &WKWebView, _navigation: Option<&WKNavigation>) {
+            let revision = &self.ivars().revision;
+            revision.set(revision.get().wrapping_add(1));
+        }
+
         #[unsafe(method(webView:didFailProvisionalNavigation:withError:))]
         fn provisional_failed(
             &self,
@@ -387,6 +403,8 @@ define_class!(
         #[unsafe(method(webViewWebContentProcessDidTerminate:))]
         fn content_process_terminated(&self, _view: &WKWebView) {
             self.ivars().failed.set(true);
+            let revision = &self.ivars().revision;
+            revision.set(revision.get().wrapping_add(1));
         }
     }
 
@@ -410,6 +428,7 @@ impl NavigationObserver {
     fn new(mtm: MainThreadMarker, interactive: bool) -> Retained<Self> {
         let observer = Self::alloc(mtm).set_ivars(NavigationState {
             failed: Cell::new(false),
+            revision: Cell::new(0),
             origin: interactive.then(|| RefCell::new(None)),
         });
         // SAFETY: ivars are initialized and NSObject's init has no further requirements.

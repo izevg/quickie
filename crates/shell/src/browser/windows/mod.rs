@@ -36,17 +36,12 @@ impl Browser {
         self.close_overlays();
         self.hide_find();
         self.hide_navigation();
-        let closing_tabs: Vec<TabId> = self
-            .browsing
-            .borrow()
-            .session()
-            .tabs(window)
-            .map_or_default(|tabs| tabs.map(|tab| tab.id).collect());
         let Some(closed) = self.run(|browsing| browsing.close_window(window)) else {
             return;
         };
-        for tab in closing_tabs {
+        for tab in closed.tabs {
             self.mcp_tab_closed(tab);
+            self.agent_document_lost(tab);
         }
         self.forget_zooms(closed.released_jars);
         self.remove_window(window);
@@ -77,6 +72,7 @@ impl Browser {
         }
         if let Some(closed) = self.run(|browsing| browsing.close(tab)) {
             self.mcp_tab_closed(tab);
+            self.agent_document_lost(tab);
             self.forget_zooms(closed.released_jar);
         }
         if self.active(window).is_none() {

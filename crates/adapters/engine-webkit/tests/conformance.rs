@@ -21,17 +21,18 @@ use std::time::{Duration, Instant};
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly, msg_send, sel};
 use objc2_app_kit::{
-    NSBackingStoreType, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow,
-    NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSEvent,
+    NSEventModifierFlags, NSEventType, NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSDate, NSObjectProtocol, NSPoint, NSRect, NSRunLoop, NSSize};
 use quickie_application::conformance::{
     self, Driven, Group, Harness, PageSource, Resource, SITE, WINDOW,
 };
 use quickie_application::{
-    BlockerRules, ContentBlockerPort, Engine, PageRect, PageSurface, RulesStatus,
+    BlockerRules, ContentBlockerPort, Engine, EngineEvent, EnginePort, Navigation, PageContent,
+    PageRect, PageSurface, RulesStatus,
 };
-use quickie_domain_browsing::TabId;
+use quickie_domain_browsing::{Jar, JarId, Profile, TabId};
 use quickie_engine_webkit::{WebKitContentBlocker, WebKitEngine};
 use tempfile::TempDir;
 use url::Url;
@@ -85,6 +86,9 @@ fn main() -> ExitCode {
             Err(why) => failed(&why),
         };
     }
+    if let Some(status) = agent_links::benchmark(&mut harness) {
+        return status;
+    }
     if std::env::args().any(|argument| argument == "--video-fullscreen-only") {
         return match fullscreen::check(&mut harness) {
             Ok(()) => {
@@ -130,6 +134,15 @@ fn main() -> ExitCode {
             Err(why) => failed(&why),
         };
     }
+    if std::env::args().any(|argument| argument == "--agent-source-epoch-only") {
+        let app = NSApplication::sharedApplication(mtm);
+        app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
+        return if source_epoch_passed(&mut harness) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     if std::env::args().any(|argument| argument == "--inspector-only") {
         return match inspector::check(&mut harness) {
             Ok(what) => {
@@ -167,6 +180,7 @@ fn run_full(harness: &mut WebKit) -> ExitCode {
         Ok(()) => print("video miniplayer: passed (audible video floats and docks)\n"),
         Err(why) => print(&format!("video miniplayer: FAILED: {why}\n")),
     }
+    let source_epoch = source_epoch_passed(harness);
     let inspected = inspector::check(harness);
     match &inspected {
         Ok(what) => print(&format!("inspector: passed ({what})\n")),
@@ -182,6 +196,7 @@ fn run_full(harness: &mut WebKit) -> ExitCode {
         && inspected.is_ok()
         && automated.is_ok()
         && links.is_ok()
+        && source_epoch
         && fullscreen.is_ok()
         && miniplayer.is_ok()
         && usb_authentication.is_ok()
@@ -190,6 +205,81 @@ fn run_full(harness: &mut WebKit) -> ExitCode {
     } else {
         ExitCode::FAILURE
     }
+}
+
+fn source_epoch_passed(harness: &mut WebKit) -> bool {
+    match check_source_epoch(harness) {
+        Ok(()) => {
+            print(
+                "agent source epoch: passed (commit, same-URL reload and process loss before inbox drain)\n",
+            );
+            true
+        }
+        Err(why) => {
+            print(&format!("agent source epoch: FAILED: {why}\n"));
+            false
+        }
+    }
+}
+
+fn check_source_epoch(harness: &mut WebKit) -> Result<(), String> {
+    let _app = NSApplication::sharedApplication(harness.mtm);
+    let tab = TabId::new(Profile::Main, 1);
+    let url = harness.base().join("plain").map_err(|e| e.to_string())?;
+    let mut engine = WebKitEngine::new(&[], harness.mtm);
+    engine
+        .create(tab, &url, Jar::Throwaway(JarId::new(1)))
+        .map_err(|e| e.to_string())?;
+    if engine.agent_source_revision(tab).is_some() {
+        return Err("the initial uncommitted document had a live revision".to_owned());
+    }
+
+    let mut last = None;
+    let mut events = Vec::new();
+    for navigation in [None, Some(Navigation::Reload)] {
+        if let Some(navigation) = navigation {
+            engine
+                .navigate(tab, &navigation)
+                .map_err(|e| e.to_string())?;
+        }
+        if !harness.pump(&mut engine, &mut |engine| {
+            engine
+                .agent_source_revision(tab)
+                .is_some_and(|revision| Some(revision) != last)
+        }) {
+            return Err(
+                "a main-frame commit did not advance the revision without an inbox drain"
+                    .to_owned(),
+            );
+        }
+        last = engine.agent_source_revision(tab);
+        events.clear();
+        engine.drain(&mut events);
+        if !events.iter().any(|event| matches!(
+            event,
+            EngineEvent::Committed { tab: reported, url: shown, .. } if *reported == tab && shown == &url
+        )) {
+            return Err("the revision advanced without a queued commit at the same URL".to_owned());
+        }
+    }
+
+    harness
+        .crash(&mut engine, tab)
+        .map_err(|why| format!("{why:?}"))??;
+    if !harness.pump(&mut engine, &mut |engine| {
+        engine.agent_source_revision(tab).is_none()
+    }) {
+        return Err("the terminated document stayed live until an inbox drain".to_owned());
+    }
+    events.clear();
+    engine.drain(&mut events);
+    if !events
+        .iter()
+        .any(|event| matches!(event, EngineEvent::Crashed { tab: reported } if *reported == tab))
+    {
+        return Err("the revision was invalidated without a queued crash".to_owned());
+    }
+    Ok(())
 }
 
 /// Web Inspector, which the suite leaves to the harness: on our fork a developer tools'
@@ -642,6 +732,9 @@ impl Harness for WebKit {
         // SAFETY: the view is a `WKWebView`, which answers `_webProcessIdentifier` (checked
         // above) with its web content process's `pid_t`, and the message has no arguments.
         let pid: i32 = unsafe { msg_send![view, _webProcessIdentifier] };
+        if pid <= 1 {
+            return Ok(Err("the test page has no live content process".to_owned()));
+        }
         Ok(Command::new("kill")
             .args(["-9", &pid.to_string()])
             .status()
@@ -708,8 +801,7 @@ fn answer(stream: TcpStream) {
         inspector::answer(&mut stream);
         return;
     }
-    if path == agent_links::ROUTE {
-        agent_links::answer(&mut stream);
+    if agent_links::answer(&mut stream, path) {
         return;
     }
     if path == fullscreen::ROUTE {

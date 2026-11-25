@@ -24,10 +24,10 @@ use crate::{Clock, ExtensionOffer};
 const INSTALL_TITLE: &str = "Install Extension from Chrome Web Store";
 
 /// The start of the row that asks the agent the typed question.
-const ASK_TITLE: &str = "Ask about this page: ";
+const ASK_TITLE: &str = "Send to Agent: ";
 
 /// What the row that asks the agent says it does.
-const ASK_DETAIL: &str = "The agent reads this page and answers; nothing is sent before ⏎";
+const ASK_DETAIL: &str = "Open the Agent workspace and send this prompt with ⏎";
 
 /// What the palette draws its candidates from, borrowed while it opens.
 #[derive(Clone, Copy, Debug)]

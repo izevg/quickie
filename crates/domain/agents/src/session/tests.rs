@@ -321,6 +321,39 @@ fn a_quote_from_a_second_page_is_a_citation() {
     assert!(citation.is_some());
 }
 
+#[test]
+fn a_citation_picks_the_first_page_containing_the_whole_quote() {
+    let excerpts = vec![
+        "The quick brown fox jumped early.".to_owned(),
+        "The quick brown fox\njumps over the fence.".to_owned(),
+        "Note:\n  THE   QUICK\tbrown fox\nJUMPS over the lazy dog.".to_owned(),
+        "The quick brown fox jumps over the lazy dog.".to_owned(),
+    ];
+    let citation = Sources::of(&excerpts)
+        .cite("The quick\n  BROWN fox jumps over the lazy dog")
+        .unwrap();
+
+    let page = citation.page_in(&excerpts);
+
+    assert_eq!(page, Some(2));
+}
+
+#[test]
+fn a_citation_is_not_attributed_when_no_page_contains_it() {
+    let excerpts = vec![
+        "The quick brown fox".to_owned(),
+        "jumps over the lazy dog".to_owned(),
+    ];
+    let citation = Citation {
+        quote: "The quick brown fox jumps over the lazy dog".to_owned(),
+        anchor: "The quick brown".to_owned(),
+    };
+
+    let page = citation.page_in(&excerpts);
+
+    assert_eq!(page, None);
+}
+
 // ---- the session -------------------------------------------------------------------------------
 
 #[test]

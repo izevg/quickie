@@ -1,4 +1,4 @@
-//! The Markdown of an answer as plain styled text, one line at a time.
+//! Markdown answers as native styled text, for complete responses and incremental streams.
 //!
 //! The answer comes from an endpoint that read an untrusted page, so its Markdown is shown,
 //! never acted on: no image is loaded (an image becomes its alt text), no link is followed or
@@ -6,11 +6,15 @@
 //! cannot pass for another site), and nothing but `http` and `https` links is clickable at
 //! all. No HTML is interpreted; it shows as the characters it is.
 //!
-//! Handled: headings, bullets, code spans and fenced blocks, `**strong**`, `*emphasis*`, links,
-//! images, and table rows (set in monospace so the columns line up). Everything else is text as
-//! written.
+//! Use [`document`] for the block and inline structure of a finished response. The incremental
+//! [`Renderer`] styles lines independently so each streamed token only updates the open line.
 
 use url::Url;
+
+mod document;
+
+pub use document::document;
+pub(super) use document::{Block, Paragraph};
 
 /// How a span of the answer looks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,10 +25,14 @@ pub enum Style {
     Strong,
     /// `*emphasized*` text, in italics.
     Emphasis,
+    /// Strong and emphasized text, in bold italic.
+    StrongEmphasis,
     /// Code, a code block, a table row.
     Code,
     /// A heading line.
     Heading,
+    /// A horizontal divider between sections.
+    Rule,
     /// A link the user may click; the browser opens it in a new tab, and only then.
     Link(Url),
     /// What stands in for something not shown: an image's alt text, a link's host.
@@ -40,6 +48,7 @@ pub enum Style {
 pub struct Span {
     pub text: String,
     pub style: Style,
+    pub(super) paragraph: Option<Paragraph>,
 }
 
 impl Span {
@@ -47,6 +56,7 @@ impl Span {
         Self {
             text: text.into(),
             style,
+            paragraph: None,
         }
     }
 }
@@ -260,7 +270,7 @@ fn target(text: &str) -> Option<(&str, &str, &str)> {
 mod tests {
     use url::Url;
 
-    use super::{LinePart, Renderer, Span, Style};
+    use super::{LinePart, Renderer, Span, Style, document};
 
     fn text(text: &str) -> LinePart {
         LinePart::Text(text.to_owned())
@@ -272,6 +282,28 @@ mod tests {
 
     fn span(text: &str, style: Style) -> Span {
         Span::new(text, style)
+    }
+
+    #[test]
+    fn completed_prose_renders_mixed_markup_from_a_model() {
+        let raw = "## **Краткий обзор**\n\nПервый абзац.\nПродолжение.\n\n---\n\n3. **Игры с *масштабом***\n   - Песочницы\n9. _Документальные фильмы_";
+
+        let spans = document(raw);
+        let shown: String = spans.iter().map(|part| part.text.as_str()).collect();
+
+        assert!(shown.starts_with("Краткий обзор\n"), "{shown}");
+        assert!(shown.contains("Первый абзац. Продолжение."), "{shown}");
+        assert!(!shown.contains("---"), "{shown}");
+        assert!(
+            shown.contains("3. Игры с масштабом\n• Песочницы"),
+            "{shown}"
+        );
+        assert!(shown.contains("4. Документальные фильмы"), "{shown}");
+        assert!(
+            spans
+                .iter()
+                .any(|part| part.text == "масштабом" && part.style == Style::StrongEmphasis)
+        );
     }
 
     #[test]

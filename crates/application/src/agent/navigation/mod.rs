@@ -21,6 +21,14 @@ pub struct AgentLink {
     pub label: String,
 }
 
+impl AgentLink {
+    /// The destination has a known video path.
+    #[must_use]
+    pub fn is_video(&self) -> bool {
+        likely_video(&self.url)
+    }
+}
+
 /// Visible links in document order, read from the same document at the same time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentLinks {
@@ -88,7 +96,7 @@ impl<R: AgentRepo, S: SecretStore, E: Entropy> Agent<R, S, E> {
                 .char_indices()
                 .nth(MAX_LABEL_CHARS)
                 .map_or(link.label.as_str(), |(end, _)| &link.label[..end]);
-            (label, likely_video(&link.url))
+            (label, link.is_video())
         });
         let prompt = Prompt::select_link(question, labels, &self.entropy.fence_marker());
         Ok(SelectingLink {

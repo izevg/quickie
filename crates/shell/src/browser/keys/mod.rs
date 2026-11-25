@@ -159,10 +159,6 @@ impl Browser {
             NSApplication::sharedApplication(self.mtm).terminate(None);
             return Outcome::Quit;
         }
-        if self.is_agent_window(window) && is_close(stroke) {
-            window.performClose(None);
-            return Outcome::Overlay;
-        }
         if !self.is_settings_window(window) {
             return Outcome::Elsewhere;
         }
@@ -306,27 +302,39 @@ impl Browser {
     /// key that types never reaches the keymap.
     pub(super) fn when(&self) -> WhenContext {
         let mut context = WhenContext::new();
+        let window = self.current().map(|(_, window)| window);
+        if window
+            .as_deref()
+            .is_some_and(|window| self.agent_is_open(window))
+        {
+            context = context.with(ContextFlag::AgentOpen);
+        }
         let view = if self.command_palette.is_open() {
             context = context
                 .with(ContextFlag::PaletteOpen)
                 .with(ContextFlag::InputFocused);
-            FocusedView::Palette
+            Some(FocusedView::Palette)
         } else if self.address.is_open() {
             context = context
                 .with(ContextFlag::AddressOpen)
                 .with(ContextFlag::InputFocused);
-            FocusedView::Address
+            Some(FocusedView::Address)
         } else if self.navigation.overview_open() {
             context = context
                 .with(ContextFlag::OverviewOpen)
                 .with(ContextFlag::InputFocused);
-            FocusedView::Overview
+            Some(FocusedView::Overview)
         } else {
-            context = context.with(ContextFlag::PageFocused);
-            if self.find_focused() || self.page_input_focused() {
+            let agent_focused = window
+                .as_deref()
+                .is_some_and(|window| self.agent_has_focus(window));
+            if !agent_focused {
+                context = context.with(ContextFlag::PageFocused);
+            }
+            if agent_focused || self.find_focused() || self.page_input_focused() {
                 context = context.with(ContextFlag::InputFocused);
             }
-            FocusedView::Page
+            (!agent_focused).then_some(FocusedView::Page)
         };
         if self.navigation.hints_open() {
             context = context.with(ContextFlag::HintsOpen);
@@ -337,10 +345,11 @@ impl Browser {
         if self.popovers.is_open() {
             context = context.with(ContextFlag::PopoverOpen);
         }
-        if self.agent_ui.is_open() {
-            context = context.with(ContextFlag::AgentOpen);
+        if let Some(view) = view {
+            context.in_view(view)
+        } else {
+            context
         }
-        context.in_view(view)
     }
 
     /// True when the current window's page has the keyboard and says a text field of its own
@@ -361,9 +370,6 @@ impl Browser {
 
     /// An overlay's fixed key. While an input method composes, every key is the field's.
     fn overlay_key(&self, key: OverlayKey) -> bool {
-        if self.agent_ui.is_open() {
-            return self.agent_key(key);
-        }
         if self.popovers.is_open() || self.extension_ui.popup_open() {
             return self.popover_key(key);
         }

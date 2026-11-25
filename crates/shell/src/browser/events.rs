@@ -63,8 +63,7 @@ impl Browser {
     fn dispatch_event(&self, event: Event, drained: &mut Drained) {
         match event {
             EngineEvent::Committed { tab, url, title } => {
-                #[cfg(feature = "main-webkit")]
-                self.act_source_navigated(tab);
+                self.agent_source_navigated(tab, &url);
                 drained.committed.push(tab);
                 self.shields.borrow_mut().page_left(tab);
                 drained.blocked = true;
@@ -105,7 +104,7 @@ impl Browser {
                 ticket,
                 followed,
             } => self.followed(tab, ticket, followed),
-            EngineEvent::Text { ticket, text, .. } => self.page_read(ticket, text),
+            EngineEvent::Text { .. } => {}
             EngineEvent::Pictured { tab } => self.thumbnail_ready(tab),
             EngineEvent::Blocked { tab, requests } => {
                 self.shields.borrow_mut().record_blocked(tab, requests);
@@ -179,6 +178,7 @@ impl Browser {
     /// it shows the tab, else when it comes forward.
     fn crashed(&self, tab: TabId) {
         self.mcp_process_terminated(tab);
+        self.agent_document_lost(tab);
         match self.showing(tab) {
             Some(window) => self.toast_in(window, CRASHED),
             None => {

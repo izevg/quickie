@@ -24,6 +24,17 @@ pub struct Citation {
     pub anchor: String,
 }
 
+impl Citation {
+    /// The index of the first supplied page that contains the entire quote.
+    #[must_use]
+    pub fn page_in(&self, excerpts: &[String]) -> Option<usize> {
+        let quote = normalize(&self.quote);
+        excerpts
+            .iter()
+            .position(|page| normalize(page).contains(&quote))
+    }
+}
+
 /// The text of the pages as the model was sent it, normalized once so each quote is looked up
 /// cheaply: whitespace collapsed to single spaces, lowercase.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

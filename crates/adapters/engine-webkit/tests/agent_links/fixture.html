@@ -19,7 +19,7 @@
 <section hidden><a href="/hidden">Hidden by ancestor</a></section>
 <section class="transparent"><a href="/transparent">Transparent ancestor</a></section>
 <section class="invisible"><a href="/invisible">Hidden by CSS</a></section>
-<section aria-hidden="true"><a href="/aria-hidden">Hidden from accessibility</a></section>
+<section id="hidden-ancestor" aria-hidden="true"><a href="/aria-hidden">Hidden from accessibility</a></section>
 <section inert><a href="/inert">Inert by ancestor</a></section>
 <a href="https://outside.example/">External link</a>
 <a href="https://user@outside.example/">Credentials</a>
@@ -27,3 +27,13 @@
 <a href="/download" download>Download</a>
 <a href="#chapter">Local anchor</a>
 <button onclick="window.linkClicks = 999">Button</button>
+<script>
+  for (const depth of [64, 65]) {
+    let parent = document.body;
+    for (let level = 3; level < depth; ++level)
+      parent = parent.appendChild(document.createElement('section'));
+    const link = parent.appendChild(document.createElement('a'));
+    link.href = '/depth/' + depth;
+    link.textContent = 'Depth ' + depth;
+  }
+</script>

@@ -57,6 +57,26 @@ fn an_engine_without_agent_links_rejects_the_request_immediately() {
 }
 
 #[test]
+fn an_engine_without_agent_text_rejects_the_request_immediately() {
+    let tab = TabId::new(Profile::Main, 3);
+    let finds = Finds::default();
+
+    let request = finds.read_agent_text(tab, 256, |_| {
+        panic!("unsupported requests have no completion")
+    });
+
+    assert!(request.is_err());
+}
+
+#[test]
+fn an_engine_without_agent_source_revision_reports_none() {
+    let tab = TabId::new(Profile::Main, 3);
+    let finds = Finds::default();
+
+    assert_eq!(finds.agent_source_revision(tab), None);
+}
+
+#[test]
 fn diagnostic_lease_runs_release_on_drop() {
     let released = Rc::new(Cell::new(0usize));
     let counter = Rc::clone(&released);
