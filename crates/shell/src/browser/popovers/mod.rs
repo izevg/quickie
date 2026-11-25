@@ -69,13 +69,11 @@ impl Browser {
         });
     }
 
-    /// Takes the popovers away, the agent's panel and settings too: another overlay is about
-    /// to show, or a command runs.
+    /// Takes the popovers away before another overlay shows or a command runs.
     pub(super) fn hide_popovers(&self) {
         self.popovers.downloads.hide();
         self.popovers.shields.hide();
         self.hide_extension_popup();
-        self.hide_agent();
     }
 
     /// A popover's fixed key; `false` when no popover shows or the key is not one of its own.

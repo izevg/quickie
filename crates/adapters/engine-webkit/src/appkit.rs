@@ -410,6 +410,20 @@ impl EnginePort for WebKitEngine {
 /// isolated content world, never in the page's own. Every answer is queued when `WebKit` hands
 /// it over and reaches the shell through the waker.
 impl PageContent for WebKitEngine {
+    fn agent_source_revision(&self, tab: TabId) -> Option<u64> {
+        self.pages.get(&tab).and_then(WebPage::document_revision)
+    }
+
+    fn read_agent_text(
+        &self,
+        tab: TabId,
+        max_chars: usize,
+        done: impl FnOnce(Result<String, EngineError>) + 'static,
+    ) -> Result<(), EngineError> {
+        self.page(tab)?.read_agent_text(max_chars, done);
+        Ok(())
+    }
+
     fn agent_links(
         &self,
         tab: TabId,

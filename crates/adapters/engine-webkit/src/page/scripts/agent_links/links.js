@@ -9,21 +9,44 @@
         return '';
     const visible = new Map();
     const below = new Map();
+    const ancestorDepths = new WeakMap();
+    const maxDepth = 64;
+
+    function excluded(element) {
+        return element.hidden || element.inert || element.getAttribute('aria-hidden') === 'true';
+    }
+
+    // Only this synchronous scan shares the cache. A null depth means this caller ran out of
+    // budget, so leave that ancestor uncached for calls starting nearer the root.
+    function ancestorDepth(ancestor, remaining) {
+        if (!ancestor)
+            return 0;
+        const known = ancestorDepths.get(ancestor);
+        if (known !== undefined)
+            return known;
+        if (!remaining)
+            return null;
+        const parent = excluded(ancestor) ? -1 : ancestorDepth(ancestor.parentElement, remaining - 1);
+        if (parent === null)
+            return null;
+        const depth = parent < 0 ? -1 : parent + 1;
+        ancestorDepths.set(ancestor, depth);
+        return depth;
+    }
 
     function rendered(link) {
-        if (!link.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}))
+        if (!link.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}) || excluded(link))
             return false;
-        for (let ancestor = link, depth = 0; ancestor; ancestor = ancestor.parentElement, ++depth) {
-            if (depth === 64 || ancestor.hidden || ancestor.inert || ancestor.getAttribute('aria-hidden') === 'true')
-                return false;
-        }
-        return true;
+        const depth = ancestorDepth(link.parentElement, maxDepth - 1);
+        return depth !== null && depth >= 0 && depth < maxDepth;
     }
 
     function compactLabel(value) {
         if (!value)
             return '';
         const text = value.slice(0, 512).trim().replace(/\s+/g, ' ');
+        if (text.length <= maxLabelLength)
+            return text.toWellFormed();
         return Array.from(text).slice(0, maxLabelLength).join('').toWellFormed();
     }
 

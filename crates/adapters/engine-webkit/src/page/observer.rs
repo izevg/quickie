@@ -3,6 +3,7 @@
 //! delegate), its title, loading, and full screen (by key-value observation), turned into
 //! [`PageEvent`]s.
 
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::rc::Rc;
 
@@ -79,6 +80,7 @@ const FULLSCREEN: &str = "fullscreenState";
 pub(crate) struct Ivars {
     hooks: Rc<Hooks>,
     frame: Weak<NSView>,
+    document: Cell<(u64, bool)>,
 }
 
 define_class!(
@@ -155,6 +157,7 @@ define_class!(
     unsafe impl WKNavigationDelegate for PageObserver {
         #[unsafe(method(webView:didCommitNavigation:))]
         fn did_commit(&self, view: &WKWebView, _navigation: Option<&WKNavigation>) {
+            self.document_changed(true);
             let hooks = &self.ivars().hooks;
             hooks.reset_picture_in_picture();
             (hooks.on_event)(PageEvent::Committed {
@@ -227,6 +230,7 @@ define_class!(
         /// `WebKit` does not reload a page whose process died: it stays blank until it is told.
         #[unsafe(method(webViewWebContentProcessDidTerminate:))]
         fn content_process_terminated(&self, _view: &WKWebView) {
+            self.document_changed(false);
             let hooks = &self.ivars().hooks;
             hooks.reset_picture_in_picture();
             (hooks.on_event)(PageEvent::Crashed);
@@ -293,9 +297,20 @@ impl PageObserver {
         let this = Self::alloc(mtm).set_ivars(Ivars {
             hooks,
             frame: Weak::from_retained(frame),
+            document: Cell::default(),
         });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
+    }
+
+    pub(crate) fn document_revision(&self) -> Option<u64> {
+        let (revision, live) = self.ivars().document.get();
+        live.then_some(revision)
+    }
+
+    fn document_changed(&self, live: bool) {
+        let (revision, _) = self.ivars().document.get();
+        self.ivars().document.set((revision.wrapping_add(1), live));
     }
 
     /// Starts watching `view`; [`PageObserver::detach`] must run before either is released.

@@ -73,8 +73,8 @@ description = "Crate layers, FSD slices, unsafe policy, workspace lints"
 run = "cargo xtask layers"
 
 [tasks.shell]
-description = "Shell scripts (git hooks, agent hooks, CI scripts, engine scripts)"
-run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh engine/chromium/scripts/sync engine/chromium/scripts/apply engine/chromium/scripts/build engine/webkit/scripts/*"
+description = "Shell scripts (git hooks, agent hooks, CI, engine, and Agent performance)"
+run = "shellcheck .githooks/* .claude/hooks/*.sh .github/scripts/*.sh engine/chromium/scripts/sync engine/chromium/scripts/apply engine/chromium/scripts/build engine/webkit/scripts/* tools/diagnostics/agent-links-perf.sh tools/diagnostics/agent-links/*.sh"
 
 [tasks.actions]
 description = "GitHub Actions workflows"
@@ -122,6 +122,18 @@ export DYLD_FRAMEWORK_PATH="$fork" DYLD_LIBRARY_PATH="$fork"
 export __XPC_DYLD_FRAMEWORK_PATH="$fork" __XPC_DYLD_LIBRARY_PATH="$fork"
 cargo test --package quickie-engine-webkit --test conformance
 '''
+
+[tasks.conformance-fork-release]
+description = "Optimized conformance and Agent link performance on our pinned WebKit fork (macOS)"
+run = 'bash tools/diagnostics/agent-links-perf.sh --release "${QUICKIE_WEBKIT_FRAMEWORKS:-$PWD/.build/webkit-frameworks}"'
+
+[tasks.performance-fork]
+description = "Agent link performance on our pinned WebKit fork (macOS; run on a quiet machine)"
+run = 'bash tools/diagnostics/agent-links-perf.sh --gate "${QUICKIE_WEBKIT_FRAMEWORKS:-$PWD/.build/webkit-frameworks}"'
+
+[tasks.performance-policy]
+description = "Test the Agent link performance budgets and report validation without WebKit"
+run = "bash tools/diagnostics/agent-links/test.sh"
 
 [tasks.ui]
 description = "UI stories: headless renders, plays, and comparison with the reference images (macOS)"
@@ -177,6 +189,7 @@ depends = [
   "secrets",
   "lint",
   "test",
+  "performance-policy",
 ]
 
 [tasks.pre-push]
@@ -197,6 +210,7 @@ depends = [
   "lint",
   "engine-swap",
   "test",
+  "performance-policy",
   "deny",
   "machete",
   "links",

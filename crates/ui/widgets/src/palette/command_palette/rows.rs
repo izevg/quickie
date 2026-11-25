@@ -35,11 +35,6 @@ pub fn row(item: &PaletteItem, now: Timestamp, favicon: &Favicon) -> ListRow {
         ..ListRow::default()
     };
     match (&item.target, item.kind) {
-        (Target::Act(_), _) => ListRow {
-            detail: item.detail.clone(),
-            icon: Some(RowIcon::symbol("arrow.up.forward")),
-            ..base
-        },
         (Target::InstallExtension(_), _) => ListRow {
             detail: display_url(&item.detail),
             icon: Some(RowIcon::symbol("puzzlepiece.extension")),

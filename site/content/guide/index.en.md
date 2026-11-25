@@ -43,9 +43,9 @@ If macOS blocks the first launch of an updated ad hoc build, approve it in **Pri
 
 ## AI integration {#ai-integration}
 
-Open **Settings → Agent** and configure an OpenAI-compatible endpoint and model. Use a local endpoint such as Ollama or LM Studio, or a hosted service you trust. Open the page you want to ask about, press `⌘P`, and type `?` followed by a question. Quickie sends the question and relevant page text to the configured endpoint. Press `⌘.` to stop the answer.
+Open **Settings → Agent** and configure an OpenAI-compatible endpoint and model. Use a local endpoint such as Ollama or LM Studio, or a hosted service you trust. Quickie chooses between Chat Completions and Responses. To ask about the current page, press `⌘P` and type `?` followed by a question. The Agent panel opens on the right and stays available for follow-up messages. Quickie sends the question and any page text the agent reads to the configured endpoint.
 
-To open a link from the page, type a request such as `?open first video` and choose **Act on this page**. The model receives link labels and picks one. Quickie verifies that the link is still on the page and uses Web Automation to open it in an isolated **Quickie Agent** window. The window starts with fresh site data. This action supports links and redirects within the original site origin. Press `⌘.` to cancel while Quickie is choosing or opening the link.
+To open a link from the page, ask the agent to do it, for example `?open the first video`. The panel shows the tools it uses. Quickie checks the link against the live page and opens it in an isolated preview with fresh site data. Links and redirects stay within the original site origin. Use **Source page** to return to the browser page, **Stop** or `⌘.` to cancel a turn, and **Close Agent** to dismiss the panel.
 
 For scripts, the macOS build with Quickie’s WebKit fork accepts `--automation-check` and an HTTP or HTTPS URL. It checks navigation in a temporary session and exits.
 

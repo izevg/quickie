@@ -90,9 +90,7 @@ pub fn llm_error(error: &LlmError) -> String {
         }
         LlmError::Api(message) => format!("The endpoint failed mid-answer: {}", cut(message)),
         LlmError::Malformed(_) => {
-            "The endpoint doesn't answer like an OpenAI-compatible API. Check that the address \
-             ends in /v1."
-                .to_owned()
+            "The endpoint returned an invalid response for the selected model.".to_owned()
         }
         LlmError::TooLarge(what) => format!("The endpoint sent too much: {}.", cut(what)),
     }
@@ -110,10 +108,7 @@ fn status_error(status: u16, message: &str) -> String {
              with your page; set the address it redirects to."
         ),
         401 | 403 => format!("The endpoint refused the API key ({status}). Check the key.{said}"),
-        404 => format!(
-            "Nothing answers at that address (404). Check the address; it usually ends in \
-             /v1.{said}"
-        ),
+        404 => format!("The endpoint could not find the API route or selected model (404).{said}"),
         429 => format!("The endpoint is rate limiting (429). Try again in a moment.{said}"),
         _ => format!("The endpoint answered {status}.{said}"),
     }
@@ -241,7 +236,10 @@ mod tests {
 
     #[test]
     fn other_statuses_name_the_status() {
-        assert!(status(404, "").starts_with("Nothing answers at that address (404)"));
+        assert_eq!(
+            status(404, "Model not found"),
+            "The endpoint could not find the API route or selected model (404). It said: Model not found"
+        );
         assert!(status(429, "").starts_with("The endpoint is rate limiting (429)"));
         assert_eq!(status(500, ""), "The endpoint answered 500.");
         assert_eq!(
@@ -281,9 +279,9 @@ mod tests {
             "The endpoint can't be reached (Could not connect to the server.). Check the \
              address, and that the server is running."
         );
-        assert!(
-            llm_error(&LlmError::Malformed("x".to_owned()))
-                .contains("doesn't answer like an OpenAI-compatible API")
+        assert_eq!(
+            llm_error(&LlmError::Malformed("x".to_owned())),
+            "The endpoint returned an invalid response for the selected model."
         );
         assert_eq!(
             llm_error(&LlmError::Api("overloaded".to_owned())),

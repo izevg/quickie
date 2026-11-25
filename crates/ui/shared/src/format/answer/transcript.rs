@@ -1,4 +1,4 @@
-//! The answer as it streams in, as edits to the end of the text: lines that ended are rendered
+//! An answer as it streams in, as edits to the end of the text: lines that ended are rendered
 //! once and never touched again, and only the line still coming in is rendered again with each
 //! batch. A token costs the text view the length of its own line, not of the whole answer.
 
@@ -39,10 +39,7 @@ impl Transcript {
                         let ended = self.renderer.line(&self.line, true);
                         self.committed += utf16(&ended) + 1;
                         spans.extend(ended);
-                        spans.push(Span {
-                            text: "\n".to_owned(),
-                            style: Style::Body,
-                        });
+                        spans.push(Span::new("\n", Style::Body));
                         self.line.clear();
                         self.add(next);
                     }
@@ -85,10 +82,7 @@ mod tests {
     }
 
     fn body(text: &str) -> Span {
-        Span {
-            text: text.to_owned(),
-            style: Style::Body,
-        }
+        Span::new(text, Style::Body)
     }
 
     /// The text an edit leaves behind, applied to `shown`.

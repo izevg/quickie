@@ -65,3 +65,23 @@ fn unsupported_document_and_missing_snapshot_return_an_error() {
     assert!(parse(&oversized.to_string()).is_err());
     assert!(parse("").is_err());
 }
+
+#[test]
+fn snapshot_uses_normalized_ipv6_origin_and_counts_unicode_scalars() {
+    let label = format!("{}🙂extra", "é".repeat(159));
+    let answer = json!({
+        "document": "https://[2001:db8::1]/feed",
+        "links": [
+            {"url": "https://[2001:0db8::1]:443/a", "label": label},
+            {"url": "http://[2001:db8::1]:443/b", "label": "Another scheme"},
+            {"url": "https://[2001:db8::2]/c", "label": "Another host"},
+            {"url": "https://[2001:db8::1]:444/d", "label": "Another port"},
+        ],
+    });
+
+    let snapshot = parse(&answer.to_string()).unwrap();
+
+    assert_eq!(snapshot.links.len(), 1);
+    assert_eq!(snapshot.links[0].url.path(), "/a");
+    assert_eq!(snapshot.links[0].label, format!("{}🙂", "é".repeat(159)));
+}

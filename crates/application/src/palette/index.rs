@@ -99,22 +99,14 @@ impl PaletteIndex {
         items
     }
 
-    /// `?`: matching skills and explicit choices to ask about the page or open a link.
+    /// `?`: matching skills and a prompt for the agent.
     fn agent(&mut self, query: &Query, limit: usize) -> Vec<PaletteItem> {
         let question = Question::try_from(query.text()).ok();
-        let room = limit.saturating_sub(if question.is_some() { 2 } else { 0 });
+        let room = limit.saturating_sub(usize::from(question.is_some()));
         let mut items = answer(&mut self.ranker, query, &self.skills, room);
         if let Some(question) = question.filter(|_| limit > 0) {
             let title = format!("{ASK_TITLE}{}", question.as_str());
-            let action = format!("Act on this page: {}", question.as_str());
-            items.push(agent_item(title, ASK_DETAIL, Target::Ask(question.clone())));
-            if items.len() < limit {
-                items.push(agent_item(
-                    action,
-                    "Choose a link and open it in an isolated Agent window",
-                    Target::Act(question),
-                ));
-            }
+            items.push(agent_item(title, ASK_DETAIL, Target::Ask(question)));
         }
         items
     }

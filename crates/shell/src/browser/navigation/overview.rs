@@ -111,6 +111,7 @@ impl Browser {
     /// empty gets a start page, as `⌘W` on the page does.
     pub(in crate::browser) fn close_in(&self, window: WindowId, tab: TabId) {
         if let Some(closed) = self.run(|browsing| browsing.close(tab)) {
+            self.agent_document_lost(tab);
             self.forget_zooms(closed.released_jar);
         }
         if self.active(window).is_none() {

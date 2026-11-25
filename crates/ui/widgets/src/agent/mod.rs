@@ -8,3 +8,4 @@
 pub mod agent_settings;
 pub mod answer_panel;
 pub mod session;
+pub mod workspace;

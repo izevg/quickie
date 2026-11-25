@@ -28,6 +28,7 @@ instead of skipping it.
 | Lint | clippy `-D warnings`, pedantic + restrictions | `lint` | yes | yes | Bugs, panics, unstated exceptions |
 | Engine swap | clippy on the shell with `main-chromium` | `engine-swap` | — | yes | No engine's own name or call below the composition root ([architecture.md](architecture.md#engines-ports-capabilities-profiles)) |
 | Tests | cargo test | `test` | yes | yes | Behavior, including the UI stories' plays ([UI tests](#ui-tests)) |
+| Performance policy | jq | `performance-policy` | yes | yes | Agent link budget decisions and validation of benchmark reports |
 | UI stories | `cargo xtask ui check` | `ui` | — | — | Widget looks against reference images; strict in CI ([UI tests](#ui-tests)) |
 | UI diff | `cargo xtask ui diff` | `ui-diff` | — | yes, where the references come from another macOS | A visual change reaching CI with a stale reference ([UI tests](#ui-tests)) |
 | Dependencies | cargo-deny | `deny` | — | yes | Licenses (no GPL family), advisories, sources |
@@ -44,12 +45,25 @@ source of truth for both hooks and CI.
 
 | Workflow | When | What |
 |---|---|---|
-| `ci.yml` | push to `main`, every PR | `mise run ci` on macOS (all gates, secret scan over the whole history); `mise run conformance` on macOS (the engine conformance suite on `WKWebView`); `mise run ui` on macOS, strict, with the renders and diffs as the `ui-renders` artifact on failure; on PRs also `cargo mutants --in-diff` on Linux |
+| `ci.yml` | push to `main` or `release/**`, every PR, or by hand | `mise run ci` on macOS (all gates, secret scan over the whole history); engine conformance on both system WebKit and the pinned fork; `mise run ui` on macOS, strict, with the renders and diffs as the `ui-renders` artifact on failure; on PRs also `cargo mutants --in-diff` on Linux |
 | `pr-title.yml` | every PR | The title is a Conventional Commit (it becomes the squash commit) |
 | `auto-release.yml` | `ci` succeeded on a push to `main` | git-cliff computes the next version; nothing releasable ends the run |
 | `release.yml` | called by auto-release, a pushed `v*` tag, or by hand (dry run) | Tag + GitHub Release with notes from git-cliff |
 
 Actions are pinned by commit SHA. The branch and merge rules are in [AGENTS.md](../AGENTS.md).
+
+### Release performance
+
+The `engine conformance (WebKit fork)` check also enforces Agent link performance on pushes to
+`release/**`, PRs into a release branch, PRs from a release branch into `main`, and manual runs on
+a release branch. `mise run conformance-fork-release` uses one optimized build of the conformance
+binary for the suite and the benchmark. The benchmark runs after conformance exits. Other jobs
+continue in parallel on separate runners.
+
+The check verifies behavior and budgets for both the WebKit collector and the Rust parser
+against a reference on the same runner. Its job summary shows median and p95 timings by workload.
+Run `mise run performance-fork` on a quiet Mac to check the budgets locally. See the
+[benchmark workloads and thresholds](../tools/diagnostics/agent-links-perf.md).
 
 ## Lints
 

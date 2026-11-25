@@ -66,6 +66,7 @@ impl Browser {
         });
         let endpoint = agent.endpoint().cloned();
         drop(agent);
+        self.refresh_workspace_settings();
         if let Err(error) = saved {
             return settings.set_status(&format!("Not saved: {error}."), Tone::Problem);
         }

@@ -31,6 +31,7 @@ use objc2_web_kit::{
     WKContentWorld, WKFrameInfo, WKScriptMessage, WKScriptMessageHandler, WKUserContentController,
     WKWebView,
 };
+use quickie_application::EngineError;
 
 /// The content world every Quickie script runs in.
 pub(crate) fn world(mtm: MainThreadMarker) -> Retained<WKContentWorld> {
@@ -47,12 +48,27 @@ pub(crate) fn evaluate(
     script: &str,
     done: impl FnOnce(String) + 'static,
 ) {
+    evaluate_checked(view, world, frame, script, move |answer| {
+        done(answer.unwrap_or_default());
+    });
+}
+
+/// Offers the same isolated evaluation to callers that distinguish errors from empty text.
+pub(crate) fn evaluate_checked(
+    view: &WKWebView,
+    world: &WKContentWorld,
+    frame: Option<&WKFrameInfo>,
+    script: &str,
+    done: impl FnOnce(Result<String, EngineError>) + 'static,
+) {
     let done = Cell::new(Some(done));
-    let block = RcBlock::new(move |answer: *mut AnyObject, _error: *mut NSError| {
+    let block = RcBlock::new(move |answer: *mut AnyObject, error: *mut NSError| {
         // SAFETY: WebKit passes a valid object or null for the duration of the call.
         let answer = unsafe { answer.as_ref() }
             .and_then(|answer| answer.downcast_ref::<NSString>())
-            .map_or_else(String::new, NSString::to_string);
+            .filter(|_| error.is_null())
+            .map(NSString::to_string)
+            .ok_or_else(|| EngineError("Couldn't read the page.".to_owned()));
         if let Some(done) = done.take() {
             done(answer);
         }
