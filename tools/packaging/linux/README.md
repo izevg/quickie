@@ -1,11 +1,31 @@
 # Quickie for Linux
 
 The Linux preview is a native GTK4 browser with the same pinned WebKit fork as the macOS
-build. It opens an empty window and makes no navigation request until you enter an address or
-pass one explicitly. Use **Ctrl+L** to open the address bar, **Esc** to dismiss it, **Ctrl+R**
-to reload, **Alt+Left** and **Alt+Right** for history, and **Ctrl+Shift+I** to open Web Inspector.
-The preview has one browsing window and the native WebKitGTK inspector. Session restoration,
-Shields, the macOS inspector styling, and the agent API are outside this Linux preview.
+build. Wayland is the primary Linux display target. X11 is supported for compatibility.
+A fresh profile opens an empty window and makes its first navigation request when you enter an
+address or pass one explicitly. Use **Ctrl+L** for the address overlay, **Ctrl+Shift+P** or
+**Ctrl+K** for the command palette, and **Ctrl+P** to search open tabs and pages visited in the
+current window. In the address overlay, **Tab** completes a matching visited address when the
+shortcut is shown. The arrow keys move through results, **Enter** activates a result, and **Esc**
+returns focus to the page.
+
+Use **Ctrl+F** to find text on the page. **Enter** or **Ctrl+G** selects the next match,
+and **Shift+Enter** or **Ctrl+Shift+G** selects the previous one. The selection wraps at both
+ends. **Esc** closes the find panel and returns focus to the page.
+
+Use **Ctrl+R** to reload, **Alt+Left** and **Alt+Right** for history, and **F12** or
+**Ctrl+Shift+I** to toggle Web Inspector. **Ctrl+,** opens Settings, with access
+to Software Updates. **Ctrl+J** opens Downloads.
+
+Use **Ctrl+T** to open a tab, **Ctrl+W** to close it, and **Ctrl+Shift+T** to restore
+it from the trash. Hold **Ctrl** and press **Tab** to switch between recent tabs.
+Open the tab overview through the command palette or `Ctrl+Shift+\`. Each profile
+keeps its browsing session across launches.
+
+Open Shields with **Ctrl+Alt+S**. Enable filter lists in Shields settings and
+manage exceptions for the current site. Open **Agent** from the command palette
+to ask about the source page. The **Agent Settings** command configures the
+endpoint and stores its key in the desktop keyring.
 
 ## Packages
 
@@ -15,6 +35,13 @@ and uses the host's GTK4, media libraries, and system libraries. Its tested runt
 Ubuntu 24.04 LTS with the runtime dependencies of the matching Debian package. Launch it with
 `./Quickie-0.2.0-x86_64.AppImage` (mark it executable first). If FUSE is unavailable, the
 AppImage runtime supports `--appimage-extract-and-run`.
+
+Screen sharing uses the active desktop's ScreenCast portal and PipeWire session. The DEB
+and RPM install the portal service and GStreamer PipeWire plugin. AppImage users need them
+on the host (`xdg-desktop-portal` and `gstreamer1.0-pipewire` on Ubuntu, or
+`xdg-desktop-portal` and `pipewire-gstreamer` on Fedora). Use the ScreenCast backend for your
+desktop session, for example `xdg-desktop-portal-gnome`, `xdg-desktop-portal-kde`, or
+`xdg-desktop-portal-wlr` on Sway.
 
 The WebKit subprocess sandbox uses Bubblewrap and xdg-dbus-proxy. On Ubuntu systems with
 AppArmor user namespace restrictions, install and load the distribution's

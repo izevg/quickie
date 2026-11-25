@@ -1,0 +1,26 @@
+.quickie-hint-badge {
+    color: @theme_selected_fg_color;
+    background-color: @theme_selected_bg_color;
+    border: 1px solid alpha(@theme_selected_fg_color, 0.52);
+    border-radius: 6px;
+    padding: 1px 4px;
+    box-shadow: 0 2px 4px alpha(black, 0.48);
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.quickie-control-hint {
+    color: @theme_text_color;
+    background-color: @theme_base_color;
+    border-color: alpha(@theme_text_color, 0.54);
+}
+
+.quickie-link-hints-bar {
+    color: @theme_text_color;
+    background-color: mix(@theme_base_color, @theme_selected_bg_color, 0.10);
+    border: 1px solid alpha(@theme_text_color, 0.20);
+    border-radius: 14px;
+    padding: 6px 10px;
+    box-shadow: 0 6px 18px -4px alpha(black, 0.46);
+}

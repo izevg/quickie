@@ -41,12 +41,16 @@ fn whitespace_around_a_base_is_ignored() {
 }
 
 #[test]
-fn chat_completions_and_models_hang_off_the_base() {
+fn chat_completions_responses_and_models_hang_off_the_base() {
     let url = base("https://openrouter.ai/api/v1");
 
     assert_eq!(
         url.chat_completions().as_str(),
         "https://openrouter.ai/api/v1/chat/completions"
+    );
+    assert_eq!(
+        url.responses().as_str(),
+        "https://openrouter.ai/api/v1/responses"
     );
     assert_eq!(url.models().as_str(), "https://openrouter.ai/api/v1/models");
 }

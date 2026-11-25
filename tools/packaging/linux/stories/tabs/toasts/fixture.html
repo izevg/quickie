@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Quickie toast feedback fixture</title>
+<style>
+  html { background: #263d57; color: #f6f7fc; font: 18px system-ui; }
+  html:fullscreen { background: #276247; }
+  body { margin: 0; }
+  h1 { margin: 32px 56px 70px; font-size: 30px; }
+  nav { display: flex; gap: 12px; margin: 0 56px; }
+  a, button { background: #3e5e7e; color: inherit; border: 0; border-radius: 8px;
+              font: inherit; padding: 8px 12px; }
+  #zoom { position: absolute; left: 40px; top: 100px; width: 40px; height: 16px;
+          background: #66caa7; border-radius: 2px; }
+  #under-toast { position: fixed; left: 50%; bottom: 24px; width: 60px; height: 36px;
+                 transform: translateX(-50%); opacity: 0; }
+</style>
+<h1>Quickie toast feedback fixture</h1>
+<div id="zoom"></div>
+<nav>
+  <a href="?destination=background">Open in background</a>
+  <a id="download">Download a file</a>
+  <a id="interrupted">Download an interrupted file</a>
+  <button id="fullscreen">Enter fullscreen</button>
+</nav>
+<button id="under-toast">Page click target under notification</button>
+<script>
+  const query = new URLSearchParams(location.search);
+  const port = query.get('downloads');
+  if (port) {
+    document.querySelector('#download').href = 'http://127.0.0.1:' + port + '/saved';
+    document.querySelector('#interrupted').href = 'http://127.0.0.1:' + port + '/retry';
+  }
+  document.querySelector('#under-toast').onclick = () => { void fetch('?click=page'); };
+  document.querySelector('#fullscreen').onclick = () => document.documentElement.requestFullscreen();
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) void fetch('?state=fullscreen');
+  });
+</script>

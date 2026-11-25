@@ -1,7 +1,7 @@
 //! The mini player: when the user leaves a tab whose video plays, the video floats over the
 //! window in a small rounded player, in a corner, as in Arc. Only the user's own action (a tab
 //! switch, the switcher, a new tab) brings it up; nothing shows on hover, and its controls are
-//! always there, not revealed: play or pause, back to the tab, and close.
+//! always there: play or pause, back to the tab, minimize, and close.
 //!
 //! It is the page's own view, not a picture: the browser's engine moves the tab's page into
 //! [`MiniPlayer::slot`] and makes its video fill it, so it plays on and the window server
@@ -54,6 +54,8 @@ pub enum PlayerRequest {
     /// Go back to the video's tab, from its button or a click on the video; the player ends
     /// there.
     BackToTab,
+    /// Hide the player while the video keeps playing.
+    Minimize,
     /// Close the player; the video pauses.
     Close,
 }
@@ -84,6 +86,11 @@ define_class!(
         #[unsafe(method(backToTab:))]
         fn back_to_tab(&self, _sender: Option<&NSButton>) {
             self.ask(PlayerRequest::BackToTab);
+        }
+
+        #[unsafe(method(minimize:))]
+        fn minimize(&self, _sender: Option<&NSButton>) {
+            self.ask(PlayerRequest::Minimize);
         }
 
         #[unsafe(method(close:))]
@@ -175,6 +182,7 @@ impl MiniPlayer {
             &[
                 play.clone(),
                 button("pip.exit", "Back to Tab", sel!(backToTab:), &target, mtm),
+                button("minus", "Minimize player", sel!(minimize:), &target, mtm),
                 button("xmark", "Close", sel!(close:), &target, mtm),
             ],
         );

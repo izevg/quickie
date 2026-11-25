@@ -1,0 +1,33 @@
+.quickie-agent {
+    background-color: @theme_base_color;
+    color: @theme_text_color;
+    border-left: 1px solid alpha(currentColor, 0.18);
+}
+
+.quickie-agent .agent-heading {
+    font-size: 1.23em;
+    font-weight: 700;
+}
+
+.quickie-agent .agent-source {
+    opacity: 0.72;
+}
+
+.quickie-agent .agent-prompt {
+    background-color: alpha(@theme_selected_bg_color, 0.14);
+    border-radius: 9px;
+    padding: 8px 10px;
+}
+
+.quickie-agent .agent-row {
+    min-height: 24px;
+    padding: 3px 2px;
+}
+
+.quickie-agent .agent-problem {
+    color: @error_color;
+}
+
+.quickie-agent .agent-citation {
+    font-size: 0.92em;
+}

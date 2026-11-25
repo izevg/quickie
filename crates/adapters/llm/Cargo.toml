@@ -9,7 +9,8 @@ publish.workspace = true
 [dependencies]
 quickie-application.workspace = true
 quickie-domain-agents.workspace = true
-serde_json.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = { workspace = true, features = ["raw_value"] }
 url.workspace = true
 
 [dev-dependencies]

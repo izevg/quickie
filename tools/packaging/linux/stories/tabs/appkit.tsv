@@ -1,0 +1,12 @@
+group	widget	state	gtk_capture	notes
+palette	address-overlay	go-to-tab	go-to-tab	Enter switches to the already open WebKit view and preserves its state.
+tabs	tab-switcher	titles	tab-switcher-titles	Hold Ctrl while pressing Tab to reveal cards in recent order.
+tabs	tab-switcher	long-titles	tab-switcher-long-titles	The cards include an ellipsized title, Cyrillic, and an untitled page.
+tabs	tab-switcher	many	tab-switcher-many	The selected card stays visible beyond the first six tabs.
+tabs	tab-switcher	cycle	tab-switcher-cycle	Tab and Shift-Tab traverse the snapshot and wrap.
+tabs	tab-switcher	filtered	tab-switcher-filtered	Typing, erasing, and stepping keep the matching documentation tabs.
+tabs	tab-switcher	no-match	tab-switcher-no-match	A filter miss leaves the active view unchanged on release.
+tabs	tab-overview	thumbnails	tab-overview-thumbnails	The grid displays cached pictures from live pages.
+tabs	tab-overview	no-pictures	tab-overview-no-pictures	Unvisited tabs from the restored session show card placeholders.
+tabs	tab-overview	filtered	tab-overview-filtered	A Cyrillic title matches the filter.
+tabs	tab-overview	no-match	tab-overview-no-match	Enter leaves an empty overview open.

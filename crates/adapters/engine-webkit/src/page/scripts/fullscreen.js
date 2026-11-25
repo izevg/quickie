@@ -1,18 +1,16 @@
-// The Fullscreen API in the tab's own window, as Chrome does it, instead of WebKit's separate
-// full-screen window. Installed at document start in the page's own world of every frame, so
-// it replaces `requestFullscreen` and friends before the page's scripts run; everything it
-// calls later was taken from the prototypes before the page could change them.
+// The Fullscreen API in the tab's own window. Installed at document start in the page's own
+// world of every frame, so it replaces `requestFullscreen` and friends before the page's
+// scripts run. It captures the native methods before the page can change them.
 //
 // An element that asks to go full screen moves into the top layer (a manual popover) and fills
 // the page view; the page under it stops scrolling. A frame's element fills its frame, and the
 // frame's parent makes that frame fill its own view, up to the main frame. The main frame tells
 // Quickie's world with a `quickie-fullscreen-enter` or `quickie-fullscreen-exit` event on the
-// document; that world checks the user's activation and tells the browser, which takes the
-// window full screen. The browser takes the page out with a `quickie-fullscreen-leave` event.
+// document; that world checks the user's activation and tells the browser, which adjusts the
+// page view. The browser takes the page out with a `quickie-fullscreen-leave` event.
 // Leaving puts the element's style and the scroll position back as they were.
 //
-// Not replaced: the `:fullscreen` pseudo-class, and the fullscreen button of WebKit's own media
-// controls, which still uses WebKit's full-screen window.
+// Native requests can also enter fullscreen. Reflect them through the native accessors.
 (() => {
   const uncurry = (f) => Function.prototype.call.bind(f);
   const getter = (proto, name) => {
@@ -24,6 +22,10 @@
   const Video = HTMLVideoElement;
   const V = Video.prototype;
   const nativeEnabled = getter(D, 'fullscreenEnabled') || getter(D, 'webkitFullscreenEnabled');
+  const nativeElement = getter(D, 'fullscreenElement') || getter(D, 'webkitFullscreenElement');
+  const nativeExit = D.exitFullscreen ? uncurry(D.exitFullscreen) : null;
+  const nativeVideoFullscreen = getter(V, 'webkitDisplayingFullscreen');
+  const nativeVideoExit = V.webkitExitFullscreen ? uncurry(V.webkitExitFullscreen) : null;
   const activation = getter(Navigator.prototype, 'userActivation');
   const isActive = window.UserActivation ? getter(UserActivation.prototype, 'isActive') : null;
   const getAttribute = uncurry(E.getAttribute);
@@ -147,7 +149,7 @@
     observe(watcher, element, { attributes: true, attributeFilter: ['style'] });
   };
 
-  // Where the page goes back to while the window shrinks back, over a moment.
+  // Where the page goes back to while the view returns to its inset.
   let restore = null;
   listen(window, 'resize', () => {
     if (restore && now() < restore.until) scrollTo.call(window, restore.x, restore.y);
@@ -246,7 +248,10 @@
   }
 
   function exitFullscreen() {
-    if (!current) return rejected(new Err('Not in fullscreen'));
+    if (!current) {
+      if (nativeElement && nativeElement(doc) && nativeExit) return nativeExit(doc);
+      return rejected(new Err('Not in fullscreen'));
+    }
     leave('here');
     return resolved();
   }
@@ -255,7 +260,7 @@
   const visible = () => {
     let node = current;
     while (node && getRootNode(node) !== doc) node = getRootNode(node).host;
-    return node || null;
+    return node || (nativeElement ? nativeElement(doc) : null);
   };
 
   const define = (proto, name, value) => {
@@ -279,7 +284,7 @@
     'webkitCurrentFullScreenElement']) {
     read(D, name, visible);
   }
-  for (const name of ['fullscreen', 'webkitIsFullScreen']) read(D, name, () => current !== null);
+  for (const name of ['fullscreen', 'webkitIsFullScreen']) read(D, name, () => visible() !== null);
   function requestVideoFullscreen(video) {
     // The legacy video APIs return void, including when a gesture is missing.
     catchPromise(requestFullscreen.call(video), () => {});
@@ -289,9 +294,14 @@
     define(V, name, function () { requestVideoFullscreen(this); });
   }
   for (const name of ['webkitExitFullscreen', 'webkitExitFullScreen']) {
-    define(V, name, function () { if (current === this) leave('here'); });
+    define(V, name, function () {
+      if (current === this) leave('here');
+      else if (nativeVideoExit) nativeVideoExit(this);
+    });
   }
-  read(V, 'webkitDisplayingFullscreen', function () { return current === this; });
+  read(V, 'webkitDisplayingFullscreen', function () {
+    return current === this || !!(nativeVideoFullscreen && nativeVideoFullscreen(this));
+  });
 
   const nativePresentationMode = getter(V, 'webkitPresentationMode');
   if (nativePresentationMode && V.webkitSetPresentationMode) {

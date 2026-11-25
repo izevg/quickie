@@ -1,0 +1,9 @@
+group	widget	state	gtk_capture	notes
+agent	agent-workspace	idle	agent-workspace-idle	The configured workspace opens beside an interactive source page and stays open across turns.
+agent	agent-workspace	unconfigured	agent-workspace-unconfigured	The setup action opens the native endpoint settings form.
+agent	agent-workspace	running	agent-workspace-running	The workspace shows a live reading and answering turn. Isolated navigation requires a WebKitGTK engine gate.
+agent	agent-workspace	success	agent-workspace-success	A streamed source-page answer stays in the transcript.
+agent	agent-workspace	error	agent-workspace-error	An endpoint failure appears in the transcript and leaves the workspace usable.
+agent	agent-workspace	stopped	agent-workspace-stopped	Stop disconnects the request and retains the partial answer.
+agent	agent-workspace	history	agent-workspace-history	Multiple read-only turns stay visible in the transcript.
+agent	agent-workspace	citations	agent-workspace-citations	Selecting a verified source chip highlights the matching text in the original page.

@@ -15,7 +15,7 @@
 
 pub(crate) mod agent_links;
 pub(crate) mod fullscreen;
-pub(crate) mod hints;
+pub(crate) use crate::link_hints as hints;
 pub(crate) mod video;
 
 use std::cell::{Cell, RefCell};

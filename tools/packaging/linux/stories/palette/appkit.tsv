@@ -1,0 +1,17 @@
+group	widget	state	gtk_capture	notes
+palette	address-overlay	current-url	address-current-url	Shows the current URL and the available Copy URL action.
+palette	address-overlay	blocked-count		The GTK address overlay has no Shields count.
+palette	address-overlay	inline-completion	address-url-completed	GTK completes a visited URL on Tab.
+palette	address-overlay	mixed-kinds	address-history-match	GTK combines web search and local history suggestions.
+palette	address-overlay	url-typed	address-url-typed	Enter navigates to the typed address.
+palette	address-overlay	cyrillic	address-cyrillic	Native GTK clipboard input searches Cyrillic page titles.
+palette	address-overlay	long-urls	address-long-url	A long address stays within the overlay.
+palette	address-overlay	go-to-tab	../tabs/go-to-tab	The tabs story selects an open view and checks that it remains live.
+palette	command-palette	go-to	palette-go-to	GTK lists recently visited pages in the current window.
+palette	command-palette	commands	palette-commands	GTK lists its native command catalog.
+palette	command-palette	highlights	palette-highlights	A query narrows the list and highlights matching text.
+palette	command-palette	empty	palette-empty	A query with no command matches leaves an empty panel.
+palette	command-palette	cyrillic	palette-cyrillic	GTK matches a Cyrillic title in local history.
+palette	command-palette	long-titles	palette-long-titles	GTK ellipsizes a long history title.
+palette	command-palette	run-command	palette-run-command	Down selects the next reload command and Enter executes it.
+palette	command-palette	narrow	palette-narrow	The palette fits a 560-pixel logical window.

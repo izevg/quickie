@@ -40,6 +40,12 @@ impl BaseUrl {
         self.joined("chat/completions")
     }
 
+    /// Where responses are created: `<base>/responses`.
+    #[must_use]
+    pub fn responses(&self) -> Url {
+        self.joined("responses")
+    }
+
     /// Where the endpoint lists its models: `<base>/models`.
     #[must_use]
     pub fn models(&self) -> Url {

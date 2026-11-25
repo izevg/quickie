@@ -51,6 +51,9 @@ pub enum LlmError {
         /// The endpoint's own message, or the start of its body.
         message: String,
     },
+    /// Both native tool routes explicitly refused the capability before a call was accepted.
+    #[error("the endpoint does not support native agent tools")]
+    ToolsUnavailable,
     /// The endpoint reported an error in the middle of the answer.
     #[error("the endpoint failed: {0}")]
     Api(String),

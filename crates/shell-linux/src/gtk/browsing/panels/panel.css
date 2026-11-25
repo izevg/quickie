@@ -1,0 +1,35 @@
+.quickie-tab-scrim {
+    background: alpha(black, 0.20);
+}
+
+.quickie-tab-card {
+    padding: 7px;
+    color: @quickie_panel_ink;
+    background: alpha(@theme_base_color, 0.43);
+    border: 1px solid @quickie_panel_separator;
+    border-radius: 11px;
+}
+
+.quickie-tab-card:hover {
+    background: alpha(@theme_base_color, 0.62);
+}
+
+.quickie-tab-card:selected {
+    background: mix(@quickie_panel_tint, @quickie_panel_accent, 0.18);
+    border-color: @quickie_panel_accent;
+    box-shadow: inset 0 0 0 1px @quickie_panel_accent;
+}
+
+.quickie-tab-picture {
+    min-width: 136px;
+    min-height: 92px;
+    color: @quickie_panel_muted;
+    background: alpha(@quickie_panel_ink, 0.11);
+    border-radius: 8px;
+}
+
+.quickie-tab-close {
+    padding: 1px 4px;
+    min-height: 20px;
+    min-width: 20px;
+}

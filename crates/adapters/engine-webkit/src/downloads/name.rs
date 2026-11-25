@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "macos")]
 use url::Url;
 
 /// The name of a download whose server suggested none that is usable.
@@ -16,7 +17,8 @@ const MAX_COPIES: u32 = 9999;
 
 /// Whether a response should be saved rather than shown: `WebKit` cannot show its type, or the
 /// server asked for it with `Content-Disposition: attachment`.
-pub(crate) fn wants_download(can_show: bool, disposition: Option<&str>) -> bool {
+#[must_use]
+pub fn wants_download(can_show: bool, disposition: Option<&str>) -> bool {
     !can_show
         || disposition.is_some_and(|value| {
             value
@@ -28,7 +30,8 @@ pub(crate) fn wants_download(can_show: bool, disposition: Option<&str>) -> bool 
 
 /// A file name made safe to create in the Downloads folder: no path separators, no control
 /// characters, not hidden, not empty, and short enough to take a number.
-pub(crate) fn safe_name(suggested: &str) -> String {
+#[must_use]
+pub fn safe_name(suggested: &str) -> String {
     let cleaned: String = suggested
         .trim()
         .chars()
@@ -49,6 +52,7 @@ pub(crate) fn safe_name(suggested: &str) -> String {
 
 /// The name a page saved as a PDF gets: its title, else its host, else `page`, made safe, with
 /// `.pdf`.
+#[cfg(target_os = "macos")]
 pub(crate) fn pdf_name(title: Option<&str>, url: &Url) -> String {
     let base = title
         .map(str::trim)
@@ -60,11 +64,8 @@ pub(crate) fn pdf_name(title: Option<&str>, url: &Url) -> String {
 
 /// The first of `name`, `name 2`, `name 3` … (the number before the extension, as the Finder
 /// numbers copies) in `directory` that `taken` says is free; `None` when none of them is.
-pub(crate) fn unique_path(
-    directory: &Path,
-    name: &str,
-    taken: impl Fn(&Path) -> bool,
-) -> Option<PathBuf> {
+#[must_use]
+pub fn unique_path(directory: &Path, name: &str, taken: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     let (stem, extension) = split(name);
     (1..=MAX_COPIES)
         .map(|copy| {
@@ -107,10 +108,14 @@ fn shorten(name: &str) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    #[cfg(target_os = "macos")]
     use url::Url;
 
-    use super::{MAX_NAME_BYTES, pdf_name, safe_name, unique_path, wants_download};
+    #[cfg(target_os = "macos")]
+    use super::pdf_name;
+    use super::{MAX_NAME_BYTES, safe_name, unique_path, wants_download};
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_pdf_is_named_after_the_page_title_then_its_host() {
         let page = Url::parse("https://example.com/a").unwrap();

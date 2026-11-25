@@ -22,6 +22,18 @@ fn command(id: &str) -> CommandId {
 
 const NOW: Timestamp = Timestamp::from_millis(0);
 
+#[test]
+fn the_dedicated_page_search_keeps_punctuation_in_page_titles() {
+    let mut world = World::new();
+    world.bookmark("alice", "@alice");
+    world.visit("reading", "Other page", 1);
+
+    let rows = world.open().pages("@alice", 8);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].target, Target::Url(url("alice")));
+}
+
 /// Everything the palette reads, empty until a test fills it.
 struct World {
     session: Session,

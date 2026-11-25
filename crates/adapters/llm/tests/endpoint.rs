@@ -1,8 +1,9 @@
-//! The client through the development engine's real network stack, against a one-shot
+//! The client through the macOS engine's real network stack, against a one-shot
 //! OpenAI-compatible server on 127.0.0.1 that streams canned answers. No real LLM is asked, and
 //! no request leaves the machine.
 // Test code throughout, helpers included, so they may unwrap like tests do (`.clippy.toml`).
 #![cfg(test)]
+#![cfg(target_os = "macos")]
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;

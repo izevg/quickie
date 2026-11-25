@@ -259,3 +259,22 @@ fn tickets_differ() {
 
     assert_ne!(inbox.ticket(), inbox.ticket());
 }
+
+#[test]
+fn picture_in_picture_events_keep_their_tab_and_order() {
+    let inbox = Rc::new(Inbox::default());
+    let weak = Rc::downgrade(&inbox);
+    let page = owner(Some(3));
+    let tab = TabId::new(Profile::Main, 3);
+
+    Inbox::record(&weak, &page, PageEvent::PictureInPicture(true));
+    Inbox::record(&weak, &page, PageEvent::PictureInPicture(false));
+
+    assert_eq!(
+        drained(&inbox),
+        [
+            EngineEvent::PictureInPicture { tab, active: true },
+            EngineEvent::PictureInPicture { tab, active: false },
+        ]
+    );
+}

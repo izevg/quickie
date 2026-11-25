@@ -1,0 +1,12 @@
+group	widget	state	gtk_capture	notes
+feedback	fullscreen-notice	page	fullscreen-entered-1	The native notice identifies the origin during real DOM fullscreen in the original window.
+page	page-frame	inset-full-screen	fullscreen-entered-2	The page fills the existing surface on a second entry. Escape restores the previous viewport in fullscreen-restored-2.
+tabs	mini-player	playing	mini-player-bottom	The original moving VP8 video with Opus audio floats over the next tab.
+tabs	mini-player	paused	mini-player-paused	The GTK Pause button stops the video clock and changes to Play.
+tabs	mini-player	bottom-right	mini-player-bottom	GTK initially anchors the live player at the lower right.
+tabs	mini-player	top-right	mini-player-top	The Move up action anchors the live player at the upper right.
+tabs	mini-player	top-left	mini-player-top-left	The Move left action crosses to the upper left while the original video continues.
+tabs	mini-player	bottom-left	mini-player-bottom-left	The Move down action anchors the original video in the lower left without a reload.
+tabs	mini-player	minimized	mini-player-minimized	GTK removes its in-window surface while the original playhead advances.
+tabs	mini-player	back-to-tab	mini-player-back-to-tab	The native Back to tab button activates the original document and docks the video without a reload.
+tabs	mini-player	system-picture-in-picture		Base Wayland offers no client-controlled global PiP positioning or always-on-top. GTK uses its own browser surface.

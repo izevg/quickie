@@ -1,0 +1,5 @@
+group	widget	state	gtk_capture	notes
+hints	link-hints-layer	labels	link-hints-labels	Twelve live targets have native keyboard labels.
+hints	link-hints-layer	narrowed	link-hints-narrowed	The first letter filters the displayed labels.
+hints	link-hints-layer	background	link-hints-background	The alternate shortcut opens the selected URL in a background tab.
+hints	link-hints-layer	followed	link-hints-followed	The complete label navigates the active view and removes the hints.

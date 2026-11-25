@@ -1,4 +1,4 @@
-//! System adapter of Quickie: what the application needs from macOS itself.
+//! System services and extension package verification.
 //!
 //! - [`KeychainSecrets`], the application's `SecretStore`, where LLM API keys live: never in
 //!   the store, never in a file.
@@ -9,16 +9,16 @@
 //! The clipboard, the global hotkey, and the keyboard layout join here as their use cases
 //! arrive (`docs/architecture.md` §4.1).
 
-#![expect(
-    unsafe_code,
-    reason = "CommonCrypto's SHA-256 and Security.framework's `SecKeyCreateWithData`, which \
-              security-framework does not wrap, check web extension packages"
-)]
-
+#[cfg(target_os = "macos")]
 mod entropy;
+#[cfg(target_os = "macos")]
 mod keychain;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod packages;
 
+#[cfg(target_os = "macos")]
 pub use entropy::SystemEntropy;
+#[cfg(target_os = "macos")]
 pub use keychain::KeychainSecrets;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use packages::ExtensionFiles;

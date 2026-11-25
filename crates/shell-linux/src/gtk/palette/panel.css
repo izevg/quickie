@@ -1,0 +1,130 @@
+/* E2 panels use the shared Quickie dimensions and the desktop's semantic colors. */
+@define-color quickie_panel_tint mix(@theme_base_color, @theme_selected_bg_color, 0.10);
+@define-color quickie_panel_ink @theme_text_color;
+@define-color quickie_panel_muted mix(@theme_text_color, @theme_base_color, 0.26);
+@define-color quickie_panel_separator alpha(@theme_text_color, 0.15);
+@define-color quickie_panel_accent @theme_selected_bg_color;
+
+.quickie-panel {
+    border-radius: 22px;
+    box-shadow: 0 20px 48px -10px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.16);
+}
+
+.quickie-panel-content {
+    color: @quickie_panel_ink;
+    background-color: alpha(@quickie_panel_tint, 0.86);
+    background-image: linear-gradient(135deg, alpha(white, 0.10), transparent 65%);
+    border: 1px solid @quickie_panel_separator;
+    border-top-color: alpha(@theme_text_color, 0.23);
+    border-radius: 22px;
+    padding: 20px;
+}
+
+.quickie-panel-backdrop {
+    background-color: transparent;
+    border-radius: 22px;
+}
+
+.quickie-panel-input {
+    min-height: 36px;
+    padding: 4px 12px;
+    color: @quickie_panel_ink;
+    background-color: alpha(@theme_base_color, 0.31);
+    background-image: none;
+    border: 1px solid @quickie_panel_separator;
+    border-radius: 10px;
+    box-shadow: none;
+    font-size: 1.2em;
+    font-weight: 500;
+}
+
+.quickie-panel-input:focus-within {
+    border-color: alpha(@quickie_panel_accent, 0.78);
+    box-shadow: 0 0 0 1px alpha(@quickie_panel_accent, 0.36);
+}
+
+.quickie-panel-input placeholder {
+    color: mix(@theme_text_color, @theme_base_color, 0.22);
+    opacity: 1;
+}
+
+.quickie-panel-list {
+    background-color: transparent;
+    color: @quickie_panel_ink;
+}
+
+.quickie-panel-row {
+    min-height: 40px;
+    padding: 0 8px;
+    color: @quickie_panel_ink;
+    background-color: transparent;
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    box-shadow: none;
+}
+
+.quickie-panel-row:hover {
+    background-color: alpha(@quickie_panel_ink, 0.07);
+}
+
+.quickie-panel-row:selected,
+.quickie-panel-row.selected {
+    color: @quickie_panel_ink;
+    background-color: alpha(@quickie_panel_accent, 0.18);
+    border-color: alpha(@quickie_panel_accent, 0.65);
+}
+
+.quickie-panel-row:hover .quickie-panel-icon,
+.quickie-panel-row:selected .quickie-panel-icon,
+.quickie-panel-row.selected .quickie-panel-icon {
+    color: @quickie_panel_ink;
+}
+
+.quickie-panel-row:focus-visible {
+    border-color: @quickie_panel_accent;
+}
+
+.quickie-panel-row:disabled {
+    color: @quickie_panel_muted;
+    background-color: transparent;
+}
+
+.quickie-panel-title {
+    font-size: 1em;
+    font-weight: 600;
+}
+
+.quickie-panel-detail,
+.quickie-panel-section,
+.quickie-panel-icon {
+    color: @quickie_panel_muted;
+}
+
+.quickie-panel-section {
+    font-family: monospace;
+    font-size: 0.84em;
+}
+
+.quickie-panel-keycap {
+    min-height: 18px;
+    padding: 0 6px;
+    color: @quickie_panel_ink;
+    background-color: alpha(@quickie_panel_ink, 0.08);
+    border: 1px solid @quickie_panel_separator;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.84em;
+}
+
+.quickie-panel-footer {
+    color: @quickie_panel_muted;
+    border-top: 1px solid @quickie_panel_separator;
+    padding-top: 8px;
+    font-size: 0.84em;
+}
+
+.quickie-panel-empty {
+    color: @quickie_panel_muted;
+    padding: 12px;
+}

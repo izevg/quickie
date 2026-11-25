@@ -14,7 +14,6 @@
 //! `NSProgress`, and reported only when it moved.
 
 mod delegate;
-mod name;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
@@ -36,8 +35,9 @@ use quickie_application::{DownloadEvent, DownloadToken};
 use quickie_domain_browsing::{Jar, TabId};
 use url::Url;
 
+use crate::download_name as name;
+pub(crate) use crate::download_name::{pdf_name, wants_download};
 use delegate::{DelegateEvent, DownloadDelegate};
-pub(crate) use name::{pdf_name, wants_download};
 
 /// How often a running download's progress is read, in seconds.
 const POLL_INTERVAL: f64 = 0.25;

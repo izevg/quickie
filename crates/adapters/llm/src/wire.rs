@@ -2,8 +2,13 @@
 //! what comes back is read. Everything that comes back is read defensively: a field that is
 //! missing or of another type is absent, never a panic.
 
+mod responses;
 #[cfg(test)]
 mod tests;
+mod tools;
+mod transport;
+
+pub(crate) use transport::ToolTransport;
 
 use quickie_application::{ChatEvent, ChatRequest, LlmError};
 use quickie_domain_agents::{ApiKey, ModelId};

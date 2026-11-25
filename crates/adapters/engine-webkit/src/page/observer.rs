@@ -7,9 +7,10 @@ use std::ffi::c_void;
 use std::rc::Rc;
 
 use block2::DynBlock;
-use objc2::rc::Retained;
+use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2_app_kit::NSView;
 use objc2_foundation::{
     NSHTTPURLResponse, NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration,
     NSString, NSURL,
@@ -55,6 +56,8 @@ pub(crate) enum PageEvent {
     /// An element of the page filled the page view (`true`), or stopped (`false`), as our
     /// Fullscreen API reports it.
     FullscreenInWindow(bool),
+    /// `WebKit` opened (`true`) or closed (`false`) native picture-in-picture.
+    PictureInPicture(bool),
     /// The web content process that rendered the page terminated: the view is blank until it
     /// loads again.
     Crashed,
@@ -73,6 +76,7 @@ const FULLSCREEN: &str = "fullscreenState";
 
 pub(crate) struct Ivars {
     hooks: Rc<Hooks>,
+    frame: Weak<NSView>,
 }
 
 define_class!(
@@ -107,7 +111,15 @@ define_class!(
             } else if key_path == FULLSCREEN {
                 // SAFETY: a getter with no preconditions.
                 match unsafe { view.fullscreenState() } {
-                    WKFullscreenState::InFullscreen => on_event(PageEvent::Fullscreen(true)),
+                    WKFullscreenState::InFullscreen => {
+                        // SAFETY: the view is live on the main thread; this getter does not mutate it.
+                        let host = unsafe { view.superview() };
+                        if self.ivars().frame.load().is_some_and(|frame| host.as_deref() == Some(&*frame)) {
+                            on_event(PageEvent::FullscreenInWindow(true));
+                        } else {
+                            on_event(PageEvent::Fullscreen(true));
+                        }
+                    }
                     WKFullscreenState::NotInFullscreen => on_event(PageEvent::Fullscreen(false)),
                     _ => {}
                 }
@@ -141,7 +153,9 @@ define_class!(
     unsafe impl WKNavigationDelegate for PageObserver {
         #[unsafe(method(webView:didCommitNavigation:))]
         fn did_commit(&self, view: &WKWebView, _navigation: Option<&WKNavigation>) {
-            (self.ivars().hooks.on_event)(PageEvent::Committed {
+            let hooks = &self.ivars().hooks;
+            hooks.reset_picture_in_picture();
+            (hooks.on_event)(PageEvent::Committed {
                 url: url_of(view),
                 title: title_of(view),
             });
@@ -211,7 +225,9 @@ define_class!(
         /// `WebKit` does not reload a page whose process died: it stays blank until it is told.
         #[unsafe(method(webViewWebContentProcessDidTerminate:))]
         fn content_process_terminated(&self, _view: &WKWebView) {
-            (self.ivars().hooks.on_event)(PageEvent::Crashed);
+            let hooks = &self.ivars().hooks;
+            hooks.reset_picture_in_picture();
+            (hooks.on_event)(PageEvent::Crashed);
         }
 
         #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
@@ -267,8 +283,15 @@ fn elsewhere(action: &WKNavigationAction) -> Option<(String, Focus)> {
 }
 
 impl PageObserver {
-    pub(crate) fn new(hooks: Rc<Hooks>, mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars { hooks });
+    pub(crate) fn new(
+        hooks: Rc<Hooks>,
+        frame: &Retained<NSView>,
+        mtm: MainThreadMarker,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars {
+            hooks,
+            frame: Weak::from_retained(frame),
+        });
         // SAFETY: `init` is `NSObject`'s designated initializer and the ivars are set.
         unsafe { msg_send![super(this), init] }
     }

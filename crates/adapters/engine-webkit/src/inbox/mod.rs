@@ -109,6 +109,7 @@ impl Inbox {
         );
         Hooks {
             security_key_presenter: inbox.security_key_presenter.borrow().clone(),
+            native_pip_active: Cell::default(),
             on_navigation: Box::new(move |url| {
                 if let Some(cosmetics) = starting.upgrade() {
                     Cosmetics::expect(&cosmetics, url);
@@ -161,6 +162,9 @@ impl Inbox {
                     Fullscreen::Left
                 },
             }),
+            PageEvent::PictureInPicture(active) => {
+                inbox.push(EngineEvent::PictureInPicture { tab, active });
+            }
             PageEvent::Crashed => inbox.push(EngineEvent::Crashed { tab }),
             PageEvent::Blocked => inbox.events.borrow_mut().blocked(tab),
             PageEvent::Download(download) => {

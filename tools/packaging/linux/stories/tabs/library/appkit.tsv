@@ -1,0 +1,3 @@
+group	widget	state	gtk_capture	notes
+palette	command-palette	go-to	library-bookmark-go-to	Finds and opens a bookmark saved before restarting the browser.
+palette	address-overlay	mixed-kinds	library-history-open	Finds a visited page by title after restarting with the same profile.

@@ -1,0 +1,103 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Quickie privacy fixture</title>
+<style>
+  html { height: 100%; }
+  body {
+    margin: 0;
+    min-height: 100%;
+    display: grid;
+    place-content: center;
+    background: linear-gradient(130deg, #15263a, #543659);
+    color: white;
+    font: 18px system-ui, sans-serif;
+  }
+  #marker { position: fixed; right: 0; bottom: 0; width: 48px; height: 48px; background: #5fe2b0; }
+  aside { position: fixed; left: 36px; bottom: 32px; }
+</style>
+<main>
+  <h1>Privacy fixture</h1>
+  <p id="headline"></p>
+</main>
+<div id="marker"></div>
+<script>
+  const scene = new URLSearchParams(location.search).get("scene") ?? "shields";
+  const report = (result) => fetch(
+    "fixture.html?" + new URLSearchParams({ scene, result }),
+    { cache: "no-store" },
+  );
+  const devices = {
+    camera: { video: true },
+    microphone: { audio: true },
+    "camera-and-microphone": { video: true, audio: true },
+  };
+  const displayRequests = {
+    display: false,
+    "display-with-audio": true,
+    "display-navigates": false,
+  };
+  const display = Object.hasOwn(displayRequests, scene);
+  const headline = document.querySelector("#headline");
+  if (devices[scene] || display) {
+    headline.textContent = "Press F8 to request " + scene.replaceAll("-", " ") + ".";
+    window.addEventListener("keydown", async (event) => {
+      if (event.key !== "F8") return;
+      if (!event.isTrusted) return;
+      event.preventDefault();
+      if (scene === "display-navigates") {
+        setTimeout(() => location.assign("fixture.html?scene=display"), 3500);
+      }
+      try {
+        const stream = display
+          ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: displayRequests[scene] })
+          : await navigator.mediaDevices.getUserMedia(devices[scene]);
+        const kinds = stream.getTracks().map((track) => track.kind).sort().join("-");
+        stream.getTracks().forEach((track) => track.stop());
+        await report("allowed-" + kinds);
+      } catch (error) {
+        await report(error.name);
+      }
+    });
+    report("ready");
+  } else {
+    headline.textContent = "Testing two equivalent image requests.";
+    const parsed = JSON.parse('{"adPlacements":["fixture"],"article":true}');
+    const pruned = parsed.adPlacements === undefined && parsed.article;
+    const isolated = !window.webkit?.messageHandlers?.quickieShields;
+    const trustedRuleRejected = window.quickieFixtureTrusted === undefined;
+    const examples = document.createElement("aside");
+    examples.innerHTML = [
+      '<div id="host-ad" class="quickie-host-ad">Host ad example</div>',
+      '<div id="generic-ad" class="quickie-generic-ad">Generic class example</div>',
+      '<div id="procedural-ad" class="quickie-procedural-ad">Sponsored fixture example</div>',
+      '<div id="control">Editorial control</div>',
+    ].join("");
+    document.body.append(examples);
+
+    const checkCosmetics = () => {
+      const visible = (id) => getComputedStyle(document.getElementById(id)).display !== "none";
+      const hidden = ["host-ad", "generic-ad", "procedural-ad"].map((id) => !visible(id));
+      const bits = [...hidden, pruned, visible("control"), isolated, trustedRuleRejected];
+      return bits.map(Number).join("");
+    };
+    const waitForCosmetics = async (protectedPage) => {
+      const deadline = performance.now() + (protectedPage ? 1800 : 350);
+      let observed = checkCosmetics();
+      while (performance.now() < deadline && (!protectedPage || observed !== "1111111")) {
+        await new Promise((resolve) => setTimeout(resolve, 35));
+        observed = checkCosmetics();
+      }
+      await report("cosmetics-" + observed);
+    };
+    const probe = (role) => new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve("loaded");
+      image.onerror = () => resolve("blocked");
+      image.src = "probe.svg?role=" + role;
+    });
+    Promise.all([probe("control"), probe("tracker")]).then(async ([control, tracker]) => {
+      await report(control + "-" + tracker);
+      await waitForCosmetics(tracker === "blocked");
+    });
+  }
+</script>

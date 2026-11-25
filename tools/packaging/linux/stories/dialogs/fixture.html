@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>JavaScript dialogs</title>
+<style>
+    :root { color: #eff7ff; background: #24384c; font: 16px system-ui, sans-serif; }
+    body { margin: 28px; }
+    button { margin-right: 8px; padding: 6px 12px; }
+    #ready { position: fixed; inset: auto 10px 10px auto; width: 16px; height: 16px; background: #5fe2b0; }
+</style>
+<h1>JavaScript dialogs</h1>
+<button type="button" data-scene="alert" aria-keyshortcuts="F2">Alert</button>
+<button type="button" data-scene="confirm-block" aria-keyshortcuts="F3">Confirm</button>
+<button type="button" data-scene="prompt" aria-keyshortcuts="F4">Prompt</button>
+<button type="button" data-scene="long-message" aria-keyshortcuts="F6">Long message</button>
+<div id="ready" aria-hidden="true"></div>
+<script>
+    const title = "The Remarkable and Thoroughly Documented History of Every Keyboard Shortcut "
+        + "Ever Proposed for a Web Browser, With Commentary, Footnotes, and an Index of Rejected Ideas";
+    const scenes = {
+        alert() {
+            alert("Your session expires in 5 minutes.");
+            return "dismissed";
+        },
+        "confirm-block": () => confirm("Leave this page? Changes you made may not be saved."),
+        prompt: () => prompt("Как вас зовут? What is your name?", ""),
+        "long-message": () => confirm(title + ". " + title + "."),
+    };
+    function run(scene) {
+        const answer = String(scenes[scene]());
+        const query = new URLSearchParams({scene, answer});
+        fetch("fixture.html?" + query);
+    }
+
+    const shortcuts = new Map();
+    document.querySelectorAll("button[data-scene]").forEach((button) => {
+        button.addEventListener("click", () => run(button.dataset.scene));
+        shortcuts.set(button.getAttribute("aria-keyshortcuts"), button);
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        const button = shortcuts.get(event.key);
+        if (!button) return;
+        event.preventDefault();
+        button.click();
+    });
+</script>
+</html>

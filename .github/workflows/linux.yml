@@ -20,6 +20,10 @@ on:
         description: Optional fork commit for a preview test
         type: string
         required: false
+      webkit_api_tests:
+        description: Run native WebKitGTK API and packaged extension checks
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -53,6 +57,7 @@ env:
   MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
   QUICKIE_MIN_FREE_GB: "25"
   QUICKIE_WEBKIT_COMMIT: ${{ inputs.webkit_commit }}
+  QUICKIE_GTK_EXTENSION_STORY: ${{ inputs.webkit_api_tests && '1' || '0' }}
   QUICKIE_VERSION: ${{ inputs.version || '0.2.0' }}
 
 jobs:
@@ -72,6 +77,15 @@ jobs:
           install_args: rust
       - name: Install build dependencies
         run: bash tools/packaging/linux/dist/dependencies ubuntu
+      - name: Prepare Bubblewrap for the native WebKitGTK tests
+        if: inputs.webkit_api_tests
+        run: |
+          if ! bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true; then
+            profile=$(dpkg-query --listfiles apparmor-profiles | awk '/\/bwrap-userns-restrict$/ { print; exit }')
+            test -n "$profile"
+            sudo apparmor_parser --replace "$profile"
+            bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
+          fi
       # actions/cache v5
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         id: engine-cache
@@ -84,6 +98,7 @@ jobs:
           # WebKit uses clang::suppress on function declarations.
           CC: clang-20
           CXX: clang++-20
+          QUICKIE_RUN_GTK_NATIVE_TESTS: ${{ inputs.webkit_api_tests && '1' || '0' }}
         run: bash tools/packaging/linux/build-engine
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         if: always() && steps.engine-cache.outputs.cache-matched-key != steps.engine-cache.outputs.cache-primary-key && steps.engine-cache.outputs.cache-primary-key != ''
@@ -191,6 +206,7 @@ jobs:
           (cd .build/gtk-packages && sha256sum --check SHA256SUMS.ubuntu)
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends apparmor-profiles dbus-x11 xauth xvfb \
+            sway grim wtype wl-clipboard python3-pil at-spi2-core python3-gi gir1.2-atspi-2.0 \
             "$PWD/.build/gtk-packages/quickie_${QUICKIE_VERSION}_amd64.deb"
           if ! bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true; then
             profile=$(dpkg-query --listfiles apparmor-profiles | awk '/\/bwrap-userns-restrict$/ { print; exit }')
@@ -200,17 +216,35 @@ jobs:
           fi
       - name: Run real browsers from both archives
         run: |
-          test "$(/usr/bin/quickie --version)" = "$QUICKIE_VERSION"
-          bash tools/packaging/linux/tests/smoke /usr/bin/quickie
+          unset WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
+          check_package() {
+            local binary=$1 package=$2
+            local -a groups=(--group inspector --group tabs --group hints --group origin
+              --group privacy --group library --group toasts --group media)
+            if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
+              groups+=(--group extensions)
+            fi
+            test "$("$binary" --version)" = "$QUICKIE_VERSION"
+            bash tools/packaging/linux/tests/smoke "$binary"
+            dbus-run-session -- /usr/bin/python3 -B tools/packaging/linux/stories/driver.py \
+              "$binary" "$RUNNER_TEMP/quickie-gtk-stories/$package" \
+              --backend wayland "${groups[@]}"
+          }
+          check_package /usr/bin/quickie deb
           appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
           chmod +x "$appimage"
           if [[ -c /dev/fuse && -r /dev/fuse && -w /dev/fuse ]]; then
-            test "$("$appimage" --version)" = "$QUICKIE_VERSION"
-            bash tools/packaging/linux/tests/smoke "$appimage"
+            check_package "$appimage" appimage
           else
-            test "$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version)" = "$QUICKIE_VERSION"
-            APPIMAGE_EXTRACT_AND_RUN=1 bash tools/packaging/linux/tests/smoke "$appimage"
+            APPIMAGE_EXTRACT_AND_RUN=1 check_package "$appimage" appimage
           fi
+      # actions/upload-artifact v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: gtk-wayland-ubuntu
+          path: ${{ runner.temp }}/quickie-gtk-stories
+          if-no-files-found: ignore
 
   fedora-smoke:
     name: Fedora 43 smoke (rpm)
@@ -238,16 +272,38 @@ jobs:
           sudo apparmor_parser --replace "$profile"
       - name: Run the installed rpm as an unprivileged user
         run: |
+          install -d -m0755 "$RUNNER_TEMP/quickie-gtk-stories"
           docker run --rm --privileged \
             --env QUICKIE_VERSION \
+            --env QUICKIE_GTK_EXTENSION_STORY \
             --volume "$PWD/.build/gtk-packages:/packages:ro" \
             --volume "$PWD/tools/packaging/linux/tests:/tests:ro" \
+            --volume "$PWD/tools/packaging/linux/stories:/stories:ro" \
+            --volume "$RUNNER_TEMP/quickie-gtk-stories:/captures" \
             fedora:43 bash -c '
               set -euo pipefail
+              unset WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
               dnf -y install /packages/*.rpm dbus-daemon python3 shadow-utils util-linux \
-                xorg-x11-server-Xvfb xorg-x11-xauth
+                xorg-x11-server-Xvfb xorg-x11-xauth sway grim wtype wl-clipboard python3-pillow \
+                at-spi2-core python3-gobject
               useradd --create-home quickie-test
+              install -d -o quickie-test /captures/rpm
               test "$(runuser -u quickie-test -- /usr/bin/quickie --version)" = "$QUICKIE_VERSION"
               runuser -u quickie-test -- bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
               runuser -u quickie-test -- bash /tests/smoke /usr/bin/quickie
+              groups=(--group inspector --group tabs --group hints --group origin
+                --group privacy --group library --group toasts --group media)
+              if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
+                groups+=(--group extensions)
+              fi
+              runuser -u quickie-test -- dbus-run-session -- /usr/bin/python3 -B /stories/driver.py \
+                /usr/bin/quickie /captures/rpm \
+                --backend wayland "${groups[@]}"
             '
+      # actions/upload-artifact v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: gtk-wayland-fedora
+          path: ${{ runner.temp }}/quickie-gtk-stories
+          if-no-files-found: ignore

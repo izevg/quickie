@@ -16,12 +16,15 @@ use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
-    NSApplicationDidResignActiveNotification, NSView, NSWindow, NSWindowDidBecomeKeyNotification,
-    NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification,
-    NSWindowDidResignKeyNotification, NSWindowWillEnterFullScreenNotification,
-    NSWindowWillExitFullScreenNotification,
+    NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification, NSView,
+    NSWindow, NSWindowDidBecomeKeyNotification, NSWindowDidEnterFullScreenNotification,
+    NSWindowDidExitFullScreenNotification, NSWindowDidResignKeyNotification,
+    NSWindowWillEnterFullScreenNotification, NSWindowWillExitFullScreenNotification, NSWorkspace,
+    NSWorkspaceActiveSpaceDidChangeNotification,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSNotificationName};
+use objc2_foundation::{
+    NSNotification, NSNotificationCenter, NSNotificationName, NSOperationQueue,
+};
 
 use super::super::Browser;
 use crate::input::keystroke::log::{KeyLog, Outcome, Press};
@@ -43,10 +46,11 @@ pub(super) fn observe(
     browser: &Rc<Browser>,
 ) -> Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>> {
     // SAFETY: immutable string constants AppKit defines and never changes.
-    let names: [(&NSNotificationName, Moved); 7] = unsafe {
+    let names: [(&NSNotificationName, Moved); 8] = unsafe {
         [
             (NSWindowDidResignKeyNotification, Moved::Away),
             (NSApplicationDidResignActiveNotification, Moved::Away),
+            (NSApplicationDidBecomeActiveNotification, Moved::Back),
             (NSWindowWillEnterFullScreenNotification, Moved::Away),
             (
                 NSWindowWillExitFullScreenNotification,
@@ -58,7 +62,7 @@ pub(super) fn observe(
         ]
     };
     let center = NSNotificationCenter::defaultCenter();
-    names
+    let mut observers: Vec<_> = names
         .into_iter()
         .map(|(name, moved)| {
             let this = Rc::downgrade(browser);
@@ -78,11 +82,31 @@ pub(super) fn observe(
                 center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block)
             }
         })
-        .collect()
+        .collect();
+    let browser = Rc::downgrade(browser);
+    let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+        if let Some(browser) = browser.upgrade() {
+            browser.schedule_native_player_focus();
+        }
+    });
+    // SAFETY: the main queue delivers to the block on the thread where the browser lives.
+    let space = unsafe {
+        NSWorkspace::sharedWorkspace()
+            .notificationCenter()
+            .addObserverForName_object_queue_usingBlock(
+                Some(NSWorkspaceActiveSpaceDidChangeNotification),
+                None,
+                Some(&NSOperationQueue::mainQueue()),
+                &block,
+            )
+    };
+    observers.push(space);
+    observers
 }
 
 impl Browser {
     fn attention_moved(&self, moved: Moved, window: Option<&NSWindow>) {
+        self.schedule_native_player_focus();
         self.pending.take();
         self.commit_cycle();
         let Some(window) = window else {
