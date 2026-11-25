@@ -46,14 +46,17 @@ impl Session {
         reply: Rc<RefCell<Reply>>,
         interactive: bool,
     ) -> Result<Self, AutomationError> {
-        if interactive
-            && (WKWebViewConfiguration::class()
-                .instance_method(sel!(_setMediaCaptureEnabled:))
-                .is_none()
-                || WKPreferences::class()
-                    .instance_method(sel!(_setExtensibleSSOEnabled:))
-                    .is_none())
-        {
+        Self::with_handler(mtm, interactive, move |message| {
+            reply.borrow_mut().receive(message);
+        })
+    }
+
+    pub(super) fn with_handler(
+        mtm: MainThreadMarker,
+        interactive: bool,
+        on_message: impl Fn(&str) + 'static,
+    ) -> Result<Self, AutomationError> {
+        if interactive && !supports_interactive_restrictions() {
             return Err(AutomationError::Unsupported);
         }
         let session = make_session()?;
@@ -72,7 +75,7 @@ impl Session {
         let handler = RcBlock::new(move |message: NonNull<NSString>| {
             // SAFETY: the fork passes a live NSString for this main-thread callback.
             let message = unsafe { message.as_ref() };
-            reply.borrow_mut().receive(&message.to_string());
+            on_message(&message.to_string());
         });
         // SAFETY: the selector and `void (^)(NSString *)` signature match the fork API. It
         // copies the block and invokes it on the main thread.
@@ -170,11 +173,27 @@ impl Drop for Session {
     }
 }
 
-fn make_session() -> Result<Retained<AnyObject>, AutomationError> {
-    let session = AnyClass::get(c"_WKAutomationSession").ok_or(AutomationError::Unsupported)?;
-    let configuration =
-        AnyClass::get(c"_WKAutomationSessionConfiguration").ok_or(AutomationError::Unsupported)?;
-    if [
+pub(super) fn supports_isolated_automation() -> bool {
+    has_automation_session_spi() && supports_interactive_restrictions()
+}
+
+fn supports_interactive_restrictions() -> bool {
+    WKWebViewConfiguration::class()
+        .instance_method(sel!(_setMediaCaptureEnabled:))
+        .is_some()
+        && WKPreferences::class()
+            .instance_method(sel!(_setExtensibleSSOEnabled:))
+            .is_some()
+}
+
+fn has_automation_session_spi() -> bool {
+    let Some(session) = AnyClass::get(c"_WKAutomationSession") else {
+        return false;
+    };
+    let Some(configuration) = AnyClass::get(c"_WKAutomationSessionConfiguration") else {
+        return false;
+    };
+    ![
         sel!(initWithConfiguration:),
         sel!(setSessionIdentifier:),
         sel!(setDelegate:),
@@ -184,21 +203,27 @@ fn make_session() -> Result<Retained<AnyObject>, AutomationError> {
     ]
     .into_iter()
     .any(|selector| session.instance_method(selector).is_none())
-        || [
+        && ![
             sel!(setInspectorPassthroughEnabled:),
             sel!(setAllowsInsecureMediaCapture:),
         ]
         .into_iter()
         .any(|selector| configuration.instance_method(selector).is_none())
-        || WKProcessPool::class()
+        && WKProcessPool::class()
             .instance_method(sel!(_setAutomationSession:))
-            .is_none()
-        || WKWebViewConfiguration::class()
+            .is_some()
+        && WKWebViewConfiguration::class()
             .instance_method(sel!(_setControlledByAutomation:))
-            .is_none()
-    {
+            .is_some()
+}
+
+fn make_session() -> Result<Retained<AnyObject>, AutomationError> {
+    if !has_automation_session_spi() {
         return Err(AutomationError::Unsupported);
     }
+    let session = AnyClass::get(c"_WKAutomationSession").ok_or(AutomationError::Unsupported)?;
+    let configuration =
+        AnyClass::get(c"_WKAutomationSessionConfiguration").ok_or(AutomationError::Unsupported)?;
 
     // SAFETY: the configuration class is a present NSObject subclass with a normal initializer.
     let config: Option<Retained<AnyObject>> = unsafe { msg_send![configuration, new] };

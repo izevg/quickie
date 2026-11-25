@@ -50,6 +50,14 @@ define_class!(
             (hooks.on_event)(PageEvent::PictureInPicture(active));
         }
 
+        #[unsafe(method(_webViewFullscreenMayReturnToInline:))]
+        fn fullscreen_may_return_to_inline(&self, _view: &WKWebView) {
+            let hooks = &self.ivars().hooks;
+            if hooks.native_pip_active.get() {
+                (hooks.on_event)(PageEvent::PictureInPictureReturnRequested);
+            }
+        }
+
         #[unsafe(method(_webView:runWebAuthenticationPanel:initiatedByFrame:completionHandler:))]
         fn authenticate(
             &self,

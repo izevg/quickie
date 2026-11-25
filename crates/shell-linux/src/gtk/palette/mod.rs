@@ -15,7 +15,8 @@ use quickie_domain_commands::{
 use super::ffi::{self, Bool, Object};
 use super::{App, Widgets, agent, browsing, connect, inspector, keys, privacy};
 use model::{Command, Item, Mode, Model, Target};
-pub(super) use view::{Allocation, View, panel_widgets};
+pub(crate) use view::panel_widgets;
+pub(super) use view::{Allocation, View};
 
 #[derive(Default)]
 pub(super) struct Palette {

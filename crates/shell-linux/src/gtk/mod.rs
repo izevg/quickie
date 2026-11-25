@@ -3,13 +3,14 @@
 #![expect(unsafe_code, reason = "GTK4 and WebKitGTK are native GObject APIs")]
 
 mod agent;
+pub(crate) use agent::automation;
 mod backdrop;
 mod browsing;
 pub(crate) mod ffi;
 mod find;
-mod inspector;
+pub(crate) mod inspector;
 pub(crate) mod keys;
-mod palette;
+pub(crate) mod palette;
 mod privacy;
 mod smoke;
 mod update_controls;
@@ -26,17 +27,18 @@ use ffi::{Bool, Object};
 use quickie_domain_commands::{ContextFlag, Resolution};
 use update_controls::UpdateControls;
 
-struct App {
+pub(crate) struct App {
     application: Object,
     options: Options,
     prefix: PathBuf,
     widgets: Cell<Option<Widgets>>,
     agent: agent::Agent,
-    browsing: browsing::Browsing,
+    pub(crate) browsing: browsing::Browsing,
     palette: palette::Palette,
     find: find::Find,
     keys: keys::Keybindings,
     privacy: privacy::Privacy,
+    mcp: crate::mcp::gtk::GtkMcpHost,
     smoke: OnceCell<Result<(), String>>,
     updates: UpdateControls,
 }
@@ -76,6 +78,7 @@ pub fn run(options: Options) -> Result<(), String> {
         find: find::Find::default(),
         keys: keybindings,
         privacy: privacy::Privacy::default(),
+        mcp: crate::mcp::gtk::GtkMcpHost::default(),
         smoke: OnceCell::new(),
         updates: UpdateControls::new(),
     };
@@ -87,6 +90,7 @@ pub fn run(options: Options) -> Result<(), String> {
     let mut arguments = [name.as_mut_ptr().cast(), ptr::null_mut()];
     // SAFETY: The live application, writable argv and callback state outlive the event loop.
     let status = unsafe { ffi::g_application_run(application, 1, arguments.as_mut_ptr()) };
+    app.mcp.shutdown();
     app.updates.clear_sources();
     app.keys.detach();
     app.agent.shutdown();
@@ -167,6 +171,8 @@ extern "C" fn activate(application: Object, data: Object) {
     let agent = agent::attach(host, view, data);
     let palette = palette::attach(overlay, data);
     let find = find::attach(overlay, view, data);
+    let isolated = matches!(app.options, Options::Smoke(_) | Options::Updates);
+    app.mcp.attach(app, overlay, isolated);
     app.widgets.set(Some(Widgets {
         view,
         agent,
@@ -198,7 +204,7 @@ extern "C" fn activate(application: Object, data: Object) {
             .attach(window, data, matches!(app.options, Options::Updates));
     }
     match &app.options {
-        Options::Empty => {}
+        Options::Empty | Options::Mcp { .. } => {}
         Options::Updates => {
             app.updates.present(data, &app.prefix);
             app.updates.check(data);
@@ -218,6 +224,7 @@ extern "C" fn activate(application: Object, data: Object) {
 }
 
 fn active_view_changed(app: &App, view: Object) {
+    crate::mcp::gtk::on_active_tab_changed(app.browsing.active_tab());
     if let Some(mut widgets) = app.widgets.get() {
         find::rebind(app, &mut widgets, view);
         widgets.view = view;
@@ -243,6 +250,10 @@ extern "C" fn key_pressed(
     let Some(widgets) = app.widgets.get() else {
         return ffi::FALSE;
     };
+    if crate::mcp::gtk::key_pressed(key, modifiers) {
+        app.keys.cancel_chord();
+        return ffi::TRUE;
+    }
     if let Some(handled) =
         inspector::docked_key_pressed(app, widgets.view, controller, key, hardware_code, modifiers)
     {

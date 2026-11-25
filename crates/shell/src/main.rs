@@ -39,6 +39,7 @@
 mod browser;
 mod delegate;
 mod input;
+mod mcp;
 mod menu;
 mod updates;
 mod window;
@@ -171,6 +172,10 @@ fn main() -> ExitCode {
             Err(error) => fail(&error.to_string()),
         };
     }
+    match mcp::parse_cli_args(&args) {
+        mcp::CliAction::NotMcp => {}
+        action => return mcp::run_cli(action),
+    }
     let Some(mtm) = MainThreadMarker::new() else {
         return ExitCode::FAILURE;
     };
@@ -196,7 +201,7 @@ fn main() -> ExitCode {
     let delegate = AppDelegate::new(&browser, mtm);
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     menu::install(&app, &delegate, browser.catalog(), mtm);
-    let _flush_on_quit = flush_on_quit(pending);
+    let _flush_on_quit = flush_on_quit(pending, &browser, mtm);
     let _shortcuts = install_shortcuts(&browser);
     browser.show();
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -384,10 +389,21 @@ fn main_engine(_home: &Url, _mtm: MainThreadMarker) -> MainEngine {
     MainEngine::new(|_key| false)
 }
 
-/// Writes the pending saves before the app exits: `terminate:` ends the process without
-/// dropping the stores. The observer lives as long as the returned token.
-fn flush_on_quit(pending: Vec<PendingWrites>) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
+/// Writes the pending saves and shuts down the MCP host before the app exits: `terminate:` ends
+/// the process without dropping the stores or `Browser`. The observer lives as long as the
+/// returned token.
+fn flush_on_quit(
+    pending: Vec<PendingWrites>,
+    browser: &std::rc::Rc<Browser>,
+    mtm: MainThreadMarker,
+) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
+    let browser = dispatch2::MainThreadBound::new(std::rc::Rc::downgrade(browser), mtm);
     let block = RcBlock::new(move |_note: NonNull<NSNotification>| {
+        if let Some(mtm) = MainThreadMarker::new()
+            && let Some(browser) = browser.get(mtm).upgrade()
+        {
+            browser.shutdown_mcp();
+        }
         for writes in &pending {
             if let Err(error) = writes.flush() {
                 unsaved(&error.to_string());

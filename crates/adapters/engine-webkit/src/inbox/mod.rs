@@ -165,6 +165,9 @@ impl Inbox {
             PageEvent::PictureInPicture(active) => {
                 inbox.push(EngineEvent::PictureInPicture { tab, active });
             }
+            PageEvent::PictureInPictureReturnRequested => {
+                inbox.push(EngineEvent::PictureInPictureReturnRequested { tab });
+            }
             PageEvent::Crashed => inbox.push(EngineEvent::Crashed { tab }),
             PageEvent::Blocked => inbox.events.borrow_mut().blocked(tab),
             PageEvent::Download(download) => {

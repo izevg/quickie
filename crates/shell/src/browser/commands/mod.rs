@@ -372,6 +372,10 @@ impl Browser {
 
     pub(super) fn navigate(&self, window: WindowId, navigation: &Navigation) {
         if let Some(tab) = self.active(window) {
+            match navigation {
+                Navigation::Reload | Navigation::HardReload => self.mcp_reload_requested(tab),
+                _ => self.mcp_navigation_requested(tab),
+            }
             self.run(|browsing| browsing.navigate(tab, navigation));
         }
     }

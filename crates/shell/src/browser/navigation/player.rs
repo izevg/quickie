@@ -8,7 +8,7 @@ pub(super) mod picture_in_picture;
 
 use objc2::Message;
 use objc2::rc::Retained;
-use objc2_app_kit::NSView;
+use objc2_app_kit::{NSApplication, NSView};
 use quickie_domain_browsing::{PlayerChange, TabId, Video, WindowId};
 use quickie_ui_shared::Trigger;
 use quickie_ui_widgets::PlayerRequest;
@@ -114,12 +114,8 @@ impl Browser {
             PlayerRequest::BackToTab => {
                 let shown = self.navigation.playback.borrow().shown();
                 self.navigation.player.hide(Trigger::Pointer);
-                if let Some(window) = shown.and_then(|tab| self.run(|b| b.activate(tab))) {
-                    // The tab's window comes forward with it, wherever the player was.
-                    if let Some(ns_window) = self.window(window) {
-                        ns_window.makeKeyAndOrderFront(None);
-                    }
-                    self.settle(window);
+                if let Some(tab) = shown {
+                    self.activate_player_tab(tab);
                 }
                 Ok(())
             }
@@ -154,6 +150,20 @@ impl Browser {
         if let Err(error) = outcome {
             self.report(&error);
         }
+    }
+
+    pub(in crate::browser) fn activate_player_tab(&self, tab: TabId) {
+        let Some(window) = self.run(|browsing| browsing.activate(tab)) else {
+            return;
+        };
+        if let Some(ns_window) = self.window(window) {
+            NSApplication::sharedApplication(self.mtm).activate();
+            if ns_window.isMiniaturized() {
+                ns_window.deminiaturize(None);
+            }
+            ns_window.makeKeyAndOrderFront(None);
+        }
+        self.settle(window);
     }
 
     /// Puts what a step changed on screen: the player over `window` for the tab whose video it

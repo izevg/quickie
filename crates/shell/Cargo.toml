@@ -29,6 +29,7 @@ objc2-app-kit = { workspace = true, features = [
   "NSControl",
   "NSEvent",
   "NSFont",
+  "NSGraphicsContext",
   "NSMenu",
   "NSMenuItem",
   "NSOpenPanel",
@@ -80,6 +81,7 @@ quickie-domain-shields.workspace = true
 quickie-engine-chromium = { workspace = true, optional = true }
 quickie-engine-webkit = { workspace = true, optional = true }
 quickie-llm.workspace = true
+quickie-mcp = { path = "../adapters/mcp" }
 quickie-store.workspace = true
 quickie-system.workspace = true
 quickie-ui-screens.workspace = true
@@ -88,6 +90,10 @@ quickie-ui-widgets.workspace = true
 quickie-updater.workspace = true
 tempfile.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+libc.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
