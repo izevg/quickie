@@ -47,10 +47,11 @@ def click(story, window, x, y):
 
 
 def prompt_row(image, scale):
-    # Inspector versions can reserve a row for the evaluation preview below the prompt.
+    # Inspector versions can reserve a row for the evaluation preview below the prompt,
+    # and detached windows can add a left frame inset before the chevron.
     # Find the bottommost prompt chevron so the click and caret check follow the editor.
     for y in range(image.height - 5 * scale, image.height - 52 * scale, -1):
-        for x in range(5 * scale, 15 * scale):
+        for x in range(5 * scale, 32 * scale):
             red, green, blue = image.getpixel((x, y))[:3]
             if blue - red > 60 and blue - green > 25:
                 return y - 4 * scale
