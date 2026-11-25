@@ -11,4 +11,7 @@ timeout_multiplier = 3
 exclude_re = [
   # Uninhabited: no value of `NoExtensions` exists, so none of its methods can ever run.
   "<impl ExtensionHost for NoExtensions<P>>",
+  # Equivalent mutant: the trait default already returns `DiagnosticCapabilities::default()`,
+  # which is identical to `Default::default()`.
+  "replace PageContent::diagnostic_capabilities -> DiagnosticCapabilities with Default::default\\(\\)",
 ]
