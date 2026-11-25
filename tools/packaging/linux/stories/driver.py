@@ -21,7 +21,7 @@ from desktop.x11 import X11
 STORIES = Path(__file__).resolve().parent
 GROUPS = (
     "palette", "find", "inspector", "dialogs", "tabs", "privacy", "agent", "agent-providers",
-    "media", "downloads", "settings", "keyboard", "hints", "origin", "library", "toasts",
+    "media", "downloads", "settings", "keyboard", "hints", "origin", "library", "toasts", "mcp",
 )
 NESTED_GROUPS = {
     "agent-providers": "agent.providers",
@@ -213,7 +213,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--group", action="append", choices=(*GROUPS, "extensions", "mcp"))
+    parser.add_argument("--group", action="append", choices=(*GROUPS, "extensions"))
     parser.add_argument("--theme", choices=("light", "dark"), default="light")
     parser.add_argument("--scale", type=int, choices=(1, 2), default=1)
     parser.add_argument("--backend", choices=("wayland", "x11"), default="wayland")
