@@ -153,8 +153,9 @@ def downloads(story, window, folder, server):
     click(story, window, 505, 154)
     partial(story, folder)
     server.release["retry"].set()
+    interrupted_url = f"http://127.0.0.1:{server.server_port}/retry"
     story.wait(
-        lambda: saved_downloads(story).get("quarterly report.txt") == "failed",
+        lambda: saved_downloads(story, by_url=True).get(interrupted_url) == "failed",
         "the interrupted transfer to reach the failed state",
     )
     image, _ = visible(story, window, 2, "red")
