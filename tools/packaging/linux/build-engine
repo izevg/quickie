@@ -7,9 +7,11 @@ build_dir=${QUICKIE_BUILD_DIR:-"$root/.build"}
 stage="$build_dir/gtk-stage"
 
 run_glib_test() {
-  local program=$1 test_path=$2 output status
+  local program=$1 test_path=$2 runtime=$3 output status
   printf 'Running %s %s with the WebKit sandbox enabled\n' "${program##*/}" "$test_path"
-  if output=$(timeout --kill-after=5s 90s xvfb-run -a dbus-run-session -- "$program" -p "$test_path"); then
+  if output=$(timeout --kill-after=5s 90s \
+    bwrap --die-with-parent --bind / / --tmpfs /opt --ro-bind "$runtime" /opt/quickie -- \
+    xvfb-run -a dbus-run-session -- "$program" -p "$test_path"); then
     printf '%s\n' "$output"
   else
     status=$?
@@ -24,6 +26,7 @@ run_glib_test() {
 
 run_gtk_native_tests() (
   local binaries="$build_dir/gtk/bin/TestWebKitAPI/WebKitGTK"
+  local runtime=$1
   local runtime_dir
   runtime_dir=$(mktemp -d)
   trap 'rm -rf -- "$runtime_dir"' EXIT
@@ -34,19 +37,20 @@ run_gtk_native_tests() (
 
   local test_name
   for test_name in local-browsing-contexts local-close-drops-queued-replies local-rejects-inspector-environment; do
-    run_glib_test "$binaries/TestLocalAutomationSession" "/webkit/WebKitAutomationSession/$test_name"
+    run_glib_test "$binaries/TestLocalAutomationSession" \
+      "/webkit/WebKitAutomationSession/$test_name" "$runtime"
   done
   for test_name in related-popup-explicit-manager related-link-popup-explicit-manager related-popup-inherits-manager; do
-    run_glib_test "$binaries/TestUIClient" "/webkit/WebKitWebView/$test_name"
+    run_glib_test "$binaries/TestUIClient" "/webkit/WebKitWebView/$test_name" "$runtime"
   done
   QUICKIE_TEST_SCREENCAST_PORTAL=1 run_glib_test "$binaries/TestUIClient" \
-    "/webkit/WebKitWebView/display-portal-consent"
+    "/webkit/WebKitWebView/display-portal-consent" "$runtime"
   if [[ $extensions == ON ]]; then
     run_glib_test "$binaries/TestWebKitWebExtensionContext" \
-      "/webkit/WebKitWebExtensionContext/granted-content-world"
+      "/webkit/WebKitWebExtensionContext/granted-content-world" "$runtime"
   fi
   if [[ $floating_inspector == ON ]]; then
-    run_glib_test "$binaries/TestInspector" "/webkit/WebKitWebInspector/floating-dock"
+    run_glib_test "$binaries/TestInspector" "/webkit/WebKitWebInspector/floating-dock" "$runtime"
   fi
 )
 
@@ -138,7 +142,6 @@ if [[ $api_tests == ON ]]; then
     targets+=(TestInspector)
   fi
   cmake --build "$build_dir/gtk" --target "${targets[@]}"
-  run_gtk_native_tests
 else
   cmake --build "$build_dir/gtk"
 fi
@@ -158,6 +161,9 @@ test -f "$runtime/lib/webkitgtk-6.0/injected-bundle/libwebkitgtkinjectedbundle.s
 for helper in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess; do
   test -x "$runtime/libexec/webkitgtk-6.0/$helper"
 done
+if [[ $api_tests == ON ]]; then
+  run_gtk_native_tests "$runtime"
+fi
 install -Dm644 LICENSE "$runtime/share/doc/quickie/LICENSE"
 for license in LICENSE-APPLE LICENSE-LGPL-2 LICENSE-LGPL-2.1; do
   install -Dm644 "$build_dir/webkit/Source/WebCore/$license" \
