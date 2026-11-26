@@ -7,7 +7,8 @@ selection. Each story starts a loopback fixture server and a fresh profile. It a
 the expected surface and interactions before recording a pass. The output contains PNG
 captures and a `passed.json` result with the selected backend for each group.
 
-On Linux, install Sway, grim, wtype, wl-clipboard, D-Bus, and Python 3 with Pillow.
+On Linux, install Sway, grim, libxkbcommon, wl-clipboard, D-Bus, AT-SPI, and Python 3
+with Pillow and GObject introspection bindings for AT-SPI.
 Run as an unprivileged user. Use an installed Quickie package or a locally built
 `quickie-gtk` executable with a compatible WebKitGTK.
 
