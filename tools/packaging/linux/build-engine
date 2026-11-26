@@ -10,7 +10,7 @@ run_glib_test() {
   local program=$1 test_path=$2 runtime=$3 output status
   printf 'Running %s %s with the WebKit sandbox enabled\n' "${program##*/}" "$test_path"
   if output=$(timeout --kill-after=5s 90s \
-    bwrap --die-with-parent --bind / / --tmpfs /opt --ro-bind "$runtime" /opt/quickie -- \
+    bwrap --die-with-parent --bind / / --dev /dev --tmpfs /opt --ro-bind "$runtime" /opt/quickie -- \
     xvfb-run -a dbus-run-session -- "$program" -p "$test_path"); then
     printf '%s\n' "$output"
   else
