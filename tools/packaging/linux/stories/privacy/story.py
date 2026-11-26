@@ -12,6 +12,8 @@ FIXTURE = "privacy/fixture.html"
 CONTROL = "privacy/probe.svg?role=control"
 TRACKER = "privacy/probe.svg?role=tracker"
 READY = (95, 226, 176)
+NO_NETWORK_RULES_ACTIVE = "No network rules active"
+WEBKIT_DOC_ROLES = frozenset({"document web", "document frame", "embedded"})
 
 
 def result(scene, answer):
@@ -145,6 +147,39 @@ def open_page(story, blocked):
     return windows[0]
 
 
+def wait_for_native_label(story, expected):
+    import gi
+
+    gi.require_version("Atspi", "2.0")
+    from gi.repository import Atspi, GLib
+
+    Atspi.init()
+    Atspi.set_timeout(400, 400)
+    desktop = Atspi.get_desktop(0)
+    desktop.set_cache_mask(Atspi.Cache.NONE)
+
+    def find():
+        pending = [desktop]
+        while pending:
+            node = pending.pop()
+            if node is None:
+                continue
+            try:
+                role = node.get_role_name() or ""
+                if role in WEBKIT_DOC_ROLES:
+                    continue
+                if role == "label" and (node.get_name() or "") == expected:
+                    return True
+                pending.extend(
+                    node.get_child_at_index(index) for index in range(node.get_child_count())
+                )
+            except GLib.Error:
+                continue
+        return None
+
+    return story.wait(find, f"native Settings label {expected!r}")
+
+
 def settings_and_site(story, window):
     page = ready(story, window)
     protected = shields(story, window, page)
@@ -180,6 +215,7 @@ def settings_and_site(story, window):
         lambda: store_value(story, "SELECT enabled FROM filter_lists WHERE id = 'easylist'") == 0,
         "global EasyList switch committed to profile",
     )
+    wait_for_native_label(story, NO_NETWORK_RULES_ACTIVE)
     story.key("Escape")
     observe(story, lambda: story.key("ctrl+r"), False)
     story.close(window)
@@ -259,6 +295,7 @@ def open_permission_fixture(story, scene):
 
 
 def run(story):
+    story.environment["GTK_A11Y"] = "atspi"
     window = story.open()
     blank = story.picture(window)
     story.save(shields(story, window, blank), "shields-popover-off-the-web")

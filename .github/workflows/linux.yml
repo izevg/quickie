@@ -57,7 +57,7 @@ env:
   MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
   QUICKIE_MIN_FREE_GB: "25"
   QUICKIE_WEBKIT_COMMIT: ${{ inputs.webkit_commit }}
-  QUICKIE_GTK_EXTENSION_STORY: ${{ inputs.webkit_api_tests && '1' || '0' }}
+  QUICKIE_GTK_EXTENSION_STORY: ${{ (inputs.webkit_api_tests || inputs.release_notes) && '1' || '0' }}
   QUICKIE_VERSION: ${{ inputs.version || '0.2.0' }}
 
 jobs:
@@ -206,7 +206,7 @@ jobs:
           (cd .build/gtk-packages && sha256sum --check SHA256SUMS.ubuntu)
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends apparmor-profiles dbus-x11 xauth xvfb \
-            sway grim wtype wl-clipboard python3-pil at-spi2-core python3-gi gir1.2-atspi-2.0 \
+            sway grim libxkbcommon0 wl-clipboard python3-pil at-spi2-core python3-gi gir1.2-atspi-2.0 \
             "$PWD/.build/gtk-packages/quickie_${QUICKIE_VERSION}_amd64.deb"
           if ! bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true; then
             profile=$(dpkg-query --listfiles apparmor-profiles | awk '/\/bwrap-userns-restrict$/ { print; exit }')
@@ -284,7 +284,7 @@ jobs:
               set -euo pipefail
               unset WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
               dnf -y install /packages/*.rpm dbus-daemon python3 shadow-utils util-linux \
-                xorg-x11-server-Xvfb xorg-x11-xauth sway grim wtype wl-clipboard python3-pillow \
+                xorg-x11-server-Xvfb xorg-x11-xauth sway grim libxkbcommon wl-clipboard python3-pillow \
                 at-spi2-core python3-gobject
               useradd --create-home quickie-test
               install -d -o quickie-test /captures/rpm

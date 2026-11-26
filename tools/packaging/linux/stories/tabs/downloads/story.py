@@ -173,10 +173,11 @@ def throwaway(story, server, window, url, idle, folder):
     assert not (folder / "automatic.txt").exists()
 
 
-def saved_downloads(story):
+def saved_downloads(story, *, by_url=False):
     database = Path(story.environment["XDG_DATA_HOME"]) / "quickie" / "shell.sqlite"
+    identity = "url" if by_url else "file_name"
     with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True) as db:
-        return dict(db.execute("SELECT file_name, state FROM downloads"))
+        return dict(db.execute(f"SELECT {identity}, state FROM downloads"))
 
 
 def wait_for_file_event(probe, message):

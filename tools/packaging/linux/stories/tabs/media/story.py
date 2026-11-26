@@ -62,11 +62,30 @@ def player_bounds(story, image):
     red, green, blue = ImageChops.difference(page, surface).split()
     difference = ImageChops.lighter(ImageChops.lighter(red, green), blue)
     matches = difference.point(lambda value: 0 if value else 255)
-    bounds = matches.getbbox()
-    if bounds and bounds[2] - bounds[0] >= 270 * story.scale:
-        x1, y1, x2, y2 = bounds
-        return (x1, y1 + top, x2, y2 + top)
-    return None
+    minimum = 270 * story.scale
+    needle = b"\xff" * minimum
+    width, height = matches.size
+    raw = matches.tobytes()
+    runs = []
+    for y in range(height):
+        row = raw[y * width : (y + 1) * width]
+        offset = 0
+        while True:
+            x1 = row.find(needle, offset)
+            if x1 == -1:
+                break
+            x2 = row.find(0, x1 + minimum)
+            if x2 == -1:
+                x2 = width
+            runs.append((x1, y, x2, y + 1))
+            offset = x2
+    if not runs:
+        return None
+    left = min(run[0] for run in runs)
+    upper = min(run[1] for run in runs)
+    right = max(run[2] for run in runs)
+    lower = max(run[3] for run in runs)
+    return (left, upper + top, right, lower + top)
 
 
 def player_in(story, window, position):
@@ -121,9 +140,17 @@ def floating_pixels(story, window, image, bounds):
     x1, y1, x2, _ = bounds
     region = (x1 + 12 * story.scale, y1 - 160 * story.scale, x2 - 12 * story.scale,
               y1 - 32 * story.scale)
-    first = image.crop(region)
-    colors = first.resize((32, 24)).getcolors(769)
-    assert len(colors) > 30, "the mini-player does not show the decoded clip"
+    pending = [image]
+
+    def decoded():
+        candidate = pending.pop() if pending else story.picture(window)
+        crop = candidate.crop(region)
+        colors = crop.resize((32, 24)).getcolors(769)
+        if colors and len(colors) > 30:
+            return candidate, crop
+        return None
+
+    presented, first = story.wait(decoded, "the mini-player to show the decoded clip")
 
     def changed():
         next_image = story.picture(window)
@@ -131,6 +158,7 @@ def floating_pixels(story, window, image, bounds):
         return difference.getbbox()
 
     story.wait(changed, "new video pixels to paint in the same mini-player")
+    return presented
 
 
 def playback(story):
@@ -151,7 +179,7 @@ def playback(story):
     painted(story, window, OTHER_TAB)
     image, bottom = player_in(story, window, "bottom-right")
     assert story.clients() == clients, "the in-window mini player used another native toplevel"
-    floating_pixels(story, window, image, bottom)
+    image = floating_pixels(story, window, image, bottom)
     story.save(image, "mini-player-bottom")
 
     click_control(story, window, bottom, 0)
@@ -168,7 +196,7 @@ def playback(story):
     for position in ("top-left", "bottom-left"):
         click_control(story, window, top, 2)
         image, top = player_in(story, window, position)
-        floating_pixels(story, window, image, top)
+        image = floating_pixels(story, window, image, top)
         still_advancing(story)
         story.save(image, f"mini-player-{position}")
     assert reports(story, "playing") == 2 and reports(story, "paused") == 1

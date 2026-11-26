@@ -9,6 +9,8 @@ from threading import Thread
 
 from PIL import ImageChops
 
+from ..story import viewport_height
+
 FIXTURE = "inspector/fixture.html"
 
 
@@ -82,7 +84,15 @@ def run(story):
     _verify_standalone(story)
 
     window = story.open(FIXTURE)
-    baseline = story.picture(window)
+
+    def fixture_painted():
+        image = story.picture(window)
+        return image if viewport_height(image, story.scale) == image.height else None
+
+    baseline = story.wait(fixture_painted, "inspected fixture painted")
+    center = (baseline.width // 4, baseline.height // 4,
+              3 * baseline.width // 4, 3 * baseline.height // 4)
+    baseline_center = baseline.crop(center)
 
     proc = subprocess.Popen(
         [str(story.binary), "mcp", "--attach-only"],
@@ -144,8 +154,11 @@ def run(story):
         )
 
         def consent_visible():
+            if replies:
+                result = replies[0]["result"]["structuredContent"]
+                raise AssertionError(f"MCP replied before consent ({result.get('code')})")
             current = story.picture(window)
-            diff = ImageChops.difference(baseline, current).getbbox()
+            diff = ImageChops.difference(baseline_center, current.crop(center)).getbbox()
             return current if diff is not None else None
 
         prompt_image = story.wait(consent_visible, "MCP consent modal")
@@ -155,6 +168,7 @@ def run(story):
         reader.join(timeout=10)
         assert replies, "diagnostic_request did not complete after approval"
         grant = replies[0]["result"]["structuredContent"]
+        assert "attachment_id" in grant, f"MCP consent failed ({grant.get('code')})"
         attachment_id = grant["attachment_id"]
         assert grant["origin"].startswith("http://127.0.0.1:")
 

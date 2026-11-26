@@ -5,7 +5,8 @@ import re
 import subprocess
 
 from ..process import decode, start, stop, wait
-from .pointer import attach_pointer
+from .keyboard import VirtualKeyboard
+from .seat import WaylandConnection, attach_pointer
 
 
 def window_nodes(node):
@@ -66,10 +67,10 @@ class Wayland:
             return False
 
         wait(output_ready, f"active HEADLESS-1 at {width}x{height} scale {scale}")
-        # Keep the seat's keyboard capability advertised between wtype invocations.
-        # Otherwise a client can receive the first keystroke before subscribing to the seat.
-        start(stack, "wtype", "-s", "2147483647", env=self.environment)
-        attach_pointer(stack, directory / "runtime" / display)
+        connection = WaylandConnection(stack, directory / "runtime" / display)
+        seat = connection.bind("wl_seat")
+        attach_pointer(connection, seat)
+        self.keyboard = VirtualKeyboard.attach(connection, seat)
         wait(
             lambda: {"keyboard", "pointer"} <= {item["type"] for item in self.ipc("get_inputs")},
             "the isolated Wayland seat input devices",
@@ -107,15 +108,7 @@ class Wayland:
         self.command(f"[con_id={window}] kill")
 
     def key(self, *keys):
-        command = ["wtype"]
-        for key in keys:
-            *modifiers, symbol = key.split("+")
-            for modifier in modifiers:
-                command.extend(("-M", modifier))
-            command.extend(("-k", symbol))
-            for modifier in reversed(modifiers):
-                command.extend(("-m", modifier))
-        subprocess.run(command, env=self.environment, check=True)
+        self.keyboard.tap(*keys)
 
     def set_clipboard(self, stack, text):
         if self.clipboard is not None:

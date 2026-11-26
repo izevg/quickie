@@ -47,10 +47,11 @@ def click(story, window, x, y):
 
 
 def prompt_row(image, scale):
-    # Inspector versions can reserve a row for the evaluation preview below the prompt.
+    # Inspector versions can reserve a row for the evaluation preview below the prompt,
+    # and detached windows can add a left frame inset before the chevron.
     # Find the bottommost prompt chevron so the click and caret check follow the editor.
     for y in range(image.height - 5 * scale, image.height - 52 * scale, -1):
-        for x in range(5 * scale, 15 * scale):
+        for x in range(5 * scale, 32 * scale):
             red, green, blue = image.getpixel((x, y))[:3]
             if blue - red > 60 and blue - green > 25:
                 return y - 4 * scale
@@ -88,14 +89,26 @@ def prove_console(story, window, mode, bounds, report):
     prior = story.requests(request)
     page_input = f"{FIXTURE}?page=typed"
     page_input_before = story.requests(page_input)
-    story.key(*mode, "parenleft", "parenright")
+    # Paste the call as a unit so the editor's focus handoff cannot reorder it.
+    story.paste(f"{mode}() || ")
 
     def command_ready():
-        changes = ImageChops.difference(empty, story.picture(window).crop(prompt)).getbbox()
-        return changes and changes[2] - changes[0] >= 40 * scale
+        current = story.picture(window).crop(prompt)
+        changes = ImageChops.difference(empty, current).getbbox()
+        return current if changes and changes[2] - changes[0] >= 40 * scale else None
 
-    story.wait(command_ready, f"{mode} command typed into the Console prompt")
-    story.key("Return")
+    incomplete = story.wait(command_ready, f"{mode} command in the Console prompt")
+    # The expression only runs if the final printable key reaches the Console.
+    story.key("End", "0")
+
+    def final_key_ready():
+        changes = ImageChops.difference(incomplete, story.picture(window).crop(prompt))
+        columns, _ = changes.getprojection()
+        return sum(columns) >= 3 * scale
+
+    story.wait(final_key_ready, f"{mode} complete expression in the Console prompt")
+    # Move the cursor to dismiss CodeMirror's pending completion before submitting.
+    story.key("Left", "Return")
     story.wait(lambda: story.requests(request) > prior, f"{mode} Inspector Console request")
     assert story.requests(page_input) == page_input_before, "Inspector keys reached the inspected page"
     story.move_pointer(window, 4, 4)
