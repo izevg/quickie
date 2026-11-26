@@ -218,17 +218,19 @@ jobs:
         run: |
           unset WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
           check_package() {
-            local binary=$1 package=$2
-            local -a groups=(--group inspector --group tabs --group hints --group origin
-              --group privacy --group library --group toasts --group media --group mcp)
+            local binary=$1 package=$2 group
+            local -a groups=(inspector tabs hints origin privacy library toasts media mcp)
             if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
-              groups+=(--group extensions)
+              groups+=(extensions)
             fi
             test "$("$binary" --version)" = "$QUICKIE_VERSION"
             bash tools/packaging/linux/tests/smoke "$binary"
-            dbus-run-session -- /usr/bin/python3 -B tools/packaging/linux/stories/driver.py \
-              "$binary" "$RUNNER_TEMP/quickie-gtk-stories/$package" \
-              --backend wayland "${groups[@]}"
+            # Give each story a fresh AT-SPI client and session bus.
+            for group in "${groups[@]}"; do
+              dbus-run-session -- /usr/bin/python3 -B tools/packaging/linux/stories/driver.py \
+                "$binary" "$RUNNER_TEMP/quickie-gtk-stories/$package/$group" \
+                --backend wayland --group "$group"
+            done
           }
           check_package /usr/bin/quickie deb
           appimage="$PWD/.build/gtk-packages/Quickie-${QUICKIE_VERSION}-x86_64.AppImage"
@@ -291,14 +293,14 @@ jobs:
               test "$(runuser -u quickie-test -- /usr/bin/quickie --version)" = "$QUICKIE_VERSION"
               runuser -u quickie-test -- bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc /usr/bin/true
               runuser -u quickie-test -- bash /tests/smoke /usr/bin/quickie
-              groups=(--group inspector --group tabs --group hints --group origin
-                --group privacy --group library --group toasts --group media --group mcp)
+              groups=(inspector tabs hints origin privacy library toasts media mcp)
               if [[ $QUICKIE_GTK_EXTENSION_STORY == 1 ]]; then
-                groups+=(--group extensions)
+                groups+=(extensions)
               fi
-              runuser -u quickie-test -- dbus-run-session -- /usr/bin/python3 -B /stories/driver.py \
-                /usr/bin/quickie /captures/rpm \
-                --backend wayland "${groups[@]}"
+              for group in "${groups[@]}"; do
+                runuser -u quickie-test -- dbus-run-session -- /usr/bin/python3 -B /stories/driver.py \
+                  /usr/bin/quickie "/captures/rpm/$group" --backend wayland --group "$group"
+              done
             '
       # actions/upload-artifact v7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
