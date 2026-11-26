@@ -34,10 +34,10 @@ MODIFIER_ALIASES = {
     "mod4": "logo",
 }
 MODIFIER_XKB_NAMES = {
-    "shift": (b"Shift", "Shift_L"),
-    "ctrl": (b"Control", "Control_L"),
-    "alt": (b"Mod1", "Alt_L"),
-    "logo": (b"Mod4", "Super_L"),
+    "shift": b"Shift",
+    "ctrl": b"Control",
+    "alt": b"Mod1",
+    "logo": b"Mod4",
 }
 REQUIRED_MODIFIERS = ("shift", "ctrl", "alt")
 
@@ -120,7 +120,6 @@ class XkbKeymap:
         keymap_bytes,
         bindings,
         modifier_masks,
-        modifier_codes,
         keysym_from_name,
         utf32_to_keysym=None,
     ):
@@ -129,7 +128,6 @@ class XkbKeymap:
         self.serialized = keymap_bytes
         self._bindings = bindings
         self._modifier_masks = modifier_masks
-        self._modifier_codes = modifier_codes
         self._keysym_from_name = keysym_from_name
         self._lookup_unicode = utf32_to_keysym
 
@@ -185,23 +183,18 @@ class XkbKeymap:
                     return int(lib.xkb_utf32_to_keysym(codepoint))
 
             modifier_masks = {}
-            modifier_codes = {}
-            for canonical, (xkb_name, keysym_name) in MODIFIER_XKB_NAMES.items():
+            for canonical, xkb_name in MODIFIER_XKB_NAMES.items():
                 mod_index = int(lib.xkb_keymap_mod_get_index(keymap, xkb_name))
-                sym = lookup_name(keysym_name)
-                binding = bindings.get(sym)
-                if mod_index == XKB_MOD_INVALID or binding is None:
+                if mod_index == XKB_MOD_INVALID:
                     if canonical in REQUIRED_MODIFIERS:
                         raise RuntimeError(f"US XKB keymap is missing required modifier {canonical!r}")
                     continue
                 modifier_masks[canonical] = 1 << mod_index
-                modifier_codes[canonical] = binding.evdev_code
 
             return cls(
                 keymap_bytes=keymap_bytes,
                 bindings=bindings,
                 modifier_masks=modifier_masks,
-                modifier_codes=modifier_codes,
                 keysym_from_name=lookup_name,
                 utf32_to_keysym=lookup_utf32,
             )
@@ -219,9 +212,9 @@ class XkbKeymap:
 
     def modifier(self, name):
         canonical = self.canonical_modifier(name)
-        if canonical not in self._modifier_masks or canonical not in self._modifier_codes:
+        if canonical not in self._modifier_masks:
             raise ValueError(f"Modifier {name!r} is not mapped in the US keymap")
-        return canonical, self._modifier_codes[canonical], self._modifier_masks[canonical]
+        return canonical, self._modifier_masks[canonical]
 
     def resolve(self, symbol):
         sym = self._keysym_from_name(symbol)
@@ -290,6 +283,7 @@ class VirtualKeyboard:
         )
 
     def _send_modifiers(self):
+        # The virtual-keyboard protocol carries modifier state separately from ordinary keys.
         self.connection.request(
             self.keyboard_id,
             2,  # zwp_virtual_keyboard_v1.modifiers
@@ -297,22 +291,20 @@ class VirtualKeyboard:
         )
 
     def _hold_modifier(self, name):
-        canonical, evdev_code, mask = self.keymap.modifier(name)
+        canonical, mask = self.keymap.modifier(name)
         count = self._held_counts.get(canonical, 0)
         self._held_counts[canonical] = count + 1
         if count == 0:
-            self._send_key(evdev_code, WL_KEYBOARD_KEY_STATE_PRESSED)
             self._mods_depressed |= mask
             self._send_modifiers()
 
     def _release_modifier(self, name):
-        canonical, evdev_code, mask = self.keymap.modifier(name)
+        canonical, mask = self.keymap.modifier(name)
         count = self._held_counts.get(canonical, 0)
         if count <= 0:
             return
         if count == 1:
             del self._held_counts[canonical]
-            self._send_key(evdev_code, WL_KEYBOARD_KEY_STATE_RELEASED)
             self._mods_depressed &= ~mask
             self._send_modifiers()
         else:
